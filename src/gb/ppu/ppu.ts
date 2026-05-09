@@ -101,6 +101,19 @@ export class PPU {
   private dots = 0;
 
   /**
+   * Mode-3 (drawing) length for the current scanline, recomputed at every
+   * mode 2 → mode 3 transition. Real hardware extends mode 3 by `(SCX & 7)`
+   * for fine X scroll, +6 dots when the window is enabled and active, and
+   * 6–11 dots per visible sprite (formula per Pan Docs *Rendering*). With
+   * a fixed 172 dots, our HBlank window was correspondingly longer than
+   * real hardware's, so games that stream BCPD per HBlank fit more writes
+   * per scanline than they would on hardware — the auto-increment counter
+   * runs ahead and the streamed palette content desyncs frame after frame.
+   * Visible as the photo-title corruption in Crawfish Interactive titles.
+   */
+  private mode3Length = DOTS_DRAW;
+
+  /**
    * Window internal line counter. Increments each scanline where the window
    * enable condition is met (LCDC bit 5 set AND WY ≤ LY), regardless of WX.
    * Resets to 0 at the start of each new frame.
@@ -432,13 +445,52 @@ export class PPU {
   private writeCgbPalette(ram: Uint8Array, lut: Uint32Array, v: number, isBg: boolean): void {
     const idxReg = isBg ? this.bgpi : this.obpi;
     const index = idxReg & 0x3f;
-    ram[index] = v;
-    this.refreshCgbPaletteEntry(lut, ram, index >> 1);
+    // Pan Docs Palettes: "Setting [auto-increment] will increment the
+    // Address field after writing to BCPD, even during Mode 3 despite the
+    // write itself failing." Real hardware blocks the data write during
+    // mode 3 (palette RAM is being read by the LCD) but still advances
+    // the index. Without this rule, when our mode-3 boundary is shorter
+    // than real hardware's, writes that real hw silently dropped instead
+    // land in palette RAM here — desyncing the streamed content for the
+    // rest of the frame.
+    if (this.mode !== Mode.Drawing) {
+      ram[index] = v;
+      this.refreshCgbPaletteEntry(lut, ram, index >> 1);
+    }
     if (idxReg & 0x80) {
       const next = 0x80 | ((index + 1) & 0x3f);
       if (isBg) this.bgpi = next;
       else this.obpi = next;
     }
+  }
+
+  /**
+   * Mode-3 length for the upcoming scanline. Base 172 dots, plus:
+   *  - `(SCX & 7)` fine-X scroll penalty
+   *  - +6 dots when the window is enabled and active for this line
+   *  - per visible sprite: `11 - min(5, (X + SCX) & 7)` (only when LCDC.1
+   *    enables sprites; disabled sprites contribute no penalty per Pan
+   *    Docs, which mirrors what real hardware does with the OBJ-fetch
+   *    pipeline gated off)
+   */
+  private computeMode3Length(): void {
+    let length = DOTS_DRAW + (this.scx & 7);
+    if ((this.lcdc & 0x20) !== 0 && this.wy <= this.ly) {
+      length += 6;
+    }
+    if ((this.lcdc & 0x02) !== 0) {
+      const spriteHeight = (this.lcdc & 0x04) !== 0 ? 16 : 8;
+      let count = 0;
+      for (let i = 0; i < 40 && count < 10; i++) {
+        const sprY = this.oam[i * 4]! - 16;
+        if (this.ly >= sprY && this.ly < sprY + spriteHeight) {
+          const x = this.oam[i * 4 + 1]!;
+          length += 11 - Math.min(5, (x + this.scx) & 7);
+          count++;
+        }
+      }
+    }
+    this.mode3Length = length;
   }
 
   private refreshCgbPaletteEntry(lut: Uint32Array, ram: Uint8Array, colorIdx: number): void {
@@ -481,11 +533,9 @@ export class PPU {
       case Mode.OAMSearch:
         if (this.dots >= DOTS_OAM) {
           this.dots -= DOTS_OAM;
+          this.computeMode3Length();
           if (this.cgbGame) {
             // Freeze the palette state the upcoming mode-3 render will see.
-            // Real CGB blocks BCPD/OCPD during mode 3; our impl applies them
-            // unconditionally, so without this snapshot mode-3 writes would
-            // leak into the same scanline they're meant to follow.
             this.cgbBgPalettesActive.set(this.cgbBgPalettes);
             this.cgbObPalettesActive.set(this.cgbObPalettes);
           }
@@ -494,17 +544,20 @@ export class PPU {
         break;
 
       case Mode.Drawing:
-        if (this.dots >= DOTS_DRAW) {
-          this.dots -= DOTS_DRAW;
+        if (this.dots >= this.mode3Length) {
+          this.dots -= this.mode3Length;
           this.renderLine();
           this.setMode(Mode.HBlank);
           this.onHBlank?.();
         }
         break;
 
-      case Mode.HBlank:
-        if (this.dots >= DOTS_HBLANK) {
-          this.dots -= DOTS_HBLANK;
+      case Mode.HBlank: {
+        // HBlank consumes whatever's left of the 376-dot mode 3 + mode 0
+        // budget after a variable-length mode 3 — total scanline still 456.
+        const hblankLen = DOTS_PER_LINE - DOTS_OAM - this.mode3Length;
+        if (this.dots >= hblankLen) {
+          this.dots -= hblankLen;
           this.ly++;
           this.checkLyc();
           if (this.ly === LINES_VISIBLE) {
@@ -516,6 +569,7 @@ export class PPU {
           }
         }
         break;
+      }
 
       case Mode.VBlank:
         if (this.dots >= DOTS_PER_LINE) {
@@ -901,6 +955,7 @@ export class PPU {
     w.u8(this.mode);
     w.i32(this.dots);
     w.u16(this.winLY);
+    w.u16(this.mode3Length);
     w.u8(this.bgpi);
     w.u8(this.obpi);
     w.u8(this.opri);
@@ -925,6 +980,7 @@ export class PPU {
     this.mode = r.u8() as Mode;
     this.dots = r.i32();
     this.winLY = r.u16();
+    this.mode3Length = r.u16();
     this.bgpi = r.u8();
     this.obpi = r.u8();
     this.opri = r.u8();
