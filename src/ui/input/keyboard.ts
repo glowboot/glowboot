@@ -104,9 +104,9 @@ window.addEventListener("keyup", (e) => {
   if (inTextInput(e)) return;
   if (inUiControl(e)) return;
   const action = BindingsUI.codeToHotkey[e.code];
-  // Speed/turbo is now a tap-to-cycle toggle, so there's no keyup half —
-  // releasing Tab leaves the emulator at whatever multiplier the last tap
-  // selected. Rewind is still hold-to-scrub.
+  // Speed/turbo is a tap-to-cycle toggle, so there's no keyup half —
+  // releasing the bound key leaves the emulator at whatever multiplier
+  // the last tap selected. Rewind is still hold-to-scrub.
   if (action === "rewind") {
     e.preventDefault();
     void endRewind();

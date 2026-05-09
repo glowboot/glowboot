@@ -3,15 +3,15 @@ import { createPopover } from "./helper.js";
 
 /**
  * "More" overflow menu — shown at narrow viewports where the secondary
- * action icons (Library, Save slots, Cheats, Printer) would otherwise
- * wrap onto a second row in the header. The menu items don't carry
- * their own logic; each one click()s the corresponding original
+ * action icons (Cheats, Debugger, Fullscreen, Printer, About) would
+ * otherwise wrap onto a second row in the header. The menu items don't
+ * carry their own logic; each one click()s the corresponding original
  * trigger button (`data-mirrors="<id>"`), so all the existing wiring —
  * popover mutex, ROM-loaded enable/disable state, focus management —
  * continues to work unchanged.
  *
  * Each menu item mirrors the disabled state of its target trigger on
- * every open: Cheats / Save slots are disabled until a ROM is loaded,
+ * every open: Cheats / Debugger are disabled until a ROM is loaded,
  * Printer is disabled until link-cable mode is set to "printer". A
  * disabled trigger bubbles through to a disabled menu item so the
  * user gets the same "you can't tap this right now" feedback inside

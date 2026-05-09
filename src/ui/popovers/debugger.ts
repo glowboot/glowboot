@@ -14,8 +14,10 @@ import { state } from "../state.js";
 
 /**
  * Debugger popover — tabbed inspector with a play/pause/step control
- * bar along the bottom. Panes are read-only for now (Phase 2); later
- * phases add memory editing, disassembly, breakpoints, call-stack.
+ * bar along the bottom. Panes cover CPU registers, the memory map
+ * (with editor + watchpoints), live disassembly with PC tracking and
+ * a breakpoint gutter, palette + tile viewers, audio scopes, the
+ * synthesised call stack, and an `.sym`-loaded symbols pane.
  *
  * Persistence: active-tab choice survives page reloads (sessionStorage)
  * so the user lands back where they were last looking.
@@ -192,7 +194,7 @@ function buildControls(): HTMLElement {
     stepInstruction();
     afterAction();
   });
-  const stepFrame = ctrlBtn("Frame", "Advance one full frame (F)", () => {
+  const stepFrame = ctrlBtn("Frame", "Advance one full frame", () => {
     frameAdvance();
     afterAction();
   });

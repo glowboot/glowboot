@@ -1,10 +1,10 @@
 /* ═════════ Design tokens ═════════
    Semantic custom properties consumed across base.css, popovers.css,
-   canvas.css and touch.css. Three groups: the glass recipe used by all
-   five popovers (previously duplicated five times), the accent / danger
-   colour scales, and the focus-ring values. Adding new surfaces? Reach
-   for a token first; only introduce a literal for genuinely one-off
-   values (e.g. the theme backgrounds in themes.css). */
+   canvas.css and touch.css. Three groups: the glass recipe used by
+   every popover surface, the accent / danger colour scales, and the
+   focus-ring values. Adding new surfaces? Reach for a token first;
+   only introduce a literal for genuinely one-off values (e.g. the
+   theme backgrounds in themes.css). */
 :root {
   /* ── Glass recipe ── shared by every popover surface. */
   --glass-bg: rgba(20, 20, 28, 0.92);
@@ -761,9 +761,9 @@ header.top {
     padding: 6px;
     border-radius: 10px;
   }
-  /* Footer is a keyboard legend — hidden by default at phone widths to
-     reclaim vertical space. Touch devices (see body.is-touch below)
-     keep it visible so the shell hotkeys stay reachable via tap. */
+  /* Footer is a keyboard legend — hidden at phone widths to reclaim
+     vertical space. Touch devices reach the same actions via the
+     `.touch-actions` icon toolbar that sits below the canvas. */
   .ctrl-strip {
     display: none;
   }

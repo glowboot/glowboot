@@ -1,18 +1,22 @@
 /**
  * Shared IndexedDB layer.
  *
- * One database, four object stores:
- *   - `roms`        — { id, title, filename, size, lastPlayedAt, romBytes }
- *                     populated by `recents.ts`.
- *   - `save-ram`    — { id, ramBytes, rtc? }
- *                     battery-backed RAM + optional MBC3 RTC sidecar JSON.
- *   - `save-states` — { id: "<cartId>:<slot>", cartId, slot, bytes,
- *                       savedAt, thumb? }
- *                     one record per (cart, slot) — `cartId` indexed for
- *                     fast slot enumeration per cart.
- *   - `cheats`      — { cartId, entries: CheatEntry[] }
- *                     one record per cart, holds the user's Game Genie /
- *                     Game Shark codes for that cart.
+ * One database, six object stores:
+ *   - `roms`            — { id, title, filename, size, lastPlayedAt, romBytes }
+ *                         populated by `recents.ts`.
+ *   - `save-ram`        — { id, ramBytes, rtc? }
+ *                         battery-backed RAM + optional MBC3 RTC sidecar JSON.
+ *   - `save-states`     — { id: "<cartId>:<slot>", cartId, slot, bytes,
+ *                           savedAt, thumb? }
+ *                         one record per (cart, slot) — `cartId` indexed for
+ *                         fast slot enumeration per cart.
+ *   - `cheats`          — { cartId, entries: CheatEntry[] }
+ *                         one record per cart, holds the user's Game Genie /
+ *                         Game Shark codes for that cart.
+ *   - `cart-overrides`  — per-cart pinned settings (palette, render mode,
+ *                         CGB colour correction, …) applied on cart load.
+ *   - `printouts`       — Game Boy Printer page archive, one record per
+ *                         printed page so the user can re-open them later.
  *
  * Only tiny user preferences (`gb-theme`, `gb-palette`, `gb-crt`,
  * `gb-volume`, `gb-mutes`) remain in localStorage — they need

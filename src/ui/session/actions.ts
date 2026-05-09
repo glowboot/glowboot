@@ -39,10 +39,10 @@ export async function togglePause(): Promise<void> {
   setPaused(!state.paused);
 }
 
-/** Cycle through the available emulation speeds in order. Tapped via Tab
- *  (the former hold-for-turbo key). Audio is only resumed at 1× because
- *  the sample scheduler is pinned to wall time — any other multiplier
- *  drops / duplicates samples and produces glitching. */
+/** Cycle through the available emulation speeds in order. Audio is only
+ *  resumed at 1× because the sample scheduler is pinned to wall time —
+ *  any other multiplier drops / duplicates samples and produces
+ *  glitching. */
 export const SPEED_STEPS: readonly number[] = [0.5, 1, 2, 4];
 
 /** Step through SPEED_STEPS. `direction` is +1 by default (a plain

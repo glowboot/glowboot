@@ -30,8 +30,8 @@ function pressHaptic(): void {
  * DOM — this module only wires pointer events and applies / removes
  * `.gb-touch--on` based on the user's mode preference.
  *
- * Three visibility modes: `auto` (shown when a coarse pointer or narrow
- * viewport is detected), `on` (always shown), `off` (never shown).
+ * Three visibility modes: `auto` (shown when a coarse pointer is the
+ * primary input), `on` (always shown), `off` (never shown).
  */
 
 export type TouchMode = "auto" | "on" | "off";

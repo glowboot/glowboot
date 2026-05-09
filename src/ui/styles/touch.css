@@ -311,10 +311,6 @@
   transform: translateY(1px) scale(0.97);
 }
 
-/* (Landscape phone flank layout removed — touch devices in landscape
-   are covered by the rotate-to-portrait overlay in base.css, so the
-   3-column flank rules served no purpose. Removed 2026-04-25.) */
-
 /* ═════════ Fullscreen layout ═════════
    The fullscreen button fullscreens `.console` (the wrapper around
    `.canvas-wrap` + `.gb-touch`) instead of the canvas alone, so the
@@ -382,7 +378,3 @@
   flex: 0 0 auto;
   width: 100%;
 }
-
-/* (Landscape-fullscreen flank layout removed — landscape on touch is
-   blocked by the rotate prompt in base.css, so this 3-column grid
-   was unreachable. Removed 2026-04-25.) */

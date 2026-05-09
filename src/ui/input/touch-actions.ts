@@ -6,16 +6,16 @@ import { endRewind, startRewind } from "../session/rewind.js";
 
 /**
  * Tap dispatcher for runtime actions on touch devices. The `.touch-
- * actions` toolbar below the canvas (icon + label tap targets, see
- * index.html) is the primary surface; the historical hookup that made
- * the keyboard `.ctrl-strip` tap-able is kept too for hybrid devices
- * where a user might still tap the legend out of habit.
+ * actions` toolbar below the canvas (icon-only round buttons, see
+ * index.html) is the primary surface; this module wires each button's
+ * `data-touch-action` attribute to its session-action handler.
  *
- * The rewind entry is intentionally skipped — rewind is a press-and-
- * hold behaviour in keyboard-land and doesn't translate to tap. The
- * digit-slot entries (Load / Save slot) are skipped because they need a
- * slot number that a single tap can't supply; the Slots popover already
- * covers those paths.
+ * Save / load slot aren't exposed here — they need a slot number that
+ * a single tap can't supply, and the Slots popover header icon already
+ * covers those paths. Rewind is the one button that wants press-and-
+ * hold (matches the keyboard Backspace bind), so it's wired with
+ * pointer events at the bottom of this module; everything else
+ * dispatches via a plain click.
  */
 
 function dispatch(action: string): void {

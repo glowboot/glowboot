@@ -42,7 +42,7 @@ function scheduleFrame(gb: GameBoy): void {
     lastTimeMs = now;
     // Scale the elapsed budget by the turbo multiplier so the pacer runs
     // N frames of emulation per wall-clock frame. speedMultiplier=1 is
-    // the normal pacing; higher values = faster emulator (Tab held).
+    // the normal pacing; higher values = faster emulator.
     accumMs += elapsed * gb.speedMultiplier;
     // Cap so a backgrounded tab doesn't cause a huge catch-up burst on
     // return. At 4× turbo that's still 16 frames of worst-case catch-up.

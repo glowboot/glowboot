@@ -1,9 +1,6 @@
 /**
- * Shared open/close behaviour for every popover trigger pair. Before
- * this helper each of the five popovers hand-rolled the same three-step
- * sequence (render → toggle class → sync aria-expanded), with subtle
- * drift — two modules forgot to check for a null trigger, one ran a
- * side-effect inside open() but not close(), etc.
+ * Shared open/close behaviour for every popover trigger pair: render
+ * → toggle the `.open` class → sync `aria-expanded` on the trigger.
  *
  * The focus-management layer in popovers/index.ts still owns Escape,
  * focus trap, and focus restoration — this helper only covers the

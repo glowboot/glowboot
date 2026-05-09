@@ -448,9 +448,9 @@ body.is-touch.popover-active .popover-close {
 
 /* Overflow menu — triggered by the ⋮ button next to Save on occupied
    slot cards. Holds the secondary actions (Rename / Export / Clear)
-   that used to live as a row of icons but didn't earn the visual
-   weight. The menu drops down from the trigger and right-aligns to
-   the slot card's edge. JS toggles `.is-open`. */
+   in a dropdown so the slot-card row stays visually quiet. The menu
+   drops down from the trigger and right-aligns to the slot card's
+   edge. JS toggles `.is-open`. */
 .slot-overflow {
   position: relative;
   display: inline-flex;
@@ -1948,8 +1948,8 @@ body.is-touch .cheat-delete {
 }
 
 /* ═════════ Debugger popover ═════════
-   Tabbed inspector — Phase 1+2 ships four read-only panes (CPU /
-   Memory / Palette / Tile), a bottom control bar with play / pause /
+   Tabbed inspector — CPU / Memory / Disasm / Palette / Tile / Audio /
+   Call-stack / Symbols panes, a bottom control bar with play / pause /
    step buttons, and a live status line. Same glass aesthetic as the
    other popovers but wider because the memory viewer and tile grids
    need horizontal room. */
@@ -2868,8 +2868,8 @@ body.is-touch .cheat-delete {
 }
 
 /* Debugger mobile layout — must come AFTER the `.debugger-pop` base
-   rule above; the unified modal rule near line 1747 handles the other
-   popovers but the debugger's `position: absolute` re-declaration
+   rule above; the unified modal rule earlier in this file handles the
+   other popovers but the debugger's `position: absolute` re-declaration
    would override any earlier `position: fixed` due to source-order
    cascade. Centering + width + modal animation for narrow viewports. */
 @media (max-width: 1100px) {

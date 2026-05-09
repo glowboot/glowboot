@@ -28,10 +28,10 @@ import { closeSlots, doLoadState, doSaveState, openSlots } from "./slots.js";
 /**
  * Popover barrel — re-exports every open/close function and wires the
  * cross-popover mutex on the triggers (clicking any popover trigger
- * closes the other four) plus the document-level outside-click close.
+ * closes the others) plus the document-level outside-click close.
  *
- * Keeping the mutex in one file avoids five-way circular imports
- * between the per-popover modules.
+ * Keeping the mutex in one file avoids N-way circular imports between
+ * the per-popover modules.
  */
 
 export {
@@ -56,7 +56,7 @@ export {
   closeMore
 };
 
-// ─── Trigger wiring (click mutex between the five popovers) ──────────────
+// ─── Trigger wiring (click mutex between popovers) ───────────────────────
 // Central list so each popover's trigger click closes all the others.
 // Mapping order doesn't matter; `wireTrigger` filters the clicked popover
 // out of the "others to close" list at runtime.
