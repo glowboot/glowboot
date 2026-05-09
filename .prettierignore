@@ -1,0 +1,5 @@
+dist
+dist-dev
+node_modules
+public
+package-lock.json

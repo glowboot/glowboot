@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-dev
+
+# Vite env files — never commit any of them so secrets can't sneak in
+# through the back door. The repo ships `.env.example` as the only
+# documented contract; real values live in the deployment environment
+# (Cloudflare Pages → Settings → Environment variables) and in each
+# developer's local `.env.local`.
+.env
+.env.*
+!.env.example

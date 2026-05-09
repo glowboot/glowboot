@@ -1,0 +1,373 @@
+/* ═════════ Touch controls (mobile overlay) ═════════
+   Positioned below .canvas-wrap inside .console. Hidden by default;
+   touch.ts adds .gb-touch--on when the effective mode resolves to
+   "shown" — either "On" explicitly or "Auto" + a coarse pointer /
+   narrow viewport. The overlay renders inside the fullscreen view
+   too, because the fullscreen button targets `.console` (the wrapper
+   around both canvas and touch overlay) rather than the canvas alone.
+   iOS Safari still can't fullscreen arbitrary elements — install the
+   app to the home screen (PWA) for the fullscreen experience there. */
+
+.gb-touch {
+  display: none;
+  width: 100%;
+  padding: 8px 0 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  /* User-tunable knobs — Settings → Controls → Touch layout. Defaults
+     here match `DEFAULT_TOUCH_LAYOUT` in touch-layout.ts so the CSS is
+     usable even before the JS module runs. 1.1 (instead of plain 1)
+     is the default because 68 px buttons at scale 1 read small mid-
+     game on a thumb; common touch-emulator overlays sit closer to
+     75 px effective. The Settings slider still covers 0.7–1.4 if a
+     user wants to override. */
+  --touch-scale: 1.1;
+  --touch-spacing: 20px;
+}
+.gb-touch > * {
+  touch-action: none;
+}
+.gb-touch--on {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: var(--touch-spacing);
+  row-gap: 14px;
+  align-items: center;
+}
+/* Left-handed mirror — flips just the on-screen control layout in the
+   top row (D-pad ↔ A/B). Start/Select stay centred so they read
+   equivalently both ways. */
+.gb-touch.is-mirrored .gb-dpad {
+  grid-column: 2;
+}
+.gb-touch.is-mirrored .gb-ab {
+  grid-column: 1;
+}
+
+/* Glass overlay: round disc d-pad with frosted-glass fill, soft
+   white outline, and a `backdrop-filter` blur that kicks in when the
+   controls overlap the canvas (fullscreen / landscape). Default
+   opacity ~0.7 so the controls fade into the background; `:active`
+   pulls them to full opacity for a "wakes up on touch" feel. The
+   tactile pressable variant was the deciding factor over the cleaner
+   outline-only sketches. */
+.gb-dpad {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: center;
+  position: relative;
+  width: calc(clamp(130px, 36vw, 170px) * var(--touch-scale));
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 6px 18px rgba(0, 0, 0, 0.35);
+  opacity: 0.7;
+  transition: opacity 140ms ease;
+}
+.gb-dpad:active,
+.gb-dpad.is-pressed-up,
+.gb-dpad.is-pressed-down,
+.gb-dpad.is-pressed-left,
+.gb-dpad.is-pressed-right {
+  opacity: 1;
+}
+.gb-dpad::before,
+.gb-dpad::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  pointer-events: none;
+}
+.gb-dpad::before {
+  width: 28%;
+  height: 80%;
+}
+.gb-dpad::after {
+  width: 80%;
+  height: 28%;
+}
+.gb-dpad-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  opacity: 0.72;
+  transition:
+    opacity 120ms ease,
+    border-color 120ms ease;
+}
+.gb-dpad-hint.gb-dpad-up {
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 9px solid rgba(255, 255, 255, 0.75);
+  transform: translate(-50%, calc(-50% - 30%));
+}
+.gb-dpad-hint.gb-dpad-down {
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 9px solid rgba(255, 255, 255, 0.75);
+  transform: translate(-50%, calc(-50% + 30%));
+}
+.gb-dpad-hint.gb-dpad-left {
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-right: 9px solid rgba(255, 255, 255, 0.75);
+  transform: translate(calc(-50% - 30%), -50%);
+}
+.gb-dpad-hint.gb-dpad-right {
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-left: 9px solid rgba(255, 255, 255, 0.75);
+  transform: translate(calc(-50% + 30%), -50%);
+}
+.gb-dpad.is-pressed-up .gb-dpad-up {
+  border-bottom-color: var(--accent);
+  opacity: 1;
+}
+.gb-dpad.is-pressed-down .gb-dpad-down {
+  border-top-color: var(--accent);
+  opacity: 1;
+}
+.gb-dpad.is-pressed-left .gb-dpad-left {
+  border-right-color: var(--accent);
+  opacity: 1;
+}
+.gb-dpad.is-pressed-right .gb-dpad-right {
+  border-left-color: var(--accent);
+  opacity: 1;
+}
+
+.gb-ab {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: calc(clamp(130px, 36vw, 170px) * var(--touch-scale));
+  /* Tight gap so the two buttons sit close enough that a single thumb
+     rolling between them naturally covers both at the seam — gap was
+     20 px, which left a no-man's-land where neither button registered.
+     Combined with the 14 px hit-inflation in `touch.ts`, this produces
+     an 18 px "both pressed" overlap zone at the boundary, mirroring
+     how real DMG buttons feel under a thumb. */
+  gap: 10px;
+}
+.gb-btn {
+  all: unset;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Suppress the focus rectangle the browser draws after a tap and the
+     iOS grey-flash overlay. The buttons carry `tabindex="-1"`, so they
+     can't be reached via keyboard — there's no a11y regression from
+     killing the visible focus state, and the D-pad (a `<div>`, not a
+     `<button>`) already escapes both effects naturally. */
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 80ms ease,
+    box-shadow 120ms ease,
+    background 120ms ease;
+}
+.gb-btn:focus {
+  outline: none;
+}
+/* A/B: same shape but translucent, soft border, low default opacity.
+   Subtle accent tint differentiates A (warm) from B (cool) without
+   committing to the heavy gradient look. A is sized larger than B
+   because it's the primary action in 90% of carts (jump in Mario,
+   attack in Zelda) — visual emphasis tracks use frequency. */
+.gb-btn-a,
+.gb-btn-b {
+  border-radius: 50%;
+  font-size: calc(18px * var(--touch-scale));
+  letter-spacing: 1px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 6px 18px rgba(0, 0, 0, 0.35);
+  opacity: 0.7;
+  transition:
+    opacity 140ms ease,
+    background 120ms ease,
+    transform 80ms ease;
+}
+/* DMG-style diagonal: A nudged up, B nudged down by 24 px each (48 px
+   total vertical separation). Steeper than the original 18 px shift
+   because that traced an arc too flat for a thumb pivoting at the
+   metacarpal — the steeper diagonal feels right for the run+jump
+   roll in Mario. The 14 px overlap of A's lower edge with B's upper
+   edge is along the seam where the thumb crosses from one to the
+   other; combined with the 22 px hit-inflation in touch.ts, that
+   produces the "both pressed" transition zone the simultaneous-press
+   logic needs. The translate composes with the press-scale transform
+   in `:active` so the button shrinks in place. */
+.gb-btn-a {
+  width: calc(76px * var(--touch-scale));
+  height: calc(76px * var(--touch-scale));
+  align-self: center;
+  transform: translateY(-24px);
+  background: rgba(227, 93, 138, 0.18);
+  color: #ffd1de;
+}
+.gb-btn-b {
+  width: calc(64px * var(--touch-scale));
+  height: calc(64px * var(--touch-scale));
+  align-self: center;
+  transform: translateY(24px);
+  background: rgba(80, 120, 223, 0.18);
+  color: #cfdbff;
+}
+.gb-btn-a.is-pressed,
+.gb-btn-a:active {
+  opacity: 1;
+  background: rgba(227, 93, 138, 0.4);
+  transform: translateY(-24px) scale(0.96);
+}
+.gb-btn-b.is-pressed,
+.gb-btn-b:active {
+  opacity: 1;
+  background: rgba(80, 120, 223, 0.4);
+  transform: translateY(24px) scale(0.96);
+}
+
+.gb-sys {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  justify-content: center;
+  gap: 28px;
+  /* Extra top padding pushes Start/Select clear of the d-pad and A/B
+     row above. Without it the system pills sit too close to the
+     gameplay controls and the eye groups them as one cluster. */
+  padding-top: 12px;
+}
+/* Start/Select: flat horizontal pills (slant dropped — kept on the
+   first DMG-faithful variant only). Same translucent + blurred fill
+   as the d-pad / A-B siblings. */
+.gb-btn-start,
+.gb-btn-select {
+  min-width: calc(96px * var(--touch-scale));
+  height: calc(36px * var(--touch-scale));
+  padding: 0 calc(20px * var(--touch-scale));
+  font-size: calc(11px * var(--touch-scale));
+  letter-spacing: 1.6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  opacity: 0.7;
+  transition:
+    opacity 140ms ease,
+    background 120ms ease,
+    transform 80ms ease;
+}
+.gb-btn-start.is-pressed,
+.gb-btn-start:active,
+.gb-btn-select.is-pressed,
+.gb-btn-select:active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(1px) scale(0.97);
+}
+
+/* (Landscape phone flank layout removed — touch devices in landscape
+   are covered by the rotate-to-portrait overlay in base.css, so the
+   3-column flank rules served no purpose. Removed 2026-04-25.) */
+
+/* ═════════ Fullscreen layout ═════════
+   The fullscreen button fullscreens `.console` (the wrapper around
+   `.canvas-wrap` + `.gb-touch`) instead of the canvas alone, so the
+   on-screen controls stay in the rendered layer. These rules re-dress
+   the wrapper for that frame: black backdrop, canvas stretched to
+   available height, chrome (glow / bezel / frame padding) stripped.
+
+   Canvas fills the viewport from the top, touch overlay at the bottom.
+   Landscape on touch is unreachable (the rotate-prompt overlay covers
+   the screen first), so there's no flank-layout branch to maintain. */
+.console:fullscreen {
+  background: #000;
+  max-width: none;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.console:fullscreen .canvas-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  /* aspect-ratio: 10 / 9 is inherited from the base .canvas-wrap rule;
+     height:100% + width:auto + aspect makes the canvas as large as the
+     container's min(height, width*9/10) allows. */
+}
+/* Kill the ambient glow halo in fullscreen — it bleeds onto the black
+   backdrop and adds no value against a black bezel. */
+.console:fullscreen .canvas-wrap::before {
+  display: none;
+}
+.console:fullscreen .canvas-frame {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.console:fullscreen #screen {
+  border: 0;
+  outline: 0;
+  border-radius: 0;
+  /* Self-enforced 10:9 instead of `width: 100%; height: 100%`: on
+     mobile the wrapper's own aspect-ratio loses to flex sizing in
+     fullscreen, so forcing the canvas to fill width AND height
+     stretched the picture. With max-* bounds + aspect-ratio the
+     canvas grows as large as the wrapper allows along whichever
+     axis hits the cap first, and the unconstrained axis follows
+     the 10:9 ratio. */
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 10 / 9;
+}
+.console:fullscreen .gb-touch--on {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+/* (Landscape-fullscreen flank layout removed — landscape on touch is
+   blocked by the rotate prompt in base.css, so this 3-column grid
+   was unreachable. Removed 2026-04-25.) */

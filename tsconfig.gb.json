@@ -1,0 +1,31 @@
+// No-DOM typecheck + standalone build config for the engine. Restricts
+// `src/gb/` to non-browser JS — any attempted use of `document`,
+// `window`, `fetch`, `localStorage`, etc. fails type-checking, so the
+// pure-engine contract (no DOM / network / storage deps) is enforced at
+// the type level instead of relying on convention.
+//
+// Used by:
+//   - `npm run typecheck` → `tsc -p tsconfig.gb.json --noEmit` (CLI flag
+//      overrides the config's emit setting; no-DOM guard runs).
+//   - `npm run build:gb` → emits .js + .d.ts under `dist/gb/`. The
+//      output is intentionally not bundled or published; it's an artefact
+//      of the DOM-free build that proves the contract still holds.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": [],
+    "outDir": "dist/gb",
+    "rootDir": "src/gb",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "noEmit": false
+  },
+  // `globals.d.ts` is intentionally included here (unlike the root
+  // tsconfig which excludes it to avoid colliding with lib.dom.d.ts).
+  // The engine build runs without DOM types, so the shim's minimal
+  // `console` / `crypto` declarations are exactly what we want.
+  "include": ["src/gb/**/*.ts"],
+  "exclude": ["src/gb/**/*.test.ts"]
+}

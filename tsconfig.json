@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "lib": ["ES2022", "DOM"],
+    "outDir": "dist",
+    "rootDir": "src",
+    "sourceMap": true
+  },
+  "include": ["src"],
+  "// exclude": "globals.d.ts is the engine's ambient-globals shim for the DOM-less tsconfig; the root config already has DOM so picking it up here would collide with lib.dom.d.ts.",
+  "exclude": ["src/gb/globals.d.ts"]
+}

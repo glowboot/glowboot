@@ -1,0 +1,53 @@
+{
+  "name": "glowboot",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "author": "the Glowboot authors",
+  "description": "TypeScript Game Boy / Game Boy Color emulator engine — host-agnostic, zero dependencies. Pair with your own renderer / audio / input layer.",
+  "keywords": [
+    "game-boy",
+    "gameboy",
+    "emulator",
+    "gb",
+    "gbc",
+    "dmg",
+    "cgb",
+    "typescript"
+  ],
+  "homepage": "https://glowboot.pages.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glowboot/glowboot.git"
+  },
+  "private": true,
+  "sideEffects": [
+    "./src/main.ts",
+    "./src/ui/**",
+    "**/*.css"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:gb": "tsc -p tsconfig.gb.json",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.gb.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "eslint": "^10.2.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-simple-import-sort": "^13.0.0",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.2",
+    "vite": "^8.0.8",
+    "vite-plugin-pwa": "^1.2.0",
+    "vitest": "^4.1.5"
+  }
+}

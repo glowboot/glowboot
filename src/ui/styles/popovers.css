@@ -1,0 +1,3094 @@
+/* ═════════ Popover backdrop & narrow-modal fallback ═════════ */
+
+/* Modal-mode layout tokens — shared by every popover that gets the
+   centred-modal fallback at narrow widths. Top-pin keeps Y consistent
+   regardless of popover height; bottom inset reserves room for the
+   home indicator on iOS. `dvh` follows mobile browser-chrome show/
+   hide so the popover doesn't get clipped when the URL bar appears. */
+:root {
+  --pop-modal-top: max(7vh, env(safe-area-inset-top, 0px));
+  --pop-modal-bottom: max(2vh, env(safe-area-inset-bottom, 0px));
+  --pop-modal-max-h: calc(100dvh - var(--pop-modal-top) - var(--pop-modal-bottom));
+}
+
+/* Backdrop — only active at narrow widths where each popover switches
+   from anchored-to-trigger to a centred modal. Hidden (opacity 0,
+   pointer-events none) on desktop so it never dims the wide-screen
+   popover experience. */
+.popover-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 49;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+/* Close (×) button — fixed top-right of viewport, only shown when a
+   popover is open AND the user is on touch or in modal-fallback mode.
+   On wide desktop the popover is anchored next to its trigger and has
+   the trigger itself as a close target, so the button would be visual
+   noise; on phones the popover takes most of the screen and tapping
+   the small backdrop strip isn't an obvious close affordance. */
+.popover-close {
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top, 8px));
+  right: max(8px, env(safe-area-inset-right, 8px));
+  z-index: 51;
+  width: 40px;
+  height: 40px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: rgba(20, 22, 32, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.95);
+  border-radius: 50%;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  transition: background 120ms ease;
+}
+.popover-close:hover,
+.popover-close:focus-visible {
+  background: rgba(40, 44, 56, 0.95);
+  outline: none;
+}
+@media (max-width: 1100px) {
+  body.popover-active .popover-close {
+    display: flex;
+  }
+}
+body.is-touch.popover-active .popover-close {
+  display: flex;
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ═════════ Keyboard shortcut cheat sheet ═════════
+   Full-screen modal triggered by `?`. Lazy-built + lazy-rendered by
+   `hud/shortcut-hint.ts`; this file only owns the visual styling. */
+.shortcut-hint {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 10, 18, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: modalIn 120ms ease-out;
+}
+.shortcut-hint[hidden] {
+  display: none;
+}
+.shortcut-hint-panel {
+  width: min(92vw, 640px);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 20px 24px;
+  background: rgba(20, 20, 28, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+}
+.shortcut-hint-panel h2 {
+  margin: 0 0 4px;
+  font-family: "VT323", monospace;
+  font-size: 24px;
+  letter-spacing: 2px;
+  color: #fff;
+}
+.shortcut-hint-panel section {
+  margin-top: 16px;
+}
+.shortcut-hint-panel h3 {
+  margin: 0 0 8px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.shortcut-hint-panel dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 16px;
+  align-items: center;
+}
+.shortcut-hint-panel dt {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.shortcut-hint-panel dd {
+  margin: 0;
+  padding: 2px 10px;
+  justify-self: end;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #fff;
+  white-space: nowrap;
+}
+.shortcut-hint-dismiss {
+  margin: 20px 0 0;
+  text-align: center;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 1px;
+}
+
+/* ═════════ Prompt / confirm modal ═════════
+   Themed replacement for the native prompt() / confirm() dialogs,
+   rendered by hud/modal.ts. Reuses the shortcut-hint backdrop recipe
+   plus the shared glass-panel tokens; the z-index sits above the
+   shortcut-hint overlay so a modal spawned from inside it (unlikely
+   but possible) would still appear on top. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 10, 18, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: modalIn 120ms ease-out;
+}
+.modal-overlay[hidden] {
+  display: none;
+}
+.modal-panel {
+  width: min(92vw, 420px);
+  padding: 20px 22px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 14px;
+  box-shadow: var(--glass-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.modal-title {
+  margin: 0;
+  font-family: "VT323", monospace;
+  font-size: 22px;
+  letter-spacing: 1px;
+  color: #fff;
+}
+.modal-body {
+  margin: 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+}
+.modal-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.modal-input {
+  all: unset;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+}
+.modal-input:focus {
+  border-color: var(--accent-strong);
+  background: rgba(0, 0, 0, 0.6);
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.modal-btn {
+  all: unset;
+  cursor: pointer;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--surface-subtle);
+  color: rgba(255, 255, 255, 0.9);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  transition: background 120ms ease;
+}
+.modal-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.modal-btn:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+.modal-btn-primary {
+  background: linear-gradient(180deg, var(--accent-hover-bg), var(--accent-soft));
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.modal-btn-primary:hover {
+  background: linear-gradient(180deg, var(--accent-strong), var(--accent-hover-bg));
+}
+.modal-btn-danger {
+  background: linear-gradient(180deg, var(--danger-bg-strong), var(--danger-bg));
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+.modal-btn-danger:hover {
+  background: linear-gradient(180deg, var(--danger-border-strong), var(--danger-bg-strong));
+  color: #fff;
+}
+
+/* ═════════ Save-slots popover ═════════
+   Grid of 10 cards, each showing a thumbnail of the game at save time
+   plus a relative timestamp. Hover exposes small Save / Clear buttons.
+   Same glass aesthetic as the other popovers. */
+.slots-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  width: 680px;
+  max-width: 92vw;
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 14px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  z-index: 50;
+}
+/* Shared open-state animation. Every popover with a `.X-pop` class
+   reveals via the same `popIn` keyframes; per-popover overrides for
+   touch / narrow-viewport layouts live in their respective media
+   query blocks below. */
+.slots-pop.open,
+.settings-pop.open,
+.cart-info-pop.open,
+.cheats-pop.open,
+.recents-pop.open,
+.debugger-pop.open,
+.printer-pop.open,
+.more-pop.open {
+  display: flex;
+  animation: popIn 140ms ease-out;
+}
+/* .slots-empty-msg collapsed into the shared `.pop-empty` rule near
+   the bottom of this file. */
+/* Slots popover toolbar — currently just holds the "Import state…"
+   button. Sits above the grid and has the same ghost-button aesthetic
+   as .bindings-reset so the import row reads consistently. */
+.slots-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+/* .slots-import — shared ghost-pill style lives in the consolidated
+   block near the bottom of this file. */
+.slots-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.slot-card {
+  all: unset;
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-subtle);
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+.slot-card:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+.slot-card.empty {
+  opacity: 0.5;
+  cursor: default;
+}
+.slot-card.empty:hover {
+  background: rgba(255, 255, 255, 0.06);
+  transform: none;
+}
+.slot-thumb {
+  width: 100%;
+  aspect-ratio: 10 / 9;
+  border-radius: 4px;
+  /* Thumbnail URL is written to the --thumb custom property by
+     slots.ts. Fallback `none` keeps the black canvas visible when no
+     thumbnail has been captured for this slot yet. */
+  background: var(--thumb, none) #000 center / cover no-repeat;
+  image-rendering: pixelated;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.35);
+  font-family: "VT323", monospace;
+  font-size: 22px;
+}
+.slot-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 0 2px;
+}
+.slot-meta .slot-num {
+  color: #fff;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A labelled slot uses a proportional font (labels read as English words
+   rather than "#3") and a touch of emphasis to distinguish from the
+   default "#N" placeholder. */
+.slot-meta .slot-num.labeled {
+  font-family: "VT323", monospace;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  color: var(--gold);
+}
+.slot-meta .slot-time {
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+.slot-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+.slot-card:hover .slot-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.slot-action {
+  all: unset;
+  cursor: pointer;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.slot-action:hover {
+  background: rgba(0, 0, 0, 0.85);
+  transform: scale(1.08);
+}
+.slot-action.clear:hover {
+  background: var(--danger-bg-strong);
+  border-color: var(--danger-border-strong);
+}
+
+/* Overflow menu — triggered by the ⋮ button next to Save on occupied
+   slot cards. Holds the secondary actions (Rename / Export / Clear)
+   that used to live as a row of icons but didn't earn the visual
+   weight. The menu drops down from the trigger and right-aligns to
+   the slot card's edge. JS toggles `.is-open`. */
+.slot-overflow {
+  position: relative;
+  display: inline-flex;
+}
+.slot-overflow-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 120px;
+  padding: 4px;
+  background: rgba(12, 14, 22, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  box-shadow: var(--glass-shadow);
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 10;
+}
+.slot-overflow.is-open .slot-overflow-menu {
+  display: flex;
+}
+.slot-overflow-item {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.85);
+  transition: background 120ms ease;
+  white-space: nowrap;
+}
+.slot-overflow-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.slot-overflow-item.danger:hover {
+  background: var(--danger-bg-strong);
+  color: #fff;
+}
+.slot-overflow-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+}
+.slot-overflow-item.danger .slot-overflow-icon {
+  color: var(--danger-text);
+}
+.slot-overflow-item.danger:hover .slot-overflow-icon {
+  color: #fff;
+}
+
+/* ═════════ Settings popover ═════════
+   Same glass look as the other popovers but laid out vertically with
+   sectioned controls. */
+.settings-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: none;
+  flex-direction: column;
+  gap: 14px;
+  width: 380px;
+  max-width: 92vw;
+  max-height: 86vh;
+  /* Scrolling lives on the inner `.settings-scroll` wrapper so the
+     SAVED pip (`position: absolute` child of the popover) stays
+     anchored to the popover chrome instead of scrolling out of view
+     with the section list. */
+  overflow: hidden;
+  padding: 14px 14px 16px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  z-index: 50;
+}
+/* Filter input at the top of the popover. Matches the shared search-
+   box vocabulary used across the shortcut-hint / cheats-search /
+   library-search popovers: rounded box, dark fill, accent-strong
+   border on focus. */
+.settings-search {
+  all: unset;
+  display: block;
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.settings-search:focus {
+  border-color: var(--accent-strong);
+  background: rgba(0, 0, 0, 0.6);
+}
+.settings-search::placeholder {
+  color: var(--text-muted);
+}
+/* Inner scroll container — owns `overflow-y: auto` instead of the
+   popover itself so the SAVED pip (`position: absolute` child of the
+   popover) doesn't translate with scroll. `flex: 1 1 auto` + the
+   `min-height: 0` escape hatch lets it fill the popover's bounded
+   height and clip overflow internally. */
+.settings-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* "Saved" flash pinned to the popover's top-right chrome. `position:
+   absolute` against the popover (not the scroll container) keeps it
+   visible regardless of how far down the user has scrolled. Fades via
+   opacity so the pip occupying the corner doesn't shift other content. */
+.settings-saved {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 2;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+.settings-saved.is-visible {
+  opacity: 1;
+}
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-section h4 {
+  margin: 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  transition: color 120ms ease;
+}
+.settings-section h4:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+/* Chevron — rotates 90° to point right when the section is collapsed.
+   Rendered as a pure CSS triangle so we don't need another SVG asset. */
+.settings-section h4::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  transition: transform 140ms ease;
+}
+.settings-section.collapsed h4::before {
+  transform: rotate(-90deg);
+}
+/* When collapsed, hide every direct child of the section except the h4
+   header. `!important` keeps the rule robust against future inline
+   style writes from section-specific JS (e.g. palette-note toggling
+   its own visibility with a hidden attribute) — without it a sibling
+   that sets display explicitly could override the collapsed state. */
+.settings-section.collapsed > *:not(h4) {
+  display: none !important;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.settings-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+/* Slider and select rows use a fixed label column so every control
+   starts at the same x-position regardless of label length. Without
+   this, "Volume" and "Pixel response" landed at different x-offsets
+   which read as visual noise (same thing for Rendering / Touch
+   controls / Rewind buffer / Rumble preset).
+
+   Slider rows keep a trailing `auto` column for the live value
+   readout; select rows use 2 columns so the dropdown spans all the
+   way to the right edge, matching checkbox / button rows that sit
+   flush right via flex space-between. Checkbox / button / mute-
+   toggle rows stay flex so compact controls keep right-aligning. */
+.settings-row:has(input[type="range"]) {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.settings-row:has(select),
+.settings-row:has(input[type="text"]),
+.settings-row:has(input[type="url"]),
+.settings-row:has(.settings-io-buttons) {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.settings-row:has(select) select,
+.settings-row:has(input[type="text"]) input[type="text"],
+.settings-row:has(input[type="url"]) input[type="url"] {
+  width: 100%;
+}
+/* Numeric readout to the right of every range slider. Auto-injected
+   by panels.ts so each slider gets a live-updating value label
+   without per-row HTML. Fixed min-width keeps the slider from jumping
+   as digit count changes (e.g. "5%" → "50%"). */
+.settings-row .settings-slider-value {
+  min-width: 36px;
+  text-align: right;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+.settings-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+}
+/* Generic "dimmed, non-interactive" state — used for settings rows
+   that are gated behind a parent toggle (audio-rumble sub-options) and
+   for the palette grid on CGB carts (where the cart's own palette
+   wins and the DMG-only picker doesn't apply). */
+.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.settings-row.link-cable-sub {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.65);
+}
+/* Link-cable row groups the status pill and the toggle on the right
+   so `space-between` on the parent keeps the whole cluster pinned
+   to the edge instead of distributing with the label. */
+.link-cable-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Gamepad connection pill — sits as the first row inside the Gamepad
+   section, mirrors the .link-status pattern. The collapsed-state
+   selector already hides every non-h4 child so the pill disappears
+   when the section is folded. Amber ("Press any button") while no
+   pad has woken up, accent green ("Connected" / "<n> pads") once one
+   does. Hover-title surfaces the full pad id. */
+.gamepad-status-row {
+  display: flex;
+}
+.gamepad-status {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  color: var(--accent-warn);
+  white-space: nowrap;
+  transition: color 160ms ease;
+}
+.gamepad-status[data-status="connected"] {
+  color: var(--accent);
+}
+/* Connection-state pill next to the Link-cable toggle. Colour-coded by
+   data-status: accent green for "connected" (2-player paired with peer
+   or virtual printer plugged in), amber for "idle" (waiting for peer),
+   red for "error" (bad relay URL), muted grey for "off". */
+.link-status {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  color: var(--text-muted);
+  opacity: 0.75;
+  transition:
+    color 160ms ease,
+    opacity 160ms ease;
+  white-space: nowrap;
+}
+.link-status[data-status="idle"] {
+  color: var(--accent-warn);
+  opacity: 1;
+}
+.link-status[data-status="connected"] {
+  color: var(--accent);
+  opacity: 1;
+}
+.link-status[data-status="error"] {
+  color: var(--danger-text);
+  opacity: 1;
+}
+.settings-row input[type="text"],
+.settings-row input[type="url"] {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  padding: 3px 6px;
+  min-width: 0;
+  /* Width is driven by the 2-column grid rule below — the input
+     fills its 1fr track so text inputs share the right-edge
+     alignment with selects and checkboxes. */
+}
+.settings-row select {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+/* ─── Palette picker (DMG only) ───
+   Small muted hint shown beneath the Palette select when a CGB cart
+   is loaded (the cart ships its own palette; the picker disables). */
+.palette-note {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 2px 0 0;
+  text-align: right;
+}
+
+/* ─── Bindings editor (Settings → Controls) ───
+   Two stacked panes (Keyboard / Gamepad) each rendered as a 2-col grid
+   (button name / chip). Clicking a chip enters capture mode; the chip
+   swaps to a "press a key…" hint and the global #bindings-hint flag in
+   the section heading lights up so the user knows the UI is listening. */
+.settings-hint {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: var(--accent-warn);
+  text-transform: none;
+  letter-spacing: 0.3px;
+  margin-left: 8px;
+}
+.bindings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bindings-group + .bindings-group {
+  margin-top: 8px;
+}
+/* Sub-headers share the 140px label column + 1fr content column
+   layout of the rows they head. That way the Reset button (when
+   present) spans the same width as the binding chips / selects /
+   sliders below it, reinforcing the column structure. For label-only
+   sub-headers (Rumble, Palette) the second column just sits empty —
+   cost-free since the sub-header text fits inside 140px. */
+.bindings-sub {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.45);
+}
+/* Reset buttons — small round icon button pinned to the right of the
+   sub-header's content column. Chip/select widths below stay driven
+   by the 1fr grid cell; Reset doesn't stretch because a large "Reset
+   to default" button overstates a seldom-used action. The SVG inside
+   is the counterclockwise-arrow "undo / restore" glyph. The
+   `.section-reset` variant lives next to the section's `<h4>` and
+   resets every control in the section. */
+.bindings-sub .bindings-reset,
+.settings-section h4 .section-reset {
+  justify-self: end;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.settings-section h4 .section-reset {
+  /* h4 is `display: flex` for the chevron + label layout; pushing the
+     reset to the far right reads as a header-level affordance rather
+     than text noise. The collapse handler is on the h4 itself, so the
+     button's own click handler must `e.stopPropagation()` — handled
+     in panels.ts / bindings.ts, not here. */
+  margin-left: auto;
+}
+/* Binding rows adopt the same 140px-label + flush-right layout as
+   every other settings row, so labels line up with Volume / Theme /
+   Rendering etc. Single column (was 1fr 1fr) — the Controls section
+   is collapsed by default, so the extra vertical cost of unpacked
+   rows is only paid when the user explicitly opens it. */
+.bindings-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.binding-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.binding-row .lbl {
+  color: rgba(255, 255, 255, 0.65);
+}
+.binding-chip {
+  all: unset;
+  cursor: pointer;
+  /* Width matches one Import button in the Backup row: the 1fr col
+     split in half minus the 6px gap the backup uses between its
+     Export / Import pair. Pins to the right of its 1fr cell so the
+     right edge still aligns with selects / text inputs above. */
+  width: calc(50% - 3px);
+  justify-self: end;
+  box-sizing: border-box;
+  padding: 3px 8px;
+  text-align: center;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+.binding-chip:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.binding-chip.listening {
+  background: var(--accent-warn-soft);
+  border-color: var(--accent-warn-border);
+  color: var(--accent-warn);
+}
+/* .bindings-reset — shared ghost-pill style lives in the consolidated
+   block near the bottom of this file. */
+
+/* Ghost-button pair used for the Settings → Backup row (Export / Import).
+   Two-column grid so each button takes half the parent row's content
+   column — the combined width matches the full-1fr controls in other
+   rows (selects, text inputs) so Backup stays aligned with the rest
+   of the popover. `.settings-io-btn` itself picks up the ghost-pill
+   style from the shared rule near the bottom of this file. */
+.settings-io-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.settings-io-btn {
+  text-align: center;
+}
+
+/* ─── Channel mutes ─── */
+.mute-toggles {
+  display: flex;
+  gap: 4px;
+}
+.mute-btn {
+  all: unset;
+  cursor: pointer;
+  min-width: 28px;
+  padding: 4px 8px;
+  text-align: center;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  font-weight: 600;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+.mute-btn.muted {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+  text-decoration: line-through;
+}
+
+/* ═════════ Cartridge-info popover ═════════
+   Read-only header view. */
+.cart-info-pop {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  width: 320px;
+  max-width: 92vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 14px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  z-index: 50;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.cart-info-pop .cart-info-title {
+  font-family: "VT323", monospace;
+  font-size: 22px;
+  color: #fff;
+  letter-spacing: 1px;
+  padding: 2px 0 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cart-info-pop .cart-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.65);
+}
+.cart-info-pop .cart-info-row b {
+  color: #fff;
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* .cart-info-empty collapsed into the shared `.pop-empty` rule near
+   the bottom of this file. */
+.cart-info-pop .cart-info-heading {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* Match the 22px round icon-button sizing from .bindings-sub so the
+   override-reset glyph visually aligns with the other reset buttons
+   elsewhere in the popover stack. Disabled state dims the icon to
+   signal "nothing to clear". */
+.cart-info-pop .cart-info-heading .bindings-reset {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cart-info-pop .cart-info-heading .bindings-reset:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* Per-cart override rows mirror the settings-popover input vocabulary:
+   select for list-of-choices (render mode, palette), checkbox for
+   booleans (colour correction, integer scaling), slider for ranges
+   (pixel response). Two-column grid (label / control); controls flush
+   to the row's right edge to match the ROM-info metadata value
+   column above. Right-clicking the control clears the override. */
+.cart-info-pop .cart-info-override {
+  display: grid;
+  grid-template-columns: 1fr 140px;
+  align-items: center;
+  gap: 12px;
+}
+.cart-info-pop .cart-info-override select,
+.cart-info-pop .cart-info-override input[type="range"] {
+  width: 100%;
+  box-sizing: border-box;
+}
+.cart-info-pop .cart-info-override select {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.cart-info-pop .cart-info-override select option {
+  background: #1a0b3d;
+}
+.cart-info-pop .cart-info-override input[type="range"] {
+  accent-color: var(--accent);
+}
+/* Checkbox is naturally small — right-align inside the 140px column
+   so its right edge lines up with the select/slider edges above/
+   below instead of floating in the middle of the cell. */
+.cart-info-pop .cart-info-override input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  justify-self: end;
+}
+
+/* ═════════ Cheats popover ═════════
+   Per-cart Game Genie / Game Shark codes. Same glass look as the other
+   popovers; scrollable list + add form at bottom. */
+.cheats-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  width: 500px;
+  max-width: 92vw;
+  max-height: 86vh;
+  /* Let the whole popover scroll when content exceeds the viewport —
+     the cheats list, add form, import row, online search, and memory
+     scanner together stack taller than 86vh on smaller screens. The
+     cheats list itself caps its own visible portion below so a huge
+     cheat collection doesn't push the Add form off-screen. */
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  z-index: 50;
+}
+/* .cheats-empty collapsed into the shared `.pop-empty` rule near
+   the bottom of this file. */
+/* Bulk enable/disable-all toggle at the top of the cheats list —
+   reuses the ghost-pill treatment but self-aligns to the right so
+   it reads as a list-level action rather than another row. */
+.cheats-bulk-toggle {
+  all: unset;
+  cursor: pointer;
+  align-self: flex-end;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--surface-subtle);
+  color: rgba(255, 255, 255, 0.85);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  transition: background 120ms ease;
+}
+.cheats-bulk-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.cheats-bulk-toggle:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+.cheats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* Cap the list's own height so a huge cheat collection doesn't push
+     the Add form and scanner off-screen; the list scrolls internally,
+     everything below (Add form → scanner) then remains reachable via
+     the popover's outer scroll. */
+  max-height: 280px;
+  overflow-y: auto;
+}
+.cheat-row {
+  display: grid;
+  grid-template-columns: 20px 1fr 24px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.cheat-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+.cheat-info {
+  min-width: 0;
+}
+.cheat-name {
+  font-family: "VT323", monospace;
+  font-size: 17px;
+  letter-spacing: 0.5px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cheat-code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.4px;
+}
+.cheat-code .cheat-format {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.6px;
+}
+.cheat-code .cheat-format.gs {
+  background: rgba(255, 180, 100, 0.18);
+  color: #ffce8c;
+}
+.cheat-delete {
+  all: unset;
+  cursor: pointer;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  line-height: 1;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+.cheat-delete:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+.cheats-add {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.cheats-add input {
+  all: unset;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.cheats-add input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+.cheats-add input:focus {
+  border-color: var(--accent-strong);
+  background: rgba(0, 0, 0, 0.6);
+}
+.cheats-add input.is-invalid,
+.cheats-add input.is-invalid:focus {
+  border-color: var(--danger-border);
+  background: rgba(40, 0, 6, 0.6);
+}
+/* On touch, drop the auto-width Add button onto its own row spanning
+   both input columns. Keeps the Name / Code inputs full-width and
+   readable without squeezing everything into a three-column grid that
+   doesn't fit on a phone. */
+body.is-touch .cheats-add {
+  grid-template-columns: 1fr 1fr;
+}
+body.is-touch .cheats-add button[type="submit"] {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  text-align: center;
+}
+.cheats-add button {
+  all: unset;
+  cursor: pointer;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, var(--accent-hover-bg), rgba(158, 240, 208, 0.08));
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  transition: background 120ms ease;
+}
+.cheats-add button:hover {
+  background: linear-gradient(180deg, rgba(158, 240, 208, 0.32), var(--accent-soft));
+}
+
+/* Bulk-import row in the cheats popover: button to pick a libretro .cht
+   file plus a hint link pointing at the source database. */
+.cheats-import-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+}
+/* .cheats-import — shared ghost-pill style lives in the consolidated
+   block near the bottom of this file. Larger size variant (6px 12px /
+   11px font) applied there too. */
+.cheats-hint {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--accent-dim);
+  text-decoration: none;
+}
+.cheats-hint:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* Online-search sub-panel: input + status line + scrollable list of
+   ranked matches. Same glass aesthetic as the enclosing popover. */
+.cheats-search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+.cheats-search[hidden] {
+  display: none;
+}
+.cheats-search-input {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+}
+.cheats-search-input:focus {
+  border-color: var(--accent-strong);
+  background: rgba(0, 0, 0, 0.6);
+  outline: none;
+}
+.cheats-search-status {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.cheats-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.cheats-search-result {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.9);
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+.cheats-search-result:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.cheats-search-result .r-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cheats-search-result .r-plat {
+  flex: 0 0 auto;
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.5px;
+}
+.cheats-search-result:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ═════════ Cheats — memory scanner ═════════
+   Game Shark-style address hunter. Sits at the bottom of the cheats
+   popover; renders a start form when idle and a filter bar + results
+   list when a scan is active. Same monospace aesthetic as the rest of
+   the cheats UI so the two feel like one tool. */
+.cheats-scanner {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cheats-scanner-heading {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.cheats-scanner-row,
+.cheats-scanner-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.cheats-scanner-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.cheats-scanner-value {
+  width: 72px;
+  padding: 3px 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+}
+.cheats-scanner-btn,
+.cheats-scanner-reset {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.9);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.cheats-scanner-btn:hover,
+.cheats-scanner-reset:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.cheats-scanner-btn-alt {
+  color: rgba(255, 255, 255, 0.7);
+  font-style: italic;
+}
+.cheats-scanner-reset {
+  align-self: flex-start;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+}
+.cheats-scanner-status {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--accent);
+}
+.cheats-scanner-hint,
+.cheats-scanner-empty {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.cheats-scanner-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.cheats-scanner-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--surface-subtle);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.cheats-scanner-addr {
+  color: #fff;
+  font-weight: 600;
+}
+.cheats-scanner-val {
+  color: rgba(255, 255, 255, 0.65);
+}
+.cheats-scanner-target {
+  width: 54px;
+  padding: 2px 4px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  text-align: right;
+  /* Hide the native number-input spinners — they add visual clutter
+     in a tight three-column row and the 0-255 range is easy to type. */
+  -moz-appearance: textfield;
+}
+.cheats-scanner-target::-webkit-inner-spin-button,
+.cheats-scanner-target::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.cheats-scanner-add,
+.cheats-scanner-set {
+  all: unset;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+}
+/* Freeze — persistent cheat (green, matches the cheats-list accent). */
+.cheats-scanner-add {
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.cheats-scanner-add:hover {
+  background: var(--accent-hover-bg);
+}
+/* Set — one-shot poke (neutral so it reads as "less committed" than
+   freeze and isn't the primary action of the row). */
+.cheats-scanner-set {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.85);
+}
+.cheats-scanner-set:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* ═════════ Library (recents) popover ═════════
+   Grid of cards with thumbnails. Scrolls vertically; cap on visible
+   height keeps the popover sane on small viewports. */
+.recents-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  width: 680px;
+  max-width: 92vw;
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 14px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  z-index: 50;
+}
+/* Library stats dashboard — three-tile summary strip above the toolbar.
+   Non-sticky; scrolls away once the user moves down into the cards. */
+.library-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.library-stat {
+  padding: 8px 10px;
+  background: var(--surface-subtle);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  min-width: 0;
+}
+.library-stat-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 2px;
+}
+.library-stat-value {
+  font-family: "VT323", monospace;
+  font-size: 18px;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+}
+@media (max-width: 560px) {
+  .library-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+  .library-stats .library-stat:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Library toolbar — search input + sort dropdown, sits above the grid
+   and stays put while the grid re-renders on input / sort changes. */
+.library-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  /* Pin the toolbar to the top of the popover's scroll viewport so the
+     search + sort controls stay reachable even after scrolling down
+     through a long list. The -12px top matches the popover's padding
+     so the toolbar background covers the card row as it passes behind. */
+  position: sticky;
+  top: -12px;
+  padding: 12px 0 8px;
+  margin-top: -12px;
+  background: var(--glass-bg);
+  z-index: 1;
+}
+.library-search {
+  all: unset;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.library-search::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+.library-search:focus {
+  border-color: var(--accent-strong);
+  background: rgba(0, 0, 0, 0.6);
+}
+.library-sort {
+  flex-shrink: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+
+/* Library and .slots-grid both use 4 columns on desktop and step down
+   to 3 on phones (≤560 px). Slot count is 12 (4×3 desktop, 3×4 phone)
+   so the grid fills cleanly at both sizes. The mobile override has to
+   live AFTER this base rule because both selectors share the same
+   specificity, so source order decides which wins. */
+.library-grid {
+  display: grid;
+  /* minmax(0, 1fr) — without the explicit 0 minimum, a card whose title
+     has a long patch badge forces its track wider than the others and
+     throws off the thumbnail sizes. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 560px) {
+  .library-grid,
+  .slots-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.library-card {
+  all: unset;
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-subtle);
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+.library-card:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+.library-thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 10 / 9;
+  border-radius: 4px;
+  /* Thumbnail URL is written to the --thumb custom property by
+     library.ts. Fallback keeps the black canvas visible when no
+     thumbnail has been captured for this cart yet. */
+  background: var(--thumb, none) #000 center / cover no-repeat;
+  image-rendering: pixelated;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.3);
+  font-family: "VT323", monospace;
+  font-size: 22px;
+}
+.library-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 2px 1px;
+  overflow: hidden;
+}
+.library-title {
+  font-family: "VT323", monospace;
+  font-size: 14px;
+  letter-spacing: 0.6px;
+  color: #fff;
+  line-height: 1.05;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.library-patch {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  padding: 1px 5px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 12px;
+  color: var(--gold);
+  background: rgba(30, 20, 0, 0.75);
+  border: 1px solid var(--gold-border);
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.library-time {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.library-action {
+  all: unset;
+  cursor: pointer;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease;
+}
+.library-card:hover .library-action {
+  opacity: 1;
+}
+.library-action.clear:hover {
+  background: var(--danger-bg-strong);
+  border-color: var(--danger-border-strong);
+}
+/* .library-empty collapsed into the shared `.pop-empty` rule near
+   the bottom of this file. */
+
+/* ═════════ Empty-state pill ═════════
+   Shared "no ROM / no matches / no data" message used by slots,
+   cart-info, cheats, and library popovers. Before consolidation each
+   popover carried its own near-identical rule with slightly different
+   padding / font. Scanner-specific empty state stays separate — it's
+   italic 10 px and pairs with .cheats-scanner-hint. */
+.pop-empty {
+  padding: 14px 6px;
+  text-align: center;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+/* When the empty state lands inside a multi-column grid (library /
+   slots), span every column so the text isn't squeezed into a
+   single 1fr cell and forced to wrap awkwardly. */
+.library-grid > .pop-empty,
+.slots-grid > .pop-empty {
+  grid-column: 1 / -1;
+}
+
+/* ═════════ Ghost-button pill ═════════
+   Shared by four near-identical buttons across Settings → Controls /
+   Backup, Slots → Import, and Cheats → Import. Before consolidation
+   each class carried its own copy of the same padding / border /
+   background rule. Tone: secondary / neutral action, low visual
+   weight. `.cheats-import` bumps size for the file-picker affordance;
+   `.bindings-reset` self-aligns left inside its group. */
+.slots-import,
+.bindings-reset,
+.settings-io-btn,
+.cheats-import {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--surface-subtle);
+  color: rgba(255, 255, 255, 0.85);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+.slots-import:hover,
+.bindings-reset:hover,
+.settings-io-btn:hover,
+.cheats-import:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.cheats-import {
+  padding: 6px 12px;
+  font-size: 11px;
+}
+
+/* ═════════ Narrow-viewport modal fallback ═════════
+   Placed AFTER every popover's base rule so the cascade lets these
+   overrides win; moving it earlier causes later
+   `.slots-pop { position: absolute; … }` declarations to clobber
+   `position: fixed` silently.
+
+   1100 px threshold: the Library / Save-slots popovers are 680 px wide
+   and their triggers sit ~200 px in from the viewport's right edge
+   (several icons follow them), so the anchored layout needs ≥ ~900 px
+   of clearance to stay fully on-screen. */
+@media (max-width: 1100px) {
+  body:has(
+      .recents-pop.open,
+      .slots-pop.open,
+      .cheats-pop.open,
+      .settings-pop.open,
+      .cart-info-pop.open,
+      .printer-pop.open
+    )
+    .popover-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .recents-pop,
+  .slots-pop,
+  .cheats-pop,
+  .settings-pop,
+  .cart-info-pop,
+  .printer-pop {
+    position: fixed;
+    /* Top-pin so a short popover sits at the same Y as a tall one;
+       horizontal centring via `margin: 0 auto` against `left/right: 0`
+       from the inset shorthand. Max height fills the remaining space
+       between the top pin and the bottom safe-area inset. */
+    inset: var(--pop-modal-top) 0 auto 0;
+    margin: 0 auto;
+    height: max-content;
+    max-height: var(--pop-modal-max-h);
+    width: min(94vw, 480px);
+    max-width: none;
+    overflow-y: auto;
+  }
+  /* Cheats and settings popovers keep their inner-scroll model in modal
+     mode too — Cheats has Add form / Import row below the list, settings
+     has the SAVED pip pinned to the popover chrome. Without these
+     overrides the generic rule above would put the scrollbar on the
+     popover itself, hiding the Add row on phones (cheats) and scrolling
+     the SAVED pip out of view (settings). */
+  .cheats-pop,
+  .settings-pop {
+    overflow: hidden;
+  }
+  .recents-pop.open,
+  .slots-pop.open,
+  .cheats-pop.open,
+  .settings-pop.open,
+  .cart-info-pop.open,
+  .printer-pop.open {
+    animation: modalIn 160ms ease-out;
+  }
+}
+
+/* ═════════ Touch adjustments ═════════
+   On pointer:coarse devices there's no hover, so the slot / library /
+   cheat action buttons stay invisible and unreachable. Always show them
+   when body.is-touch is set, and bump every action to a ~28 px tap
+   target so fingers can actually hit them (desktop keeps the compact
+   20 / 22 px size for visual quietness — you can see the delete row
+   fine on desktop because the × appears on hover). */
+/* On touch devices, action buttons are always visible (no hover) and
+   bumped to a 28 px tap target. Save + ⋮ sit in a single row at
+   top-right; the overflow menu drops below the ⋮ trigger. */
+body.is-touch .slot-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+body.is-touch .library-action {
+  opacity: 1;
+}
+body.is-touch .printer-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+body.is-touch .slot-action,
+body.is-touch .library-action,
+body.is-touch .printer-action {
+  width: 28px;
+  height: 28px;
+}
+body.is-touch .cheat-delete {
+  width: 28px;
+  height: 28px;
+}
+
+/* ═════════ Debugger popover ═════════
+   Tabbed inspector — Phase 1+2 ships four read-only panes (CPU /
+   Memory / Palette / Tile), a bottom control bar with play / pause /
+   step buttons, and a live status line. Same glass aesthetic as the
+   other popovers but wider because the memory viewer and tile grids
+   need horizontal room. */
+.debugger-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  width: 880px;
+  max-width: 92vw;
+  /* Fixed height (not min/max) so the popover never resizes when the
+     user switches tabs. Each pane's inner scroller flex-fills the
+     remaining space; short panes leave empty room below, tall panes
+     scroll inside. `min(…, 86vh)` keeps the popover on-screen at
+     short viewports (laptops, phones) where 640 px would overflow. */
+  height: min(640px, 86vh);
+  overflow: hidden;
+  padding: 12px;
+  background: rgba(20, 20, 28, 0.94);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  z-index: 50;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.debugger-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Horizontal tab strip above the pane host on every viewport. The
+   strip is scrollable so all nine tabs still fit at phone-ish widths
+   without wrapping onto a second row. */
+.debugger-tabs {
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+  min-width: 0;
+  flex-shrink: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.debugger-tabs .debugger-tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.debugger-tab {
+  all: unset;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid transparent;
+}
+.debugger-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+.debugger-tab.active {
+  background: rgba(158, 240, 208, 0.12);
+  border-color: rgba(158, 240, 208, 0.35);
+  color: #9ef0d0;
+}
+
+.debugger-pane-host {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.debugger-pane-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* Column flex so children with `flex: 1 1 auto` actually fill the
+     available height — panes with internal scrollers (disasm, memory,
+     symbols) rely on this to stop the outer container from scrolling
+     instead of the inner list. */
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.debugger-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* Panes that own an internal scroller fill the container's height so
+   their scrolling element (disasm-list, memory-scroller, sym-list)
+   can flex-fill and handle scroll events directly instead of the
+   outer pane-container absorbing them. */
+.debugger-pane-disasm,
+.debugger-pane-memory,
+.debugger-pane-sym {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ── CPU pane ──
+   Fill the full pane height on desktop so the three cards (Registers /
+   Flags / State) share a matching frame instead of each hugging its
+   own content. `align-items: stretch` makes the shorter cards (Flags
+   has only 4 rows) grow to match the tallest; `flex: 1 1 auto` on the
+   pane itself makes the row-flex container take the pane-container's
+   available height. At narrow viewports the cards wrap onto a second
+   line; each row within a wrap-line still stretches together, so the
+   effect degrades gracefully. */
+.debugger-pane-cpu {
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+.cpu-card {
+  flex: 1 1 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.cpu-card-heading {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 4px;
+}
+.cpu-row {
+  display: flex;
+  justify-content: space-between;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.cpu-lbl {
+  color: rgba(255, 255, 255, 0.55);
+}
+.cpu-val {
+  color: #fff;
+  font-weight: 600;
+}
+.cpu-flag {
+  width: 18px;
+  text-align: center;
+  background: var(--surface-subtle);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.cpu-flag-on {
+  background: rgba(158, 240, 208, 0.25);
+  color: #9ef0d0;
+}
+
+/* ── Memory pane ── */
+.debugger-pane-memory {
+  gap: 8px;
+}
+.memory-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.memory-jump-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.memory-jump-input {
+  width: 72px;
+  padding: 3px 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+/* Rejected-input flash — one-shot red shake/flash when the user hits
+   Enter on unparseable hex. Class is removed on the next keystroke or
+   after the animation settles so the input returns to neutral on its
+   own without needing a timer in JS. */
+.memory-jump-input.memory-jump-invalid {
+  animation: memoryJumpShake 320ms ease-out;
+  border-color: var(--accent-warn, #f5a97f);
+}
+@keyframes memoryJumpShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-3px);
+  }
+  40% {
+    transform: translateX(3px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .memory-jump-input.memory-jump-invalid {
+    animation: none;
+  }
+}
+.memory-legend {
+  display: flex;
+  gap: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+}
+.memory-legend-item {
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.memory-legend-item:hover {
+  outline: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.memory-scroller {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+.memory-spacer {
+  width: 1px;
+  pointer-events: none;
+}
+.memory-table {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  border-collapse: collapse;
+  line-height: 18px;
+}
+.memory-row {
+  height: 18px;
+}
+.memory-addr {
+  padding: 0 6px;
+  color: #fff;
+  font-weight: 600;
+}
+.memory-byte {
+  padding: 0 3px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.memory-ascii {
+  padding: 0 8px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Region colouring (matches legend chips). */
+.mem-region-rom {
+  background: rgba(155, 169, 255, 0.12);
+  color: #9ba9ff;
+}
+.mem-region-vram {
+  background: rgba(158, 240, 208, 0.14);
+  color: #9ef0d0;
+}
+.mem-region-sram {
+  background: rgba(255, 186, 100, 0.14);
+  color: #ffba64;
+}
+.mem-region-wram {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+}
+.mem-region-oam {
+  background: rgba(255, 140, 180, 0.14);
+  color: #ff8cb4;
+}
+.mem-region-io {
+  background: rgba(200, 160, 255, 0.14);
+  color: #c8a0ff;
+}
+.mem-region-hram {
+  background: rgba(240, 240, 100, 0.1);
+  color: #f0f064;
+}
+
+/* ── Palette pane ── */
+.debugger-pane-palette {
+  gap: 8px;
+}
+.palette-mode {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.55);
+  font-style: italic;
+}
+.palette-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.palette-section-heading {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0 0 2px;
+}
+/* The second heading inside the CGB section (OBJ palettes) needs a
+   bit of top spacing so BG and OBJ rows don't visually merge. */
+.palette-section-heading + .palette-row ~ .palette-section-heading {
+  margin-top: 8px;
+}
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.palette-row-label {
+  width: 40px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.palette-swatch-cell {
+  width: 28px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* ── Tile pane ── */
+.debugger-pane-tile {
+  gap: 10px;
+}
+.tile-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.tile-section-heading {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
+}
+.tile-grid-flex {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.tile-grid-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tile-grid-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.tile-grid-wrap canvas {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+
+.oam-table {
+  border-collapse: collapse;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.oam-table th,
+.oam-table td {
+  padding: 2px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.oam-table th {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Control bar ── */
+.debugger-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.debugger-ctrl {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.9);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.debugger-ctrl:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+.debugger-ctrl:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.debugger-status {
+  margin-left: auto;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ── Audio pane ── */
+.debugger-pane-audio {
+  gap: 8px;
+}
+.audio-heading {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 0 4px;
+}
+.audio-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.audio-row-label {
+  width: 120px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.audio-row-value {
+  width: 28px;
+  text-align: right;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.audio-row-env-wrap {
+  /* Grows modestly to fill row width alongside the scope. */
+  flex: 1 1 100px;
+  min-width: 80px;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.audio-row-env-bar {
+  height: 100%;
+  width: 0%;
+  transition: width 60ms linear;
+}
+.audio-scope {
+  /* Scope takes the lion's share of the remaining row width. The
+     canvas's internal buffer is synced to its client width on every
+     refresh so the waveform isn't stretched / blurred. */
+  flex: 3 1 240px;
+  min-width: 200px;
+  width: 100%;
+  height: 56px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  image-rendering: pixelated;
+}
+
+/* Memory pane — inline editor + undo button */
+.memory-byte {
+  cursor: pointer;
+}
+.memory-byte:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.memory-byte-editor {
+  width: 26px;
+  padding: 0 2px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #9ef0d0;
+  background: rgba(158, 240, 208, 0.12);
+  border: 1px solid rgba(158, 240, 208, 0.4);
+  border-radius: 2px;
+  outline: none;
+}
+.memory-undo-btn {
+  all: unset;
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.85);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+}
+.memory-undo-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+.memory-undo-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── Disassembly pane ── */
+.debugger-pane-disasm {
+  gap: 6px;
+}
+.disasm-list {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.disasm-row {
+  display: grid;
+  grid-template-columns: 14px 62px 84px 64px 1fr;
+  gap: 8px;
+  padding: 0 8px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.disasm-bp {
+  text-align: center;
+  color: #ff6266;
+  font-size: 14px;
+  line-height: 18px;
+  cursor: pointer;
+  user-select: none;
+}
+.disasm-bp:empty::before {
+  content: "○";
+  color: rgba(255, 255, 255, 0.1);
+}
+.disasm-bp:empty:hover::before {
+  color: rgba(255, 98, 102, 0.6);
+}
+.disasm-row-bp {
+  background: rgba(255, 98, 102, 0.08);
+}
+.disasm-row:hover {
+  background: var(--surface-subtle);
+}
+.disasm-row-current {
+  background: rgba(158, 240, 208, 0.14);
+  color: #fff;
+  border-left: 2px solid #9ef0d0;
+  padding-left: 6px;
+}
+.disasm-addr {
+  color: rgba(255, 255, 255, 0.5);
+}
+.disasm-row-current .disasm-addr {
+  color: #9ef0d0;
+}
+.disasm-bytes {
+  color: rgba(255, 255, 255, 0.4);
+}
+.disasm-mnemonic {
+  color: #9ba9ff;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.disasm-row-current .disasm-mnemonic {
+  color: #c8d2ff;
+}
+.disasm-operands {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* ── Breakpoints pane ── */
+.debugger-pane-bp {
+  gap: 10px;
+}
+.bp-status {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+/* Wrap each breakpoint section (Execute / Read watch / Write watch)
+   in the same card aesthetic as the other panes. Each card carries
+   its own heading + list inside. */
+.bp-section {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.bp-status-hit {
+  color: #ff9aa0;
+  border-color: rgba(255, 154, 160, 0.4);
+  background: rgba(255, 154, 160, 0.08);
+}
+.bp-add-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.bp-addr-input {
+  flex: 0 0 90px;
+  padding: 4px 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.bp-kind-select {
+  padding: 4px 6px;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+/* Shared green-accent action buttons across the debugger panes
+   (breakpoints + symbols). Same base + same hover lift. */
+.bp-add-btn,
+.bp-clear-btn,
+.sym-load-btn,
+.sym-clear-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  background: rgba(158, 240, 208, 0.12);
+  color: #9ef0d0;
+  border: 1px solid rgba(158, 240, 208, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.bp-add-btn:hover,
+.bp-clear-btn:hover,
+.sym-load-btn:hover,
+.sym-clear-btn:hover {
+  background: rgba(158, 240, 208, 0.2);
+}
+/* "At PC" quick-add is secondary — same shape, neutral colour so the
+   primary green "Add" still reads as the default action. */
+.bp-add-pc-btn {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.bp-add-pc-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.bp-section-title {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.bp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Section wrapper now provides the card frame — list stays bare so
+     we don't nest two bordered boxes. */
+  min-height: 28px;
+}
+.bp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.bp-row:hover {
+  background: var(--surface-subtle);
+}
+.bp-addr {
+  color: #c8d2ff;
+}
+.bp-remove {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.bp-remove:hover {
+  color: #ff9aa0;
+}
+.bp-empty {
+  padding: 4px 6px;
+  font-size: 11px;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.3);
+}
+.bp-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── Call stack pane ── */
+.debugger-pane-cs {
+  gap: 8px;
+}
+.cs-here {
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  background: rgba(158, 240, 208, 0.08);
+  border: 1px solid rgba(158, 240, 208, 0.3);
+  border-radius: 4px;
+}
+.cs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow-y: auto;
+  max-height: 540px;
+}
+.cs-row {
+  display: grid;
+  grid-template-columns: 38px 58px 44px 58px;
+  gap: 8px;
+  padding: 3px 8px;
+}
+.cs-row:hover {
+  background: var(--surface-subtle);
+}
+.cs-kind {
+  font-weight: 600;
+  text-align: center;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+.cs-kind-pc {
+  background: rgba(158, 240, 208, 0.2);
+  color: #9ef0d0;
+}
+.cs-kind-call {
+  background: rgba(155, 169, 255, 0.15);
+  color: #c8d2ff;
+}
+.cs-kind-rst {
+  background: rgba(255, 200, 120, 0.15);
+  color: #ffc878;
+}
+.cs-kind-irq {
+  background: rgba(255, 154, 160, 0.15);
+  color: #ff9aa0;
+}
+.cs-addr {
+  color: rgba(255, 255, 255, 0.85);
+}
+.cs-arrow {
+  color: rgba(255, 255, 255, 0.3);
+  text-align: center;
+}
+.cs-empty {
+  padding: 8px;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Symbols pane ── */
+.debugger-pane-sym {
+  gap: 8px;
+}
+.sym-status {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.sym-status-loaded {
+  color: #9ef0d0;
+  border-color: rgba(158, 240, 208, 0.3);
+  background: rgba(158, 240, 208, 0.06);
+}
+.sym-controls {
+  display: flex;
+  gap: 6px;
+}
+.sym-file-input {
+  display: none;
+}
+/* `.sym-load-btn` + `.sym-clear-btn` styles live with the breakpoints
+   block above — both panes share the green-accent action vocabulary. */
+.sym-search {
+  padding: 4px 8px;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+.sym-list {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.sym-row {
+  display: grid;
+  grid-template-columns: 28px 58px 1fr;
+  gap: 8px;
+  padding: 2px 8px;
+}
+.sym-row:hover {
+  background: var(--surface-subtle);
+}
+.sym-bank {
+  color: rgba(255, 255, 255, 0.4);
+}
+.sym-addr {
+  color: #c8d2ff;
+}
+.sym-name {
+  color: rgba(255, 255, 255, 0.85);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sym-empty {
+  padding: 10px 8px;
+  font-size: 11px;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+/* Tablet + phone viewports — the debugger trigger is hidden in the
+   header to free ~36 px in the action row at intermediate widths; the
+   debugger is reached via the More menu instead. `display: contents`
+   on the wrapper drops it from header layout (no flex slot, no gap)
+   while keeping the popover descendant available — its own `.open`
+   toggle still controls visibility, so a More-menu open at narrow
+   widths centres the popover in modal mode. 720 px matches the tablet
+   tier in base.css; the same pattern is used for cheats / printer in
+   base.css. */
+@media (max-width: 720px) {
+  .theme-menu:has(#debugger-trigger) {
+    display: contents;
+  }
+  .theme-menu:has(#debugger-trigger) > button {
+    display: none;
+  }
+}
+
+/* Debugger mobile layout — must come AFTER the `.debugger-pop` base
+   rule above; the unified modal rule near line 1747 handles the other
+   popovers but the debugger's `position: absolute` re-declaration
+   would override any earlier `position: fixed` due to source-order
+   cascade. Centering + width + modal animation for narrow viewports. */
+@media (max-width: 1100px) {
+  body:has(.debugger-pop.open) .popover-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .debugger-pop {
+    position: fixed;
+    /* Same top-pin recipe as the unified modal rule above — keeps Y
+       aligned with the other popovers. */
+    inset: var(--pop-modal-top) 0 auto 0;
+    margin: 0 auto;
+    /* Cap at desktop's 640 px so tablets keep the wider layout, but
+       allow phones to fill the remaining viewport (the cap rarely
+       wins below ~750 px viewport height). */
+    height: min(640px, var(--pop-modal-max-h));
+    width: min(94vw, 880px);
+    max-width: none;
+  }
+  .debugger-pop.open {
+    animation: modalIn 160ms ease-out;
+  }
+}
+
+/* ── Printer popover ──
+   Base styling matches the other popovers (recents, slots, cheats,
+   settings, cart-info) so the printer reads as part of the same
+   surface family — same glass tokens, border radius, shadow, padding,
+   and `display: flex` column layout so the title + list + footer
+   stack with a consistent gap. */
+.printer-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  width: 380px;
+  max-width: 92vw;
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 14px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  z-index: 50;
+  color: #fff;
+}
+.printer-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+.printer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.printer-entry {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.printer-canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #faf3e0;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+/* Hover-revealed action buttons over the thumbnail — same pattern as
+   .slot-actions / .library-action. Top-right corner, two round
+   buttons (download + delete). On touch devices the body.is-touch
+   override below makes them always visible since there's no hover. */
+.printer-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+/* Show on hover OR when keyboard focus lands on a child action.
+   Crucially `:focus-visible` (not `:focus-within`) — the popover
+   system's auto-focus runs `firstFocusable.focus()` on open, and
+   without the `-visible` qualifier the first entry's actions would
+   stick around as soon as the popover opens via mouse, even though
+   the user never asked for them. `:focus-visible` only matches when
+   focus came from a keyboard gesture, so mouse users get clean
+   hover-only behaviour and keyboard users still see the indicator
+   while tabbing. */
+.printer-entry:hover .printer-actions,
+.printer-entry:has(:focus-visible) .printer-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.printer-action {
+  all: unset;
+  cursor: pointer;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 14px;
+  line-height: 1;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+.printer-action:hover {
+  background: rgba(0, 0, 0, 0.9);
+  transform: scale(1.08);
+}
+.printer-action-delete:hover {
+  background: var(--danger-bg-strong);
+  border-color: var(--danger-border-strong);
+}
+.printer-clear-btn {
+  padding: 6px 12px;
+  font-size: 11px;
+  background: rgba(158, 240, 208, 0.12);
+  color: #9ef0d0;
+  border: 1px solid rgba(158, 240, 208, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.printer-clear-btn:hover {
+  background: rgba(158, 240, 208, 0.2);
+}
+.printer-footer {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ═════════ "More" overflow menu ═════════
+   Compact dropdown surfacing secondary action buttons (Library, Save
+   slots, Cheats, Printer) on narrow viewports where the inline icon
+   row would otherwise wrap. Same glass aesthetic as the other
+   popovers but narrower and using the icon-row vocabulary (icon +
+   label per item) instead of the section/heading vocabulary. */
+.more-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 10px;
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  z-index: 50;
+}
+.more-item {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  transition: background 120ms ease;
+}
+.more-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+.more-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.more-item svg {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.7);
+}
+.more-item:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: -1px;
+}
+
+/* Printer popover modal positioning — must live after the base
+   `.printer-pop { position: absolute }` rule above so source-order
+   wins at narrow widths (same cascade trap as the debugger popover).
+   Without this block, the printer popover anchored at `right: 12px;
+   top: calc(100% + 8px)` and its theme-menu wrapper using
+   `display: contents` at <720 px meant the popover fell back to the
+   initial containing block — landing at the bottom-right corner of
+   the viewport when opened from the More menu. */
+@media (max-width: 1100px) {
+  .printer-pop {
+    position: fixed;
+    /* Same top-pin recipe as the unified modal rule so the printer
+       popover sits at the same Y as the others. */
+    inset: var(--pop-modal-top) 0 auto 0;
+    margin: 0 auto;
+    height: max-content;
+    max-height: var(--pop-modal-max-h);
+    width: min(94vw, 480px);
+    max-width: none;
+  }
+}

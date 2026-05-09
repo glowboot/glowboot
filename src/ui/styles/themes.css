@@ -1,0 +1,257 @@
+/* ═════════ Theme background layer ═════════
+   Fixed behind everything (z-index: -1). Each theme activates via the
+   body[data-theme="…"] attribute set by the inline bootstrap script in
+   index.html (so the background doesn't flash before main.ts boots). */
+
+.theme-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.theme-bg > * {
+  position: absolute;
+  inset: 0;
+}
+
+/* ── Aurora Band ── */
+body[data-theme="aurora-band"] .theme-bg {
+  background: #1a0b3d;
+}
+body[data-theme="aurora-band"] .t-conic {
+  inset: -20%;
+  background: conic-gradient(
+    from 0deg at 50% 50%,
+    rgba(33, 212, 166, 0.35),
+    rgba(106, 61, 242, 0.45),
+    rgba(255, 77, 151, 0.4),
+    rgba(33, 212, 166, 0.35)
+  );
+  filter: blur(80px);
+  mix-blend-mode: screen;
+  animation: rotate 40s linear infinite;
+}
+body[data-theme="aurora-band"] .t-vignette {
+  background: radial-gradient(circle at 50% 50%, transparent 50%, rgba(10, 9, 18, 0.7) 100%);
+}
+
+/* ── Light Caustics (Deep Sea) ── */
+body[data-theme="light-caustics"] .theme-bg {
+  background: linear-gradient(180deg, #0d1b4c 0%, #1f5fb8 45%, #2b83b8 75%, #3fa5c5 100%);
+}
+body[data-theme="light-caustics"] .t-caustic1 {
+  inset: -20%;
+  background:
+    radial-gradient(40% 25% at 30% 30%, rgba(255, 255, 255, 0.35), transparent 60%),
+    radial-gradient(35% 20% at 70% 60%, rgba(255, 255, 255, 0.25), transparent 60%),
+    radial-gradient(30% 18% at 50% 85%, rgba(255, 255, 255, 0.2), transparent 60%);
+  filter: blur(40px);
+  mix-blend-mode: screen;
+  animation: causticFloat 13s ease-in-out infinite;
+}
+body[data-theme="light-caustics"] .t-caustic2 {
+  inset: -20%;
+  background:
+    radial-gradient(30% 20% at 60% 20%, rgba(170, 230, 255, 0.25), transparent 60%),
+    radial-gradient(25% 18% at 20% 70%, rgba(170, 230, 255, 0.2), transparent 60%);
+  filter: blur(50px);
+  mix-blend-mode: screen;
+  animation: causticFloat2 17s ease-in-out infinite;
+}
+
+/* ── Sunset Drift ── warm gradient + sinking sun blob. The only
+   warm-toned theme in the roster; the rest are cool. */
+body[data-theme="sunset-drift"] .theme-bg {
+  background: linear-gradient(180deg, #2a0e3a 0%, #6e2d4a 30%, #c4512c 60%, #e0832f 85%, #2a0e1a 100%);
+}
+body[data-theme="sunset-drift"] .t-b1 {
+  width: 90vw;
+  aspect-ratio: 1;
+  left: 5vw;
+  bottom: -50vw;
+  background: radial-gradient(circle, rgba(255, 200, 140, 0.75) 0%, rgba(255, 130, 90, 0.4) 45%, transparent 70%);
+  border-radius: 50%;
+  filter: blur(30px);
+  mix-blend-mode: screen;
+  inset: auto;
+  animation: sunsetSink 30s ease-in-out infinite;
+}
+body[data-theme="sunset-drift"] .t-vignette {
+  background: radial-gradient(ellipse at 50% 90%, transparent 40%, rgba(20, 5, 10, 0.55) 100%);
+}
+
+/* ── Neon Grid ── synthwave arcade: dark base, distant horizon sun,
+   two horizontal neon light bars drifting slowly. */
+body[data-theme="neon-grid"] .theme-bg {
+  background: linear-gradient(180deg, #0a0218 0%, #1a0530 55%, #2a0a40 100%);
+}
+body[data-theme="neon-grid"] .t-b1 {
+  width: 60vw;
+  aspect-ratio: 1;
+  left: 20vw;
+  bottom: -32vw;
+  background: radial-gradient(circle, #ff3e8f 0%, #8f1a5a 40%, transparent 70%);
+  border-radius: 50%;
+  filter: blur(40px);
+  mix-blend-mode: screen;
+  inset: auto;
+  animation: neonSunPulse 3s ease-in-out infinite;
+}
+body[data-theme="neon-grid"] .t-caustic1 {
+  top: 38vh;
+  left: 0;
+  right: 0;
+  height: 6px;
+  inset: auto;
+  background: linear-gradient(90deg, transparent, #ff3e8f 30%, #ffb0d4 50%, #ff3e8f 70%, transparent);
+  filter: blur(3px);
+  mix-blend-mode: screen;
+  opacity: 0.8;
+  animation: neonBarDrift 10s ease-in-out infinite;
+}
+body[data-theme="neon-grid"] .t-caustic2 {
+  top: 62vh;
+  left: 0;
+  right: 0;
+  height: 5px;
+  inset: auto;
+  background: linear-gradient(90deg, transparent, #00e5ff 30%, #a8f5ff 50%, #00e5ff 70%, transparent);
+  filter: blur(3px);
+  mix-blend-mode: screen;
+  opacity: 0.7;
+  animation: neonBarDrift 13s ease-in-out infinite reverse;
+}
+
+/* ── Forest Canopy ── deep green base with three green-gold blobs
+   drifting like dappled sunlight through leaves. Complements the
+   DMG-green palette for authentic Game Boy nostalgia. */
+body[data-theme="forest-canopy"] .theme-bg {
+  background: linear-gradient(180deg, #0a1f10 0%, #1f4523 50%, #2f5d3a 100%);
+}
+body[data-theme="forest-canopy"] .t-blob {
+  border-radius: 50%;
+  filter: blur(70px);
+  mix-blend-mode: screen;
+  opacity: 0.55;
+}
+body[data-theme="forest-canopy"] .t-b1 {
+  width: 45vw;
+  aspect-ratio: 1;
+  left: 8vw;
+  top: 18vh;
+  background: radial-gradient(circle, #6ad86a, transparent 65%);
+  inset: auto;
+  animation: leafDriftA 22s ease-in-out infinite;
+}
+body[data-theme="forest-canopy"] .t-b2 {
+  width: 55vw;
+  aspect-ratio: 1;
+  right: 2vw;
+  top: 42vh;
+  background: radial-gradient(circle, #d0e04a, transparent 65%);
+  inset: auto;
+  animation: leafDriftB 30s ease-in-out infinite;
+}
+body[data-theme="forest-canopy"] .t-b3 {
+  width: 40vw;
+  aspect-ratio: 1;
+  left: 32vw;
+  bottom: 8vh;
+  background: radial-gradient(circle, #88cd7a, transparent 65%);
+  inset: auto;
+  animation: leafDriftC 25s ease-in-out infinite;
+}
+body[data-theme="forest-canopy"] .t-vignette {
+  background: radial-gradient(circle at 50% 50%, transparent 55%, rgba(5, 15, 8, 0.6) 100%);
+}
+
+@keyframes rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes sunsetSink {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(8%, 10%) scale(1.15);
+    opacity: 1;
+  }
+}
+@keyframes neonSunPulse {
+  0%,
+  100% {
+    opacity: 0.92;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+@keyframes neonBarDrift {
+  0%,
+  100% {
+    transform: translateX(-6%);
+  }
+  50% {
+    transform: translateX(6%);
+  }
+}
+@keyframes leafDriftA {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(12%, -14%) scale(1.2);
+  }
+}
+@keyframes leafDriftB {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-14%, 12%) scale(1.18);
+  }
+}
+@keyframes leafDriftC {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(10%, 14%) scale(0.88);
+  }
+}
+@keyframes causticFloat {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translate(7%, -5%) scale(1.1);
+    opacity: 1;
+  }
+}
+@keyframes causticFloat2 {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-9%, 7%) scale(1.12);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-bg *,
+  .theme-bg {
+    animation: none !important;
+  }
+}

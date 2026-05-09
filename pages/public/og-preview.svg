@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Social-card preview (1200×630) for og:image / twitter:image.
+     Edit this SVG and regenerate the PNG with `npm run render:og`.
+     Layout: GB silhouette with a "live" mint screen + scanline overlay
+     on the left, JetBrains Mono SemiBold wordmark + tagline on the
+     right, aurora-band gradient backdrop. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="Glowboot — play Game Boy in your browser">
+  <title>Glowboot</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a0b3d"/>
+      <stop offset="100%" stop-color="#100423"/>
+    </linearGradient>
+    <radialGradient id="auroraMint" cx="22%" cy="20%" r="55%">
+      <stop offset="0%" stop-color="#21d4a6" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#21d4a6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="auroraPurple" cx="50%" cy="55%" r="55%">
+      <stop offset="0%" stop-color="#6a3df2" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#6a3df2" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="auroraPink" cx="85%" cy="85%" r="55%">
+      <stop offset="0%" stop-color="#ff4d97" stop-opacity="0.40"/>
+      <stop offset="100%" stop-color="#ff4d97" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vignette" cx="50%" cy="50%" r="70%">
+      <stop offset="55%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#0a0912" stop-opacity="0.65"/>
+    </radialGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9ef0d0" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#7ad4b3" stop-opacity="0.40"/>
+    </linearGradient>
+    <pattern id="scan" x="0" y="0" width="6" height="6" patternUnits="userSpaceOnUse">
+      <rect width="6" height="3" fill="#000000" opacity="0.12"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#auroraMint)"/>
+  <rect width="1200" height="630" fill="url(#auroraPurple)"/>
+  <rect width="1200" height="630" fill="url(#auroraPink)"/>
+  <rect width="1200" height="630" fill="url(#vignette)"/>
+
+  <g transform="translate(120 132) scale(0.6)">
+    <rect x="0" y="0" width="520" height="585" rx="80" fill="none" stroke="#9ef0d0" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="98" y="98" width="325" height="228" rx="32" fill="url(#screen)"/>
+    <rect x="98" y="98" width="325" height="228" rx="32" fill="url(#scan)"/>
+    <rect x="98" y="98" width="325" height="228" rx="32" fill="none" stroke="#9ef0d0" stroke-width="40" stroke-linejoin="round"/>
+    <circle cx="146" cy="471" r="36" fill="none" stroke="#9ef0d0" stroke-width="40"/>
+    <circle cx="374" cy="471" r="36" fill="none" stroke="#9ef0d0" stroke-width="40"/>
+  </g>
+
+  <text x="481" y="320" font-family="JetBrains Mono" font-size="122" font-weight="600" fill="#ffffff" letter-spacing="-2">Glowboot</text>
+  <text x="492" y="382" font-family="JetBrains Mono" font-size="22" font-weight="500" fill="#9ef0d0" letter-spacing="6">PLAY GAME BOY IN YOUR BROWSER</text>
+  <rect x="0" y="624" width="1200" height="2" fill="#9ef0d0" opacity="0.22"/>
+</svg>
