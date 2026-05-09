@@ -165,6 +165,8 @@ export class PPU {
     if (this.cgb) {
       for (let i = 0; i < 32; i++) this.refreshCgbPaletteEntry(this.cgbBgPalettes, this.bgPalRam, i);
       for (let i = 0; i < 32; i++) this.refreshCgbPaletteEntry(this.cgbObPalettes, this.obPalRam, i);
+      this.cgbBgPalettesActive.set(this.cgbBgPalettes);
+      this.cgbObPalettesActive.set(this.cgbObPalettes);
     }
   }
 
@@ -173,10 +175,22 @@ export class PPU {
   private readonly bgPalRam = new Uint8Array(64);
   /** OBJ palette RAM: 8 palettes × 4 colors × 2 bytes = 64 bytes. */
   private readonly obPalRam = new Uint8Array(64);
-  /** Decoded BG palettes (32 colors) for direct framebuffer writes. */
+  /** Decoded BG palettes (32 colors), updated immediately on every BCPD write. */
   private readonly cgbBgPalettes = new Uint32Array(32);
-  /** Decoded OBJ palettes (32 colors) for direct framebuffer writes. */
+  /** Decoded OBJ palettes (32 colors), updated immediately on every OCPD write. */
   private readonly cgbObPalettes = new Uint32Array(32);
+  /**
+   * Snapshot of `cgbBgPalettes` / `cgbObPalettes` taken at mode-3 entry,
+   * used by the renderer instead of the live LUTs. On real CGB hardware,
+   * BCPD/OCPD writes during mode 3 are blocked (palette RAM is being read
+   * by the LCD), so the palette in effect for a scanline is whatever was
+   * written *before* mode 3 started. Reading the live LUT at mode-3 exit
+   * (our previous behaviour) accidentally let mode-3 writes leak into the
+   * current scanline's render — visible as photo-title corruption in
+   * games like THPS2/3 and Razor that stream palettes per HBlank.
+   */
+  private readonly cgbBgPalettesActive = new Uint32Array(32);
+  private readonly cgbObPalettesActive = new Uint32Array(32);
 
   /** Debug-only read of a VRAM byte in a specific bank, without
    *  toggling VBK (so the running game's bank selection stays
@@ -467,6 +481,14 @@ export class PPU {
       case Mode.OAMSearch:
         if (this.dots >= DOTS_OAM) {
           this.dots -= DOTS_OAM;
+          if (this.cgbGame) {
+            // Freeze the palette state the upcoming mode-3 render will see.
+            // Real CGB blocks BCPD/OCPD during mode 3; our impl applies them
+            // unconditionally, so without this snapshot mode-3 writes would
+            // leak into the same scanline they're meant to follow.
+            this.cgbBgPalettesActive.set(this.cgbBgPalettes);
+            this.cgbObPalettesActive.set(this.cgbObPalettes);
+          }
           this.setMode(Mode.Drawing);
         }
         break;
@@ -675,7 +697,7 @@ export class PPU {
    */
   private renderBackgroundCgb(): boolean {
     const fbBase = this.ly * SCREEN_WIDTH;
-    const { vram, fb32, bgColorBuf, bgPriBuf, cgbBgPalettes } = this;
+    const { vram, fb32, bgColorBuf, bgPriBuf, cgbBgPalettesActive: cgbBgPalettes } = this;
 
     const winEnabled = (this.lcdc & 0x20) !== 0 && this.wy <= this.ly;
     const bgMap = (this.lcdc & 0x08) !== 0 ? 0x1c00 : 0x1800;
@@ -813,7 +835,7 @@ export class PPU {
       // BG wins if BG colour is non-zero AND (OAM priority OR BG-attr priority).
       if (bgMasterPri && this.bgColorBuf[screenX] !== 0 && (objPri || this.bgPriBuf[screenX] !== 0)) continue;
 
-      this.fb32[fbRow + screenX] = this.cgbObPalettes[palBase + colorIdx]!;
+      this.fb32[fbRow + screenX] = this.cgbObPalettesActive[palBase + colorIdx]!;
     }
   }
 
@@ -918,6 +940,8 @@ export class PPU {
         this.refreshCgbPaletteEntry(this.cgbBgPalettes, this.bgPalRam, i);
         this.refreshCgbPaletteEntry(this.cgbObPalettes, this.obPalRam, i);
       }
+      this.cgbBgPalettesActive.set(this.cgbBgPalettes);
+      this.cgbObPalettesActive.set(this.cgbObPalettes);
     }
   }
 }
