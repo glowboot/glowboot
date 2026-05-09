@@ -1,15 +1,15 @@
 /**
- * Public entry point for the engine published on npm as `glowboot/gb`.
+ * Barrel export for the engine half of the project.
  *
  * The engine is host-agnostic: zero dependencies, no DOM access, no
- * timers, no I/O. Embed it by constructing a `GameBoy` from raw ROM
- * bytes, calling `runFrame()` at whatever cadence your host can
- * provide, and reading the framebuffer / audio ring out of `gb.ppu`
- * and `gb.apu` as needed.
+ * timers, no I/O. The browser shell under `src/ui/` consumes it through
+ * this barrel; everything reachable from here is also covered by the
+ * DOM-free typecheck (`tsconfig.gb.json`), which guarantees the engine
+ * stays embeddable in any environment that can run TypeScript / ESM.
  *
- * Minimal hello-world:
+ * Minimal embedding sketch:
  *
- *   import { GameBoy, FRAMES_PER_SEC } from "glowboot/gb";
+ *   import { GameBoy, FRAMES_PER_SEC } from "./gb";
  *
  *   const rom = await (await fetch("tetris.gb")).arrayBuffer();
  *   const gb = new GameBoy(new Uint8Array(rom));
