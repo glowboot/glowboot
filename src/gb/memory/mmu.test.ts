@@ -118,4 +118,45 @@ describe("MMU address routing", () => {
       expect(mmu.readByte(0xd100)).toBe(0x11);
     });
   });
+
+  describe("CGB GP-DMA auto-advance (X-Men Mutant Academy regression)", () => {
+    it("re-triggering GP-DMA after only updating the source writes to the advanced destination", () => {
+      // Fill WRAM with a pattern. WRAM (0xC000+) is in the legal HDMA
+      // source range and is writable from the test, unlike ROM.
+      for (let i = 0; i < 48; i++) mmu.writeByte(0xc000 + i, 0x10 + i);
+
+      // Initial setup: src = 0xC000, dst = 0x8000.
+      mmu.writeByte(0xff51, 0xc0);
+      mmu.writeByte(0xff52, 0x00);
+      mmu.writeByte(0xff53, 0x00);
+      mmu.writeByte(0xff54, 0x00);
+
+      // Three back-to-back GP-DMAs of 1 block each, only updating the
+      // source between calls. With auto-advance, the destination walks
+      // forward 16 bytes per block; without it, every block clobbers
+      // 0x8000-0x800F and the rest of VRAM stays untouched.
+      mmu.writeByte(0xff55, 0x00); // block 1 → 0x8000
+      mmu.writeByte(0xff52, 0x10); // src = 0xC010
+      mmu.writeByte(0xff55, 0x00); // block 2 → 0x8010 (auto-advanced)
+      mmu.writeByte(0xff52, 0x20); // src = 0xC020
+      mmu.writeByte(0xff55, 0x00); // block 3 → 0x8020
+
+      for (let i = 0; i < 48; i++) {
+        expect(mmu.readByte(0x8000 + i)).toBe(0x10 + i);
+      }
+    });
+
+    it("FF53 / FF54 read back at the advanced destination after a GP-DMA completes", () => {
+      for (let i = 0; i < 32; i++) mmu.writeByte(0xc000 + i, i);
+      mmu.writeByte(0xff51, 0xc0);
+      mmu.writeByte(0xff52, 0x00);
+      mmu.writeByte(0xff53, 0x00);
+      mmu.writeByte(0xff54, 0x00);
+      mmu.writeByte(0xff55, 0x01); // 2 blocks = 32 bytes
+
+      // Destination should now point past 0x8020 (= 0x8000 + 32).
+      expect(mmu.readByte(0xff53)).toBe(0x00);
+      expect(mmu.readByte(0xff54)).toBe(0x20);
+    });
+  });
 });

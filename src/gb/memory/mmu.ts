@@ -555,7 +555,24 @@ export class MMU {
         this.writeByte(dst + i, this.readByte(src + i));
       }
       this.hdmaCtrl = 0xff;
+      this.advanceHdmaRegisters(blocks * 16);
     }
+  }
+
+  /** Real CGB hardware updates HDMA1-4 to point past the last byte
+   *  transferred when a transfer completes (and after each block in
+   *  H-Blank mode). Games like X-Men Mutant Academy rely on the auto-
+   *  advance to stream sequential blocks by re-triggering GP-DMA with
+   *  only the source updated — without it, every block clobbers the
+   *  same 16 destination bytes and the rest of the tile data never
+   *  reaches VRAM. */
+  private advanceHdmaRegisters(byteCount: number): void {
+    const newSrc = ((this.hdmaSrcHi << 8) | this.hdmaSrcLo) + byteCount;
+    const newDst = (((this.hdmaDstHi << 8) | this.hdmaDstLo) + byteCount) & 0x1ff0;
+    this.hdmaSrcHi = (newSrc >> 8) & 0xff;
+    this.hdmaSrcLo = newSrc & 0xf0;
+    this.hdmaDstHi = (newDst >> 8) & 0x1f;
+    this.hdmaDstLo = newDst & 0xf0;
   }
 
   /** Called by PPU on each H-Blank entry; transfers one 16-byte block. */
@@ -567,6 +584,7 @@ export class MMU {
     this.hdmaSrcCur = (this.hdmaSrcCur + 16) & 0xffff;
     this.hdmaDstCur = (this.hdmaDstCur + 16) & 0xffff;
     this.hdmaBlocks--;
+    this.advanceHdmaRegisters(16);
     if (this.hdmaBlocks === 0) {
       this.hdmaActive = false;
       this.hdmaCtrl = 0xff;
