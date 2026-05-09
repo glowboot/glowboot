@@ -14,7 +14,7 @@
  *  mismatches throw cleanly in `loadState` before any subsystem field
  *  gets mutated, so a stale snapshot results in a fresh boot rather
  *  than partially corrupting the engine. */
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 1;
 
 export class StateWriter {
   private readonly view: DataView;
