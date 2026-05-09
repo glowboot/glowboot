@@ -53,6 +53,32 @@
     <link rel="preload" href="/fonts/jetbrains-mono-variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/vt323-400.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/fonts/fonts.css" />
+
+    <!-- Critical CSS, inlined for first paint. The `.theme-bg` children
+         exist in the HTML before themes.css (loaded via the JS entry)
+         resolves, so without these rules they'd render at default size
+         (`position: static`, 0×0) and then jump to their final fixed-
+         inset bounds when CSS lands — Lighthouse measures that bounds
+         change as a CLS event (~0.19 attributed to `.t-conic` alone).
+         Inlining the positioning rules locks the element bounds at the
+         very first frame; the gradient / blur / animation styles still
+         arrive later from themes.css but trigger no layout shift. -->
+    <style>
+      .theme-bg {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        overflow: hidden;
+        pointer-events: none;
+      }
+      .theme-bg > * {
+        position: absolute;
+        inset: 0;
+      }
+      body[data-theme="aurora-band"] .t-conic {
+        inset: -20%;
+      }
+    </style>
   </head>
   <body data-theme="aurora-band">
     <!-- Skip-link: first focusable on the page, slides in from off-screen
