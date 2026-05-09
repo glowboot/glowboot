@@ -527,7 +527,6 @@ Vite serves the app at `http://localhost:5173`.
 | ---------------------- | ------------------------------------------------------------- |
 | `npm run dev`          | Start the Vite dev server with HMR                            |
 | `npm run build`        | Produce a production build in `dist/`                         |
-| `npm run build:gb`     | Build the engine into `dist/gb/` (DOM-free typecheck guard)   |
 | `npm run preview`      | Serve the production build locally                            |
 | `npm run typecheck`    | Typecheck both the UI and the DOM-free engine bundle, no emit |
 | `npm test`             | Run the Vitest unit suite once                                |
