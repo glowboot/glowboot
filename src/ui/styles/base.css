@@ -171,6 +171,14 @@ body {
 }
 html {
   background: #0a0912;
+  /* Reserve space for the vertical scrollbar regardless of whether
+     content is currently tall enough to need one. Without this, the
+     scrollbar pops in once content grows past the viewport during
+     load, the viewport width shrinks by the scrollbar gutter, and
+     every viewport-anchored element (notably the `.theme-bg` children
+     under `position: fixed; inset: 0`) resizes — Lighthouse scores
+     that as ~0.19 CLS attributed to `.t-conic`. */
+  scrollbar-gutter: stable;
 }
 body {
   font-family: "Inter", system-ui, sans-serif;
@@ -194,11 +202,18 @@ body {
    during gameplay. Both `html` and `body` need the lock because iOS
    Safari can scroll the documentElement even when body is locked.
    Popovers keep their own internal `overflow-y: auto`, so settings /
-   library / etc. still scroll. */
-html:has(body.is-touch),
-body.is-touch {
-  overflow: hidden;
-  overscroll-behavior: none;
+   library / etc. still scroll.
+   Driven off a media query rather than the JS-set `body.is-touch`
+   class so the rule applies at first paint — the JS path adds the
+   class only after main.ts loads, which produced a viewport-resize
+   layout shift on mobile (Lighthouse: ~0.19 CLS attributed to
+   `.t-conic`, intermittent depending on JS load timing). */
+@media (pointer: coarse) {
+  html,
+  body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
 }
 
 /* ═════════ App layout ═════════ */
@@ -815,23 +830,30 @@ body.is-touch textarea {
    placeholder doesn't reflow when a cart loads. Visibility is gated on
    `body.has-cart` (set by rom-loader after a successful load): pre-load
    the row is `visibility: hidden` + opacity 0 (out of the focus order
-   and the a11y tree, but reserving its space); post-load it fades in. */
-body.is-touch .touch-actions {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 14px;
-  padding: 12px 8px 4px;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 180ms ease-out;
+   and the a11y tree, but reserving its space); post-load it fades in.
+   Driven off the `(pointer: coarse)` media query rather than the JS-set
+   `body.is-touch` class so the layout space is reserved at first paint
+   instead of jumping in once main.ts attaches the class — a delayed
+   class addition was producing an ~0.18 CLS shift attributed to
+   `.canvas-frame` on mobile reloads. */
+@media (pointer: coarse) {
+  .touch-actions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 14px;
+    padding: 12px 8px 4px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 180ms ease-out;
+  }
+  .has-cart .touch-actions {
+    opacity: 1;
+    visibility: visible;
+  }
 }
-body.is-touch.has-cart .touch-actions {
-  opacity: 1;
-  visibility: visible;
-}
-@media (prefers-reduced-motion: reduce) {
-  body.is-touch .touch-actions {
+@media (pointer: coarse) and (prefers-reduced-motion: reduce) {
+  .touch-actions {
     transition: none;
   }
 }

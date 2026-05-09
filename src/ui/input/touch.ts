@@ -355,7 +355,14 @@ export function initTouchControls(getJoypad: () => Joypad | null, root: HTMLElem
 
   const apply = (): void => {
     const shown = mode === "on" || (mode === "auto" && mq.matches);
-    root.classList.toggle("gb-touch--on", shown);
+    // `.gb-touch--on` only matters on fine-pointer devices when the user
+    // explicitly chose On; the `(pointer: coarse)` media query in
+    // touch.css covers the default Auto + coarse-pointer case at first
+    // paint. `.gb-touch--off` is the explicit hide that overrides that
+    // default. Splitting the two avoids the JS-driven class addition
+    // shifting layout post-paint.
+    root.classList.toggle("gb-touch--on", mode === "on");
+    root.classList.toggle("gb-touch--off", mode === "off");
     root.setAttribute("aria-hidden", shown ? "false" : "true");
   };
 

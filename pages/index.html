@@ -41,46 +41,78 @@
     <title>Glowboot</title>
 
     <!-- Preload all three webfonts so they're available by first paint
-         instead of swapping in afterwards. `font-display: swap` (set in
-         fonts.css) renders the system fallback first, then re-paints
-         with the webfont — that swap reflows every text node and
-         Lighthouse scores it as CLS. Preload races the fetch in parallel
-         with HTML parsing so the webfonts usually win. `crossorigin` is
-         required for font preloads even on same-origin per spec. Inter
-         and JetBrains Mono are variable fonts — one file each covers
-         every weight referenced in the CSS. -->
+         instead of swapping in afterwards. `font-display: swap` renders
+         the system fallback first, then re-paints with the webfont —
+         that swap reflows every text node and Lighthouse scores it as
+         CLS. Preload races the fetch in parallel with HTML parsing so
+         the webfonts usually win. `crossorigin` is required for font
+         preloads even on same-origin per spec. Inter and JetBrains Mono
+         are variable fonts — one file each covers every weight
+         referenced in the CSS. -->
     <link rel="preload" href="/fonts/inter-variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/jetbrains-mono-variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/vt323-400.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="stylesheet" href="/fonts/fonts.css" />
 
-    <!-- Critical CSS, inlined for first paint. The `.theme-bg` children
-         exist in the HTML before themes.css (loaded via the JS entry)
-         resolves, so without these rules they'd render at default size
-         (`position: static`, 0×0) and then jump to their final fixed-
-         inset bounds when CSS lands — Lighthouse measures that bounds
-         change as a CLS event (~0.19 attributed to `.t-conic` alone).
-         Inlining the positioning rules locks the element bounds at the
-         very first frame; the gradient / blur / animation styles still
-         arrive later from themes.css but trigger no layout shift. -->
+    <!-- @font-face rules inlined (rather than loaded from /fonts/fonts.css)
+         so the browser doesn't need a render-blocking round-trip for
+         <1 KiB of CSS. Files released under the SIL Open Font License
+         1.1 — see /fonts/OFL.txt. Inter and JetBrains Mono are variable
+         fonts: a single woff2 per family covers the whole 100–900 (Inter)
+         / 100–800 (JBM) weight axis, so every `font-weight` declaration
+         in the project renders with real glyphs instead of synthesised
+         bold. Subsetted to the same Latin range the project's UI strings
+         need; non-Latin runs fall back to the system stack declared in
+         base.css. -->
     <style>
-      .theme-bg {
-        position: fixed;
-        inset: 0;
-        z-index: -1;
-        overflow: hidden;
-        pointer-events: none;
+      @font-face {
+        font-family: "Inter";
+        font-style: normal;
+        font-weight: 100 900;
+        font-display: swap;
+        src: url("/fonts/inter-variable.woff2") format("woff2");
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+          U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
       }
-      .theme-bg > * {
-        position: absolute;
-        inset: 0;
+      @font-face {
+        font-family: "JetBrains Mono";
+        font-style: normal;
+        font-weight: 100 800;
+        font-display: swap;
+        src: url("/fonts/jetbrains-mono-variable.woff2") format("woff2");
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+          U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
       }
-      body[data-theme="aurora-band"] .t-conic {
-        inset: -20%;
+      @font-face {
+        font-family: "VT323";
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url("/fonts/vt323-400.woff2") format("woff2");
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+          U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
       }
     </style>
   </head>
   <body data-theme="aurora-band">
+    <script>
+      // Apply the saved theme synchronously *before* the `.theme-bg`
+      // markup below is parsed. Each theme styles `.t-conic` and its
+      // siblings differently (different `inset`, different children
+      // visible) — running this after first paint produced a ~0.19 CLS
+      // shift attributed to `.t-conic` on every reload that had a saved
+      // non-default theme. Picker wiring lives in main.ts.
+      (() => {
+        try {
+          const saved = localStorage.getItem("gb-theme");
+          if (saved) document.body.dataset.theme = saved;
+        } catch {
+          /* localStorage may be blocked */
+        }
+      })();
+    </script>
     <!-- Skip-link: first focusable on the page, slides in from off-screen
          on focus so sighted keyboard users see it too. Tabbing past the
          header row is tedious for SR users who just want to play. -->
@@ -1460,19 +1492,6 @@
       <p class="rotate-prompt-title">Rotate to portrait</p>
       <p class="rotate-prompt-sub">The Game Boy was a portrait device — the UI works best that way.</p>
     </div>
-
-    <script>
-      // Apply the saved theme synchronously *before* the first paint so the
-      // background doesn't flash. Picker wiring lives in main.ts.
-      (() => {
-        try {
-          const saved = localStorage.getItem("gb-theme");
-          if (saved) document.body.dataset.theme = saved;
-        } catch {
-          /* localStorage may be blocked */
-        }
-      })();
-    </script>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

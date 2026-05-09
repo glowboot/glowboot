@@ -35,6 +35,21 @@
   row-gap: 14px;
   align-items: center;
 }
+/* Default-on for coarse-pointer devices, applied at first paint so the
+   overlay's vertical space is reserved before main.ts loads. The JS
+   `apply()` in input/touch.ts adds `.gb-touch--off` when the user has
+   explicitly chosen Off, which overrides this default; conversely
+   `.gb-touch--on` overrides default-off on fine-pointer devices when
+   the user explicitly chose On. */
+@media (pointer: coarse) {
+  .gb-touch:not(.gb-touch--off) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: var(--touch-spacing);
+    row-gap: 14px;
+    align-items: center;
+  }
+}
 /* Left-handed mirror — flips just the on-screen control layout in the
    top row (D-pad ↔ A/B). Start/Select stay centred so they read
    equivalently both ways. */
