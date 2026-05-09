@@ -76,10 +76,10 @@ describe("APU top-level", () => {
     });
   });
 
-  describe("tick() while powered off is a no-op", () => {
+  describe("tick while powered off is a no-op", () => {
     it("does not produce samples while APU is off", () => {
       apu.writeByte(0xff26, 0x00); // off
-      apu.tick(1000);
+      apu.tickTCycles(4000);
       expect(apu.outPos).toBe(0);
     });
   });

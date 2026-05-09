@@ -678,25 +678,6 @@ export class Cartridge {
     }
   }
 
-  /**
-   * MBC for the Game Boy Camera cart. MBC5-shaped (RAM enable, 8-bit
-   * ROM bank, 4-bit RAM bank) with a "camera mode" bit on top.
-   *
-   * Bank register at 0x4000-0x5FFF:
-   *   - value < 0x10: select RAM bank, exit camera mode
-   *   - value & 0x10: enter camera mode (bank latch unchanged — the
-   *     Camera ROM toggles the mode bit constantly between register
-   *     writes and SRAM reads, and clobbering the bank to 0 every
-   *     toggle silently breaks photo-album access)
-   *
-   * In camera mode the sensor register file is visible at A000-BFFF
-   * (128-byte mirror). Writes to register 0 with bit 0 set fire
-   * `onCameraCapture` synchronously; the host pulls a webcam frame,
-   * runs the sensor pipeline, and lands the result in cart RAM bank 0
-   * at offset 0x100 (3584 bytes, GB 2bpp tile-row-major). The trigger
-   * write masks `value &= 6` so bit 0 (the busy flag) is already clear
-   * when the polling ROM reads register 0 next.
-   */
   // ─── MBC7 — Kirby Tilt 'n' Tumble ──────────────────────────────────────
 
   /** A000-AFFF read decode. Both RAM-enable latches must be set or
@@ -966,6 +947,25 @@ export class Cartridge {
     }
   }
 
+  /**
+   * MBC for the Game Boy Camera cart. MBC5-shaped (RAM enable, 8-bit
+   * ROM bank, 4-bit RAM bank) with a "camera mode" bit on top.
+   *
+   * Bank register at 0x4000-0x5FFF:
+   *   - value < 0x10: select RAM bank, exit camera mode
+   *   - value & 0x10: enter camera mode (bank latch unchanged — the
+   *     Camera ROM toggles the mode bit constantly between register
+   *     writes and SRAM reads, and clobbering the bank to 0 every
+   *     toggle silently breaks photo-album access)
+   *
+   * In camera mode the sensor register file is visible at A000-BFFF
+   * (128-byte mirror). Writes to register 0 with bit 0 set fire
+   * `onCameraCapture` synchronously; the host pulls a webcam frame,
+   * runs the sensor pipeline, and lands the result in cart RAM bank 0
+   * at offset 0x100 (3584 bytes, GB 2bpp tile-row-major). The trigger
+   * write masks `value &= 6` so bit 0 (the busy flag) is already clear
+   * when the polling ROM reads register 0 next.
+   */
   private writeCamera(addr: number, value: number): void {
     if (addr < 0x2000) {
       this.ramEnabled = (value & 0x0f) === 0x0a;
@@ -1153,8 +1153,9 @@ export class Cartridge {
     }
   }
 
-  /** Map a cart-type header byte (0x0147) to an MBCType.  Pure helper —
-   *  exported for header-only use cases (library rendering, tests). */
+  /** Map a cart-type header byte (0x0147) to an MBCType. Pure helper —
+   *  exported so the table can be exercised by the test suite without
+   *  constructing a full `Cartridge`. */
   static parseMBCType(typeCode: number): MBCType {
     if (typeCode === 0x00) return "ROM_ONLY";
     if (typeCode >= 0x01 && typeCode <= 0x03) return "MBC1";

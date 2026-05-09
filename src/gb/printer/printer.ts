@@ -170,7 +170,7 @@ export class Printer {
         this.payload = [];
         this.payloadIdx = 0;
         this.state = this.length > 0 ? "data" : "ckLo";
-        // The LENGTH_1 state is also where INIT runs its side effect:
+        // The `lenHi` state is also where INIT runs its side effect:
         // clear bits 2+3 of status (NOT bit 1 — that's only cleared
         // by the wall-clock "done" trigger) and reset the buffer.
         if (this.cmd === CMD_INIT) {

@@ -403,8 +403,9 @@ export class MMU {
         return;
       case 0xff02: {
         this.serialControl = value;
-        // Legacy headless-runner hook fires on the classic "start
-        // transfer, internal clock" pattern Blargg test ROMs use.
+        // Headless test-runner hook — fires on the classic "start
+        // transfer, internal clock" pattern Blargg test ROMs use to
+        // print their pass / fail message via the serial port.
         if ((value & 0x81) === 0x81 && this.onSerialOut) this.onSerialOut(this.serialData);
         if ((value & 0x80) === 0) {
           this.serialAwaitingPeer = false;

@@ -35,17 +35,6 @@ export class InterruptController {
     this.if |= flag;
   }
 
-  /**
-   * Returns the highest-priority pending interrupt flag,
-   * or 0 if none are both enabled and requested.
-   */
-  pending(): number {
-    const active = this.ie & this.if & 0x1f;
-    if (active === 0) return 0;
-    // Lowest bit = highest priority
-    return active & -active;
-  }
-
   /** Acknowledge (clear) a serviced interrupt. */
   acknowledge(flag: number): void {
     this.if &= ~flag;

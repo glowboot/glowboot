@@ -32,33 +32,6 @@ describe("InterruptController", () => {
     });
   });
 
-  describe("pending", () => {
-    it("returns 0 when nothing is enabled", () => {
-      ic.if = 0xff;
-      ic.ie = 0;
-      expect(ic.pending()).toBe(0);
-    });
-
-    it("returns 0 when nothing is flagged", () => {
-      ic.ie = 0xff;
-      ic.if = 0;
-      expect(ic.pending()).toBe(0);
-    });
-
-    it("returns the bit corresponding to the highest-priority pending source", () => {
-      // Priority order: VBlank (bit 0) highest, Joypad (bit 4) lowest.
-      ic.ie = 0x1f;
-      ic.if = INTERRUPT_JOYPAD | INTERRUPT_LCD;
-      expect(ic.pending()).toBe(INTERRUPT_LCD);
-    });
-
-    it("masks off bits above 4 — only five hardware interrupts exist", () => {
-      ic.ie = 0xff;
-      ic.if = 0xe0; // only bits 5-7, which aren't real interrupts
-      expect(ic.pending()).toBe(0);
-    });
-  });
-
   describe("acknowledge", () => {
     it("clears the specific bit, leaves others alone", () => {
       ic.if = INTERRUPT_VBLANK | INTERRUPT_TIMER | INTERRUPT_JOYPAD;

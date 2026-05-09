@@ -234,17 +234,9 @@ export class APU {
 
   // ─── Tick ─────────────────────────────────────────────────────────────────
 
-  /** Advance APU by `mCycles` real-time PPU M-cycles (= 4 T-cycles each).
-   *  Kept as a thin wrapper so existing callers that have already adjusted
-   *  for CGB double-speed don't have to change. */
-  tick(mCycles: number): void {
-    this.tickTCycles(mCycles * 4);
-  }
-
-  /** Advance APU by `t` real-time T-cycles. Preferred entry point for
-   *  per-bus-access ticking from the CPU — gives wave-channel-RAM
-   *  reads a position accurate to the M-cycle the bus access happens
-   *  on, which Blargg `cgb_sound 09` requires. */
+  /** Advance APU by `t` real-time T-cycles. Called per bus access from
+   *  the CPU so wave-channel-RAM reads land at the M-cycle the access
+   *  actually happens on — required for Blargg `cgb_sound 09` to pass. */
   tickTCycles(t: number): void {
     if (!this.apuOn || t <= 0) return;
 
