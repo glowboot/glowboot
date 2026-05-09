@@ -111,4 +111,13 @@ export class CanvasRenderer {
   setColorGrade(_g: ColorGrade): void {
     /* no-op on Canvas 2D */
   }
+
+  /** Match WebGLRenderer's dispose contract so `swapRenderer` can drop
+   *  the outgoing instance without branching on backend. The 2D path
+   *  only owns a ResizeObserver edge worth detaching — everything else
+   *  is GC'd once the renderer becomes unreachable. */
+  dispose(): void {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+  }
 }

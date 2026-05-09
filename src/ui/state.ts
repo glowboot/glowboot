@@ -99,6 +99,13 @@ export function swapRenderer(mode: string | null): CanvasRenderer | WebGLRendere
   parent.replaceChild(fresh, old);
   setCanvas(fresh);
 
+  // Drop the outgoing renderer's GPU + observer resources before we
+  // overwrite the live binding. Without this, repeated swaps (every
+  // ROM load that pins a different render mode, plus user dropdown
+  // changes) pile up orphaned WebGL contexts, drawing buffers, and
+  // ResizeObserver edges that keep the old canvas reachable.
+  renderer.dispose();
+
   const shader = shaderForMode(mode);
   if (shader) {
     try {

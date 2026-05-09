@@ -297,6 +297,26 @@ export class WebGLRenderer {
     if (u.saturation) gl.uniform1f(u.saturation, g.saturation);
     if (u.temperature) gl.uniform1f(u.temperature, g.temperature);
   }
+
+  /** Free GPU + observer resources held by this renderer. Called by
+   *  `swapRenderer` on the outgoing instance — without this, every
+   *  render-mode change (and every ROM load that pins a different mode)
+   *  leaks a WebGL context, its 960×864 drawing buffer, the compiled
+   *  programs / textures / FBO, and the parent-element ResizeObserver
+   *  edge that keeps the orphaned canvas reachable. */
+  dispose(): void {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    const gl = this.gl;
+    for (const pass of this.passes) gl.deleteProgram(pass.program);
+    gl.deleteTexture(this.texture);
+    if (this.intermediateTexture) gl.deleteTexture(this.intermediateTexture);
+    if (this.intermediateFbo) gl.deleteFramebuffer(this.intermediateFbo);
+    // Eagerly drop the GPU context so the browser frees its drawing
+    // buffer + driver-side state instead of waiting for the (small)
+    // live-context LRU to evict it.
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+  }
 }
 
 function compileShader(gl: WebGLRenderingContext, type: number, src: string): WebGLShader {
