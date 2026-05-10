@@ -17,7 +17,11 @@ import { NoiseChannel, SquareChannel, WaveChannel } from "./channels.js";
  *   Ctrl               0xFF24–0xFF26  NR50–NR52
  *   Wave RAM           0xFF30–0xFF3F
  *
- * Frame sequencer (512 Hz, one step every 8192 T-cycles):
+ * Frame sequencer (512 Hz, driven by the falling edge of DIV bit 12 in
+ * single-speed / bit 13 in CGB double-speed). The Timer calls
+ * `stepFsEdge()` on each falling edge — which is what real hardware
+ * does, and lets `div_write_trigger*` tests fire an extra step on a
+ * write to FF04 that drops the bit.
  *   Step  0  2  4  6  →  length counter clock (256 Hz)
  *   Step  2  6        →  sweep clock          (128 Hz)
  *   Step  7           →  envelope clock       ( 64 Hz)
@@ -45,9 +49,7 @@ export class APU {
   }
 
   // ─── Frame sequencer ──────────────────────────────────────────────────────
-  private fsTimer = 0;
   private fsStep = 0;
-  private static readonly FS_PERIOD = 8192; // T-cycles per step
 
   // ─── Sample generation ────────────────────────────────────────────────────
   /** Sample rate used to size the output buffer and compute timing.
@@ -248,12 +250,7 @@ export class APU {
   tickTCycles(t: number): void {
     if (!this.apuOn || t <= 0) return;
 
-    // Frame sequencer
-    this.fsTimer += t;
-    while (this.fsTimer >= APU.FS_PERIOD) {
-      this.fsTimer -= APU.FS_PERIOD;
-      this.stepFrameSequencer();
-    }
+    // Frame sequencer is driven externally via stepFsEdge() — see Timer.
 
     // Channel timers
     this.ch1.tick(t);
@@ -267,6 +264,16 @@ export class APU {
       this.sampleTimer -= this.cyclesPerSample;
       if (this.outPos < this.outLeft.length) this.pushSample();
     }
+  }
+
+  /** Advance the frame sequencer one step. Called by Timer on the falling
+   *  edge of DIV bit 12 (single-speed) / bit 13 (CGB double-speed), so a
+   *  write to FF04 that drops the bit triggers an extra step — matching
+   *  real hardware (`div_write_trigger*` family of tests). No-op while
+   *  the APU is powered down (NR52 bit 7 = 0). */
+  stepFsEdge(): void {
+    if (!this.apuOn) return;
+    this.stepFrameSequencer();
   }
 
   // ─── Frame sequencer ──────────────────────────────────────────────────────
@@ -447,7 +454,6 @@ export class APU {
     w.u8(this.nr50);
     w.u8(this.nr51);
     w.u8(this.nr52);
-    w.u32(this.fsTimer);
     w.u8(this.fsStep);
     w.f64(this.sampleTimer);
     this.ch1.serialize(w);
@@ -459,7 +465,6 @@ export class APU {
     this.nr50 = r.u8();
     this.nr51 = r.u8();
     this.nr52 = r.u8();
-    this.fsTimer = r.u32();
     this.fsStep = r.u8();
     this.sampleTimer = r.f64();
     this.ch1.deserialize(r);
@@ -481,6 +486,5 @@ export class APU {
     this.nr50 = 0;
     this.nr51 = 0;
     this.fsStep = 0;
-    this.fsTimer = 0;
   }
 }

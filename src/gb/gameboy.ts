@@ -81,6 +81,8 @@ export class GameBoy {
     this.cpu = new CPU(this.mmu, this.interrupts, this.timer, /* cgb */ true, /* preBoot */ preBoot);
     this.mmu.cpu = this.cpu; // break the constructor cycle so KEY1 can reach CPU.
     this.cpu.apu = this.apu; // per-bus-access APU ticking — see CPU.busRead
+    this.timer.apu = this.apu; // APU FS is clocked by DIV bit 12/13 falling edges.
+    this.timer.cpu = this.cpu; // …and the bit selector flips with double-speed.
     this.mmu.cheats = this.cheats; // attach cheat engine for Game Genie ROM patches.
 
     this.ppu.onVBlank = () => this.onFrame?.(this.ppu.framebuffer);

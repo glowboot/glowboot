@@ -1,3 +1,5 @@
+import type { APU } from "../apu/apu.js";
+import type { CPU } from "../cpu/cpu.js";
 import { INTERRUPT_TIMER, type InterruptController } from "../memory/interrupts.js";
 import type { StateReader, StateWriter } from "../serialization/serialization.js";
 
@@ -44,11 +46,28 @@ export class Timer {
   private overflowThisCycle = false;
   private inReloadCycle = false;
 
+  /** Wired in by GameBoy after construction so the timer can drive the
+   *  APU's frame sequencer off DIV bit 12/13 falling edges. */
+  apu: APU | null = null;
+  /** Wired in by GameBoy after construction; consulted only for the
+   *  `doubleSpeed` flag (selects DIV bit 13 instead of 12 for the FS). */
+  cpu: CPU | null = null;
+
   constructor(
     private readonly interrupts: InterruptController,
     preBoot = false
   ) {
     this.div = preBoot ? 0 : 0xabcc;
+  }
+
+  /** Drive the APU FS off DIV bit 12 (single-speed) / bit 13 (double-speed):
+   *  step on 1→0 transitions. Called after every DIV mutation, with the
+   *  pre-mutation `prevDiv` so a speed switch between calls can't make us
+   *  see a stale bit. */
+  private updateApuFs(prevDiv: number): void {
+    const bit = this.cpu?.doubleSpeed ? 13 : 12;
+    const mask = 1 << bit;
+    if ((prevDiv & mask) !== 0 && (this.div & mask) === 0) this.apu?.stepFsEdge();
   }
 
   // ─── Bus interface ────────────────────────────────────────────────────────
@@ -95,9 +114,12 @@ export class Timer {
   writeByte(addr: number, value: number): void {
     const prevInput = this.timerInput();
     switch (addr) {
-      case 0xff04:
+      case 0xff04: {
+        const prevDiv = this.div;
         this.div = 0;
+        this.updateApuFs(prevDiv);
         break; // any write resets DIV
+      }
       case 0xff05:
         // TIMA writes interact with the reload state machine:
         //   - same M-cycle as the overflow (`overflowThisCycle`) → write
@@ -159,6 +181,7 @@ export class Timer {
 
     const prevDiv = this.div;
     this.div = (prevDiv + 4) & 0xffff;
+    this.updateApuFs(prevDiv);
 
     if (!(this.tac & 0x04)) return; // timer stopped
 
