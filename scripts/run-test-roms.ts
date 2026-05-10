@@ -62,6 +62,38 @@ interface ScreenTest {
   frames: number;
 }
 
+// Discover Gambatte tests with CGB reference PNGs. Naming convention:
+// `{stem}.gbc` paired with `{stem}_cgb04c.png` (CGB-CPU-04 revision C).
+// Gambatte tests run for 15 LCD frames per the howto. Many gambatte
+// ROMs use a hex-pattern or audio-output protocol instead of a PNG;
+// those don't have a `_cgb04c.png` and get added to the skip set below.
+function discoverGambatteTests(): ScreenTest[] {
+  const root = resolve(TEST_ROMS_DIR, "gambatte");
+  if (!existsSync(root)) return [];
+  const tests: ScreenTest[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (entry.endsWith(".gb") || entry.endsWith(".gbc")) {
+        const stem = entry.replace(/\.(gb|gbc)$/, "");
+        const dirRel = relative(TEST_ROMS_DIR, dir);
+        const ref = join(dirRel, `${stem}_cgb04c.png`);
+        if (existsSync(resolve(TEST_ROMS_DIR, ref))) {
+          tests.push({
+            romPath: join(dirRel, entry),
+            refPng: ref,
+            palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+            frames: 15
+          });
+        }
+      }
+    }
+  };
+  walk(root);
+  return tests;
+}
+
 // Discover mealybug-tearoom-tests automatically. Each .gb ROM has a
 // matching reference PNG with `_cgb_d` (CGB-D revision, our preference)
 // or `_cgb_c` (CGB-C, fallback) suffix. We always compare against CGB
@@ -190,7 +222,50 @@ const SCREEN_TESTS: ScreenTest[] = [
     palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
     frames: 60
   },
-  ...discoverMealybugTests()
+  // Blargg screen-only tests — the c-sp release ships a reference PNG of
+  // the post-completion screen for each parent ROM. Frame counts come
+  // from the howto's "emulated seconds" table; we add ~50 % headroom so
+  // the on-screen text has settled by the time we hash. Subtests under
+  // `*/rom_singles` and `*/individual` don't have reference PNGs and
+  // continue to be run via serial detection (where they have it).
+  {
+    romPath: "blargg/halt_bug.gb",
+    refPng: "blargg/halt_bug-dmg-cgb.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 240
+  },
+  {
+    romPath: "blargg/interrupt_time/interrupt_time.gb",
+    refPng: "blargg/interrupt_time/interrupt_time-cgb.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 240
+  },
+  {
+    romPath: "blargg/mem_timing-2/mem_timing.gb",
+    refPng: "blargg/mem_timing-2/mem_timing-dmg-cgb.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 360
+  },
+  {
+    romPath: "blargg/cgb_sound/cgb_sound.gb",
+    refPng: "blargg/cgb_sound/cgb_sound-cgb.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 2400
+  },
+  {
+    romPath: "blargg/dmg_sound/dmg_sound.gb",
+    refPng: "blargg/dmg_sound/dmg_sound-dmg.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 2400
+  },
+  {
+    romPath: "blargg/oam_bug/oam_bug.gb",
+    refPng: "blargg/oam_bug/oam_bug-cgb.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 240
+  },
+  ...discoverMealybugTests(),
+  ...discoverGambatteTests()
 ];
 
 const SCREEN_BY_ROM = new Map<string, ScreenTest>();
@@ -203,10 +278,10 @@ type Outcome = {
   frames: number;
 };
 
-// Mealybug ROMs without a CGB reference PNG can't be compared headlessly
-// against our (always-CGB) framebuffer; mark them "skip" instead of
-// timing them out as serial.
-const MEALYBUG_NO_CGB_REF = new Set<string>();
+// ROMs we can't classify and that should be skipped rather than fall
+// through to a serial-detection timeout. Populated by the indexers below.
+const SKIP_ROMS = new Map<string, string>(); // path → reason
+
 function indexMealybugSkips(): void {
   const root = resolve(TEST_ROMS_DIR, "mealybug-tearoom-tests");
   if (!existsSync(root)) return;
@@ -226,13 +301,36 @@ function indexMealybugSkips(): void {
         // Mealybug `dma/` + `mbc/` ROMs are serial tests instead, so
         // restrict the skip rule to the `ppu/` subdirectory.
         const isPpu = dirRel.endsWith("ppu") || dirRel.endsWith("ppu/");
-        if (!hasRef && isPpu) MEALYBUG_NO_CGB_REF.add(join(dirRel, entry));
+        if (!hasRef && isPpu) SKIP_ROMS.set(join(dirRel, entry), "no CGB reference PNG bundled");
       }
     }
   };
   walk(root);
 }
 indexMealybugSkips();
+
+// Gambatte ROMs that don't have a CGB reference PNG use the hex-pattern
+// or audio-output protocol — we don't decode either, so skip them.
+function indexGambatteSkips(): void {
+  const root = resolve(TEST_ROMS_DIR, "gambatte");
+  if (!existsSync(root)) return;
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (entry.endsWith(".gb") || entry.endsWith(".gbc")) {
+        const stem = entry.replace(/\.(gb|gbc)$/, "");
+        const dirRel = relative(TEST_ROMS_DIR, dir);
+        const ref = resolve(TEST_ROMS_DIR, dirRel, `${stem}_cgb04c.png`);
+        if (!existsSync(ref)) {
+          SKIP_ROMS.set(join(dirRel, entry), "Gambatte hex-pattern / audio-output protocol — not yet supported");
+        }
+      }
+    }
+  };
+  walk(root);
+}
+indexGambatteSkips();
 
 function findRoms(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -351,8 +449,9 @@ function runSerialTest(romPath: string, name: string): Outcome {
 
 function runOne(romPath: string): Outcome {
   const name = relative(TEST_ROMS_DIR, romPath);
-  if (MEALYBUG_NO_CGB_REF.has(name)) {
-    return { name, status: "skip", detail: "no CGB reference PNG bundled", frames: 0 };
+  const skipReason = SKIP_ROMS.get(name);
+  if (skipReason) {
+    return { name, status: "skip", detail: skipReason, frames: 0 };
   }
   try {
     if (name.startsWith("gbmicrotest/") || name.startsWith("gbmicrotest\\")) return runGbMicrotest(romPath, name);
