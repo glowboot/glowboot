@@ -27,6 +27,21 @@ export class Timer {
   private tma = 0x00;
   private tac = 0xf8;
 
+  /** TIMA reload state machine. After overflow, TIMA reads as 0 for one
+   *  M-cycle, then "snaps to" TMA + IRQ on the following M-cycle. Mooneye
+   *  exposes three quirks (`tima_reload`, `tima_write_reloading`,
+   *  `tma_write_reloading`) that we model with three flags:
+   *   - `reloadDelay`: 1 means "fire reload at start of next tick".
+   *   - `overflowThisCycle`: a TIMA write in the overflow's own M-cycle
+   *     succeeds AND cancels the pending reload.
+   *   - `inReloadCycle`: the M-cycle where reload "happens" — TIMA reads
+   *     return TMA, TIMA writes drop, TMA writes here are picked up by
+   *     the commit at end of the cycle (start of next tick), so a same-
+   *     cycle TMA write changes the reload value. */
+  private reloadDelay = 0;
+  private overflowThisCycle = false;
+  private inReloadCycle = false;
+
   constructor(private readonly interrupts: InterruptController) {}
 
   // ─── Bus interface ────────────────────────────────────────────────────────
@@ -36,7 +51,10 @@ export class Timer {
       case 0xff04:
         return (this.div >> 8) & 0xff;
       case 0xff05:
-        return this.tima;
+        // During the reload M-cycle, the TIMA register reads as TMA even
+        // before the actual `tima = tma` commit at end of cycle, since a
+        // TMA write later in the same M-cycle still gets picked up.
+        return this.inReloadCycle ? this.tma : this.tima;
       case 0xff06:
         return this.tma;
       case 0xff07:
@@ -46,13 +64,45 @@ export class Timer {
     }
   }
 
+  /** TIMA input signal: AND of TAC's "selected bit" of div with TAC enable.
+   *  Real hardware increments TIMA on this signal's *falling edge*, so any
+   *  state change that drops the signal from 1 to 0 (DIV reset, TAC mode
+   *  switch, TAC enable→disable) triggers an increment — even without a
+   *  natural counter overflow. Mooneye's `tim*_div_trigger` and
+   *  `rapid_toggle` exercise this exactly. */
+  private timerInput(): boolean {
+    if (!(this.tac & 0x04)) return false;
+    return (this.div & (1 << (TAC_SHIFTS[this.tac & 0x03]! - 1))) !== 0;
+  }
+
+  private bumpTima(): void {
+    this.tima = (this.tima + 1) & 0xff;
+    if (this.tima === 0) {
+      this.reloadDelay = 1;
+      this.overflowThisCycle = true;
+    }
+  }
+
   writeByte(addr: number, value: number): void {
+    const prevInput = this.timerInput();
     switch (addr) {
       case 0xff04:
         this.div = 0;
         break; // any write resets DIV
       case 0xff05:
-        this.tima = value;
+        // TIMA writes interact with the reload state machine:
+        //   - same M-cycle as the overflow (`overflowThisCycle`) → write
+        //     succeeds AND cancels the pending reload.
+        //   - inside the reload's M-cycle (`inReloadCycle`) → silently
+        //     dropped; the latched TMA wins at end of cycle.
+        if (this.inReloadCycle) {
+          // dropped
+        } else if (this.overflowThisCycle) {
+          this.tima = value;
+          this.reloadDelay = 0;
+        } else {
+          this.tima = value;
+        }
         break;
       case 0xff06:
         this.tma = value;
@@ -61,35 +111,50 @@ export class Timer {
         this.tac = value & 0x07;
         break;
     }
+    if (prevInput && !this.timerInput()) this.bumpTima();
   }
 
   // ─── Timing ───────────────────────────────────────────────────────────────
 
-  /** Advance by `cycles` M-cycles in bulk. */
+  /** Advance by `cycles` M-cycles. Iterates one M-cycle at a time so the
+   *  reload-delay countdown stays aligned with bus accesses — the natural
+   *  call site is `tick(1)` from CPU.busRead/busWrite, but `finishTicks`
+   *  can pass a small batch of remaining cycles at end-of-instruction.
+   *  Internal DIV is clocked at the 4.194 MHz T-cycle rate, so `div >> 8`
+   *  (exposed as 0xFF04) advances every 256 T-cycles = 64 M-cycles, giving
+   *  the documented 16384 Hz. */
   tick(cycles: number): void {
-    // Internal DIV is clocked at the 4.194 MHz T-cycle rate, so `div >> 8`
-    // (exposed as 0xFF04) advances every 256 T-cycles = 64 M-cycles, giving
-    // the documented 16384 Hz. TAC's shifts are likewise T-cycle powers
-    // (1024 / 16 / 64 / 256 T-cycles for 4096 / 262144 / 65536 / 16384 Hz).
-    const t = cycles * 4; // M-cycles → T-cycles
-    const prevDiv = this.div;
-    const rawDiv = prevDiv + t;
-    this.div = rawDiv & 0xffff;
+    for (let i = 0; i < cycles; i++) this.tickOneMcycle();
+  }
 
-    if (!(this.tac & 0x04)) return; // timer stopped
+  private tickOneMcycle(): void {
+    // First: end any reload-cycle that's been running for one M-cycle.
+    // We commit `tima = tma` here (not at fire time) so a TMA write made
+    // during the reload's M-cycle still affects the reloaded value.
+    if (this.inReloadCycle) {
+      this.tima = this.tma;
+      this.inReloadCycle = false;
+    }
 
-    // Each TIMA input is a power-of-two threshold, so boundary crossings in
-    // (prevDiv, rawDiv] equal the difference of shifted counters.
-    const shift = TAC_SHIFTS[this.tac & 0x03]!;
-    let ticks = (rawDiv >>> shift) - (prevDiv >>> shift);
+    this.overflowThisCycle = false;
 
-    while (ticks-- > 0) {
-      this.tima++;
-      if (this.tima > 0xff) {
-        this.tima = this.tma;
+    // Fire any pending reload at the start of this M-cycle. The reload's
+    // M-cycle is THIS one (until the next tick commits it).
+    if (this.reloadDelay > 0) {
+      this.reloadDelay--;
+      if (this.reloadDelay === 0) {
+        this.inReloadCycle = true;
         this.interrupts.request(INTERRUPT_TIMER);
       }
     }
+
+    const prevDiv = this.div;
+    this.div = (prevDiv + 4) & 0xffff;
+
+    if (!(this.tac & 0x04)) return; // timer stopped
+
+    const shift = TAC_SHIFTS[this.tac & 0x03]!;
+    if (prevDiv >>> shift !== this.div >>> shift) this.bumpTima();
   }
 
   serialize(w: StateWriter): void {
@@ -97,11 +162,15 @@ export class Timer {
     w.u8(this.tima);
     w.u8(this.tma);
     w.u8(this.tac);
+    w.u8(this.reloadDelay);
   }
   deserialize(r: StateReader): void {
     this.div = r.u16();
     this.tima = r.u8();
     this.tma = r.u8();
     this.tac = r.u8();
+    this.reloadDelay = r.u8();
+    this.overflowThisCycle = false; // transient per-tick flag
+    this.inReloadCycle = false; // reset on reload from save state
   }
 }

@@ -57,8 +57,11 @@ describe("Timer", () => {
       timer.writeByte(0xff06, 0x42); // TMA
       timer.writeByte(0xff05, 0xff); // TIMA one step away from wrap
       timer.writeByte(0xff07, 0b101); // enabled, fastest (every 4 M-cycles)
-      timer.tick(4); // one TIMA increment: 0xFF → 0x00 → reload 0x42
-
+      // Real hardware leaves TIMA = 0 for one M-cycle after overflow before
+      // the TMA reload + IRQ; tick(4) hits the overflow, tick(5) commits.
+      timer.tick(4);
+      expect(timer.readByte(0xff05)).toBe(0x00);
+      timer.tick(2);
       expect(timer.readByte(0xff05)).toBe(0x42);
       expect(interrupts.if & INTERRUPT_TIMER).toBe(INTERRUPT_TIMER);
     });
