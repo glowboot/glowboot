@@ -136,6 +136,14 @@ export class APU {
         return this.nr51;
       case 0xff26:
         return this.readNR52();
+      // CGB-only PCM amplitude readouts. PCM12 / PCM34 expose the current
+      // 4-bit DAC output of channels 1+2 / 3+4 respectively. Pan Docs
+      // labels these "undocumented" but Mooneye `unused_hwio-C` verifies
+      // they read as 0 when channels are silent.
+      case 0xff76:
+        return (this.ch1.sample() & 0x0f) | ((this.ch2.sample() & 0x0f) << 4);
+      case 0xff77:
+        return (this.ch3.sample() & 0x0f) | ((this.ch4.sample() & 0x0f) << 4);
       default:
         return 0xff;
     }

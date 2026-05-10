@@ -78,12 +78,14 @@ describe("Timer", () => {
       timer.writeByte(0xff06, 0xcd);
       timer.writeByte(0xff07, 0x07);
       expect(timer.readByte(0xff06)).toBe(0xcd);
-      expect(timer.readByte(0xff07)).toBe(0x07);
+      // TAC bits 3-7 are unused and read as 1 on real hardware (Mooneye
+      // `unused_hwio-{GS,C}`); only bits 0-2 carry meaning.
+      expect(timer.readByte(0xff07)).toBe(0xff);
     });
 
-    it("masks TAC writes to bits 0-2 — bits 3-7 are unused and read as 0", () => {
-      timer.writeByte(0xff07, 0xff);
-      expect(timer.readByte(0xff07)).toBe(0x07);
+    it("masks TAC writes to bits 0-2 — bits 3-7 are unused and read as 1", () => {
+      timer.writeByte(0xff07, 0x00);
+      expect(timer.readByte(0xff07)).toBe(0xf8);
     });
   });
 
@@ -108,7 +110,7 @@ describe("Timer", () => {
       expect(dst.readByte(0xff04)).toBe(7);
       expect(dst.readByte(0xff05)).toBe(0x42);
       expect(dst.readByte(0xff06)).toBe(0xab);
-      expect(dst.readByte(0xff07)).toBe(0x05);
+      expect(dst.readByte(0xff07)).toBe(0xfd); // 0x05 with unused bits 3-7 forced to 1
     });
   });
 });

@@ -65,7 +65,9 @@ export class Timer {
       case 0xff06:
         return this.tma;
       case 0xff07:
-        return this.tac;
+        // Bits 3-7 of TAC are unused and read back as 1 (Mooneye
+        // `unused_hwio-{GS,C}`). We only store the meaningful low 3 bits.
+        return this.tac | 0xf8;
       default:
         return 0xff;
     }

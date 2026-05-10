@@ -203,7 +203,7 @@ export class CPU {
 
   // ─── Interrupt service ────────────────────────────────────────────────────
 
-  private serviceInterrupt(flag: number): number {
+  private serviceInterrupt(_flag: number): number {
     this.ime = false;
     this.halted = false;
     // Dispatch is 5 M-cycles: 2 NOPs + 2 push cycles + 1 vector-fetch
@@ -211,10 +211,21 @@ export class CPU {
     // intr_timing-style tests see the correct per-cycle timer state.
     this.internalCycle(); // M1 internal
     this.internalCycle(); // M2 internal
-    this.interrupts.acknowledge(flag);
     const returnAddr = this.regs.pc;
-    this.stackPush(returnAddr); // M3 write hi, M4 write lo
-    const vector = INTERRUPT_VECTORS[flag]!;
+    // The IRQ vector is latched *between* the two pushes. With SP=0, PCH
+    // writes to 0xFFFF (= IE) and can change which bit is pending — or
+    // zero pending entirely, dispatching to 0x0000 with no acknowledge.
+    // With SP=1, PCL is the one that hits 0xFFFF, but that's after the
+    // latch so it only affects the next IRQ. Mooneye `ie_push` proves
+    // both halves of this distinction.
+    this.regs.sp = (this.regs.sp - 1) & 0xffff;
+    this.busWrite(this.regs.sp, (returnAddr >> 8) & 0xff); // M3 PCH push
+    const pending = this.interrupts.ie & this.interrupts.if & 0x1f;
+    const flag = pending & -pending;
+    const vector = flag !== 0 ? INTERRUPT_VECTORS[flag]! : 0x0000;
+    if (flag !== 0) this.interrupts.acknowledge(flag);
+    this.regs.sp = (this.regs.sp - 1) & 0xffff;
+    this.busWrite(this.regs.sp, returnAddr & 0xff); // M4 PCL push
     notePush({ callSite: vector, returnAddr, kind: "irq" });
     this.internalCycle(); // M5 internal (PC ← vector)
     this.regs.pc = vector;

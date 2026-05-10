@@ -82,9 +82,19 @@ export class MMU {
   onSerialOut: ((byte: number) => void) | null = null;
   private serialData = 0x00;
 
-  /** SC register (0xFF02). Bit 7 = transfer active, bit 1 = CGB high-
-   *  speed clock, bit 0 = clock source (1 = internal / master). */
+  /** SC register (0xFF02). Bit 7 = transfer active, bit 0 = clock source
+   *  (1 = internal / master). Bits 1-6 unused, read as 1 on both DMG
+   *  and CGB. */
   private serialControl = 0x7e; // post-boot value (bits 1-6 are ones)
+
+  /** Undocumented CGB-only R/W registers (Pan Docs §"Undocumented
+   *  registers"). FF72/FF73 are 8-bit R/W with no mask; FF74 is R/W in
+   *  CGB mode (which we always are); FF75 only stores bits 4-6, with
+   *  the rest reading as 1. Mooneye `unused_hwio-C` verifies all four. */
+  private ff72 = 0;
+  private ff73 = 0;
+  private ff74 = 0;
+  private ff75 = 0;
   /** Set during a master transfer while we're waiting for the peer's
    *  async response; guards against double-completion when the
    *  peer-initiated path fires for a race'd transfer. */
@@ -392,8 +402,11 @@ export class MMU {
       case 0xff01:
         return this.serialData;
       case 0xff02:
-        // Unused bits (1-6 on DMG, 1-5 on CGB) read as 1.
-        return this.serialControl | (this.cgb ? 0x7c : 0x7e);
+        // Bits 1-6 are unused and read as 1, both on DMG and CGB. Mooneye
+        // `unused_hwio-{GS,C}` verifies that bit 1 reads as 1 even on CGB
+        // (Pan Docs labels it "Clock Speed" on CGB, but real hardware
+        // doesn't drive it that way — CGB serial speed lives in KEY1).
+        return this.serialControl | 0x7e;
       case 0xff04:
       case 0xff05:
       case 0xff06:
@@ -417,6 +430,17 @@ export class MMU {
         return this.cgb ? this.hdmaCtrl : 0xff;
       case 0xff70:
         return this.cgb ? 0xf8 | this.svbk : 0xff;
+      case 0xff72:
+        return this.cgb ? this.ff72 : 0xff;
+      case 0xff73:
+        return this.cgb ? this.ff73 : 0xff;
+      case 0xff74:
+        return this.cgb ? this.ff74 : 0xff;
+      case 0xff75:
+        return this.cgb ? this.ff75 | 0x8f : 0xff;
+      case 0xff76:
+      case 0xff77:
+        return this.cgb ? this.apu.readByte(addr) : 0xff;
       default:
         if (addr >= 0xff10 && addr <= 0xff3f) return this.apu.readByte(addr);
         if (addr >= 0xff40 && addr <= 0xff4b) return this.ppu.readByte(addr);
@@ -540,6 +564,18 @@ export class MMU {
         return;
       case 0xff70:
         if (this.cgb) this.svbk = value & 0x07 || 1;
+        return;
+      case 0xff72:
+        if (this.cgb) this.ff72 = value;
+        return;
+      case 0xff73:
+        if (this.cgb) this.ff73 = value;
+        return;
+      case 0xff74:
+        if (this.cgb) this.ff74 = value;
+        return;
+      case 0xff75:
+        if (this.cgb) this.ff75 = value & 0x70;
         return;
       default:
         if (addr >= 0xff10 && addr <= 0xff3f) {
