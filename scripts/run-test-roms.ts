@@ -1,35 +1,160 @@
 /**
- * Test-ROM harness — runs Game Boy test ROMs (Blargg / Mooneye / etc.)
+ * Test-ROM harness — runs Game Boy test ROMs (Blargg / Mooneye / acid2 / etc.)
  * against the in-tree emulator and reports pass / fail. Not part of the
  * regular `npm test` chain; invoke via `npm run test:roms`.
  *
  * Test ROMs themselves live under `test-roms/` (gitignored) — fetch from
  *   https://github.com/c-sp/game-boy-test-roms/releases (latest .zip)
  *
- * Detection covers two output protocols:
+ * Detection covers three protocols:
  *   1. Blargg — ASCII via serial; success = collected text contains
  *      "Passed", failure = "Failed".
- *   2. Mooneye — 6 magic bytes via serial after the test ends.
- *      Pass = [3, 5, 8, 13, 21, 34] (Fibonacci). Fail = six 0x42's.
+ *   2. Mooneye — 6 magic bytes via serial after the test ends. Pass tail
+ *      = [3, 5, 8, 13, 21, 34] (Fibonacci); fail = six 0x42's.
+ *   3. Framebuffer — for screen-only tests (acid2, mealybug-tearoom-tests,
+ *      etc.). After running for a fixed frame count, the rendered
+ *      framebuffer is compared byte-for-byte to a reference PNG bundled
+ *      with the test ROM. Used for tests in `SCREEN_TESTS` below.
  *
- * Anything that doesn't emit serial in either format times out after
- * MAX_FRAMES. Screen-only tests (acid2 / mealybug-tearoom-tests / many
- * mooneye PPU tests) need a framebuffer-hash detector that's TBD.
+ * For DMG-cart-on-CGB-host tests (e.g. dmg-acid2), the reference PNG was
+ * produced with a specific compat palette (see dmg-acid2's howto). We
+ * install the matching shades via `setDmgCompatPalette` before running so
+ * the framebuffer hashes line up.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { PNG } from "pngjs";
+
 import { GameBoy } from "../src/gb/gameboy.js";
+import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../src/gb/ppu/ppu.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const TEST_ROMS_DIR = resolve(ROOT, "test-roms");
 
-const MAX_FRAMES = 60 * 60; // 60 seconds at 60 fps; longer than any Blargg test
-const FAIL_PREVIEW_LIMIT = 200; // chars of serial output to print on fail
+const MAX_FRAMES_SERIAL = 60 * 60; // 60s at 60fps — longer than any Blargg test.
+const FAIL_PREVIEW_LIMIT = 200;
 
-type Outcome = { name: string; status: "pass" | "fail" | "timeout"; serial: string; frames: number };
+// ─── Palette overrides for screen-only tests ──────────────────────────────────
+// AABBGGRR layout — same as the framebuffer's u32 view. Colour 0 is the
+// lightest shade, colour 3 the darkest, matching Glowboot's shade-table
+// indexing.
+
+// dmg-acid2 howto:
+//   "LCD shades for CGB compatibility mode are:
+//    - background: #000000, #0063C6, #7BFF31 and #FFFFFF
+//    - objects:    #000000, #943939, #FF8484 and #FFFFFF"
+const ACID2_CGB_BG = [0xffffffff, 0xff31ff7b, 0xffc66300, 0xff000000];
+const ACID2_CGB_OBP = [0xffffffff, 0xff8484ff, 0xff393994, 0xff000000];
+
+// ─── Screen-only test configs ────────────────────────────────────────────────
+interface ScreenTest {
+  romPath: string; // path under test-roms/
+  refPng: string; // path under test-roms/
+  palette?: { bg: number[]; obp0: number[]; obp1: number[] };
+  frames: number;
+}
+
+// Discover mealybug-tearoom-tests automatically. Each .gb ROM has a
+// matching reference PNG with `_cgb_d` (CGB-D revision, our preference)
+// or `_cgb_c` (CGB-C, fallback) suffix. We always compare against CGB
+// references because Glowboot presents as CGB; DMG-only references with
+// `_dmg_blob` suffix are skipped.
+function discoverMealybugTests(): ScreenTest[] {
+  const root = resolve(TEST_ROMS_DIR, "mealybug-tearoom-tests");
+  if (!existsSync(root)) return [];
+  const tests: ScreenTest[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (extname(entry) === ".gb") {
+        const stem = entry.slice(0, -3);
+        const dirRel = relative(TEST_ROMS_DIR, dir);
+        const refD = join(dirRel, `${stem}_cgb_d.png`);
+        const refC = join(dirRel, `${stem}_cgb_c.png`);
+        const ref = existsSync(resolve(TEST_ROMS_DIR, refD))
+          ? refD
+          : existsSync(resolve(TEST_ROMS_DIR, refC))
+            ? refC
+            : null;
+        if (ref) {
+          tests.push({
+            romPath: join(dirRel, entry),
+            refPng: ref,
+            palette: { bg: ACID2_CGB_BG, obp0: ACID2_CGB_OBP, obp1: ACID2_CGB_OBP },
+            frames: 60
+          });
+        }
+      }
+    }
+  };
+  walk(root);
+  return tests;
+}
+
+const SCREEN_TESTS: ScreenTest[] = [
+  {
+    romPath: "dmg-acid2/dmg-acid2.gb",
+    refPng: "dmg-acid2/dmg-acid2-cgb.png",
+    palette: { bg: ACID2_CGB_BG, obp0: ACID2_CGB_OBP, obp1: ACID2_CGB_OBP },
+    frames: 60
+  },
+  {
+    romPath: "cgb-acid2/cgb-acid2.gbc",
+    refPng: "cgb-acid2/cgb-acid2.png",
+    frames: 60
+  },
+  {
+    romPath: "cgb-acid-hell/cgb-acid-hell.gbc",
+    refPng: "cgb-acid-hell/cgb-acid-hell.png",
+    frames: 60
+  },
+  ...discoverMealybugTests()
+];
+
+const SCREEN_BY_ROM = new Map<string, ScreenTest>();
+for (const t of SCREEN_TESTS) SCREEN_BY_ROM.set(t.romPath, t);
+
+type Outcome = {
+  name: string;
+  status: "pass" | "fail" | "timeout" | "skip";
+  detail: string;
+  frames: number;
+};
+
+// Mealybug ROMs without a CGB reference PNG can't be compared headlessly
+// against our (always-CGB) framebuffer; mark them "skip" instead of
+// timing them out as serial.
+const MEALYBUG_NO_CGB_REF = new Set<string>();
+function indexMealybugSkips(): void {
+  const root = resolve(TEST_ROMS_DIR, "mealybug-tearoom-tests");
+  if (!existsSync(root)) return;
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (extname(entry) === ".gb") {
+        const stem = entry.slice(0, -3);
+        const dirRel = relative(TEST_ROMS_DIR, dir);
+        const refD = resolve(TEST_ROMS_DIR, dirRel, `${stem}_cgb_d.png`);
+        const refC = resolve(TEST_ROMS_DIR, dirRel, `${stem}_cgb_c.png`);
+        const hasRef = existsSync(refD) || existsSync(refC);
+        // Mealybug PPU tests are screenshot tests; if no CGB reference
+        // exists for one (whether it has a DMG-only reference or no
+        // reference at all), we can't compare it on our CGB-host.
+        // Mealybug `dma/` + `mbc/` ROMs are serial tests instead, so
+        // restrict the skip rule to the `ppu/` subdirectory.
+        const isPpu = dirRel.endsWith("ppu") || dirRel.endsWith("ppu/");
+        if (!hasRef && isPpu) MEALYBUG_NO_CGB_REF.add(join(dirRel, entry));
+      }
+    }
+  };
+  walk(root);
+}
+indexMealybugSkips();
 
 function findRoms(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -46,7 +171,7 @@ function findRoms(dir: string): string[] {
   return out.sort();
 }
 
-const MOONEYE_PASS = [3, 5, 8, 13, 21, 34]; // Fibonacci tail in registers / serial
+const MOONEYE_PASS = [3, 5, 8, 13, 21, 34];
 
 function tailMatches(buf: number[], expected: number[]): boolean {
   if (buf.length < expected.length) return false;
@@ -57,38 +182,77 @@ function tailMatches(buf: number[], expected: number[]): boolean {
   return true;
 }
 
-function runOne(romPath: string): Outcome {
-  const name = relative(TEST_ROMS_DIR, romPath);
-  const bytes = new Uint8Array(readFileSync(romPath));
+function loadReferencePng(absPath: string): Uint8Array {
+  const png = PNG.sync.read(readFileSync(absPath));
+  if (png.width !== SCREEN_WIDTH || png.height !== SCREEN_HEIGHT) {
+    throw new Error(
+      `reference PNG ${absPath} is ${png.width}×${png.height}, expected ${SCREEN_WIDTH}×${SCREEN_HEIGHT}`
+    );
+  }
+  return new Uint8Array(png.data);
+}
 
+function diffPixels(a: Uint8Array, b: Uint8Array): number {
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) diff++;
+  }
+  return diff;
+}
+
+function runFramebufferTest(romPath: string, cfg: ScreenTest, name: string): Outcome {
+  const bytes = new Uint8Array(readFileSync(romPath));
+  const gb = new GameBoy(bytes);
+  if (cfg.palette) gb.ppu.setDmgCompatPalette(cfg.palette.bg, cfg.palette.obp0, cfg.palette.obp1);
+  for (let f = 0; f < cfg.frames; f++) gb.runFrame();
+  const ref = loadReferencePng(resolve(TEST_ROMS_DIR, cfg.refPng));
+  const diff = diffPixels(gb.ppu.framebuffer, ref);
+  if (diff === 0) return { name, status: "pass", detail: "framebuffer matches reference", frames: cfg.frames };
+  return {
+    name,
+    status: "fail",
+    detail: `${diff} of ${SCREEN_WIDTH * SCREEN_HEIGHT} pixels differ from reference`,
+    frames: cfg.frames
+  };
+}
+
+function runSerialTest(romPath: string, name: string): Outcome {
+  const bytes = new Uint8Array(readFileSync(romPath));
+  const gb = new GameBoy(bytes);
   const serialBytes: number[] = [];
   let serial = "";
-  const gb = new GameBoy(bytes);
   gb.mmu.onSerialOut = (b: number) => {
     serialBytes.push(b);
     serial += String.fromCharCode(b);
   };
-
-  for (let f = 0; f < MAX_FRAMES; f++) {
+  for (let f = 0; f < MAX_FRAMES_SERIAL; f++) {
     gb.runFrame();
-    // Blargg-style ASCII serial output.
-    if (serial.includes("Passed")) return { name, status: "pass", serial, frames: f + 1 };
-    if (serial.includes("Failed")) return { name, status: "fail", serial, frames: f + 1 };
-    // Mooneye-style: 6-byte Fibonacci tail on pass, 6× 0x42 on fail.
-    if (tailMatches(serialBytes, MOONEYE_PASS)) return { name, status: "pass", serial, frames: f + 1 };
+    if (serial.includes("Passed")) return { name, status: "pass", detail: "blargg: Passed", frames: f + 1 };
+    if (serial.includes("Failed")) return { name, status: "fail", detail: serial, frames: f + 1 };
+    if (tailMatches(serialBytes, MOONEYE_PASS))
+      return { name, status: "pass", detail: "mooneye: Fibonacci", frames: f + 1 };
     if (serialBytes.length >= 6 && serialBytes.slice(-6).every((b) => b === 0x42)) {
-      return { name, status: "fail", serial, frames: f + 1 };
+      return { name, status: "fail", detail: "mooneye: 0x42 ×6", frames: f + 1 };
     }
   }
-  return { name, status: "timeout", serial, frames: MAX_FRAMES };
+  return { name, status: "timeout", detail: serial, frames: MAX_FRAMES_SERIAL };
+}
+
+function runOne(romPath: string): Outcome {
+  const name = relative(TEST_ROMS_DIR, romPath);
+  if (MEALYBUG_NO_CGB_REF.has(name)) {
+    return { name, status: "skip", detail: "no CGB reference PNG bundled", frames: 0 };
+  }
+  const cfg = SCREEN_BY_ROM.get(name);
+  return cfg ? runFramebufferTest(romPath, cfg, name) : runSerialTest(romPath, name);
 }
 
 function main(): void {
-  const filter = process.argv[2]; // optional substring filter, e.g. "blargg/cpu_instrs"
+  const filter = process.argv[2];
   const all = findRoms(TEST_ROMS_DIR);
   if (all.length === 0) {
     console.error(`No ROMs found under ${TEST_ROMS_DIR}.`);
-    console.error(`Fetch them with:\n  git clone --depth 1 https://github.com/c-sp/game-boy-test-roms.git test-roms`);
+    console.error(`Fetch from https://github.com/c-sp/game-boy-test-roms/releases (latest .zip).`);
     process.exit(1);
   }
 
@@ -105,17 +269,18 @@ function main(): void {
   const pass = results.filter((r) => r.status === "pass");
   const fail = results.filter((r) => r.status === "fail");
   const timeout = results.filter((r) => r.status === "timeout");
+  const skip = results.filter((r) => r.status === "skip");
 
   for (const r of results) {
-    const tag = r.status === "pass" ? "PASS" : r.status === "fail" ? "FAIL" : "TIME";
-    console.log(`[${tag}] ${r.name}  (${r.frames} frames)`);
-    if (r.status !== "pass" && r.serial) {
-      const preview = r.serial.replace(/\s+/g, " ").trim().slice(0, FAIL_PREVIEW_LIMIT);
-      if (preview) console.log(`        serial: ${preview}`);
+    const tag = r.status === "pass" ? "PASS" : r.status === "fail" ? "FAIL" : r.status === "timeout" ? "TIME" : "SKIP";
+    console.log(`[${tag}] ${r.name}${r.frames > 0 ? `  (${r.frames} frames)` : ""}`);
+    if (r.status !== "pass" && r.detail) {
+      const preview = r.detail.replace(/\s+/g, " ").trim().slice(0, FAIL_PREVIEW_LIMIT);
+      if (preview) console.log(`        ${preview}`);
     }
   }
 
-  console.log(`\n${pass.length} passed, ${fail.length} failed, ${timeout.length} timed out.`);
+  console.log(`\n${pass.length} passed, ${fail.length} failed, ${timeout.length} timed out, ${skip.length} skipped.`);
   process.exit(fail.length + timeout.length > 0 ? 1 : 0);
 }
 

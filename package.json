@@ -30,9 +30,11 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "@types/pngjs": "^6.0.5",
     "eslint": "^10.3.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-simple-import-sort": "^13.0.0",
+    "pngjs": "^7.0.0",
     "prettier": "^3.8.3",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
