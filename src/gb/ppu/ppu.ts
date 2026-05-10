@@ -81,8 +81,12 @@ export class PPU {
   /** CGB BG-priority flag per pixel (0 or 1) — BG-attr bit 7. */
   private readonly bgPriBuf = new Uint8Array(SCREEN_WIDTH);
 
-  /** Scratch buffer for scanline sprite selection (reused each line). */
+  /** Scratch buffer for scanline sprite selection (reused each line). The
+   *  10-entry budget matches real hardware's mode-2 OAM-search cap. The
+   *  Pixel-FIFO renderer pre-collects + sorts these at mode-3 start, then
+   *  resolves the winning sprite at each pixel during the BG-FIFO pop. */
   private readonly visibleSprites = new Uint8Array(10);
+  private visibleSpriteCount = 0;
 
   // LCD control & status. Post-boot defaults reflect the state the
   // boot ROM leaves behind (LCD on, BGP=$FC, sprites visible). When a
@@ -678,14 +682,13 @@ export class PPU {
         if (this.dots >= this.mode3Length) {
           this.dots = 0;
           // If mode 3 ended before the fetcher reached pixel 160 (shouldn't
-          // happen if mode3Length is correct), draw sprites anyway so the
-          // line is at least partially complete. Sprite render gated on
-          // `lineSpritesDrawn` to avoid double-overlay when the fetcher
-          // already triggered it at currentPx=160.
+          // happen with a correctly-computed `mode3Length`), commit
+          // whatever the scratch row holds and bump winLY. Sprites were
+          // mixed in per-pixel inside `tryPushBgPixel`.
           if (this.ly < SCREEN_HEIGHT && !this.lineSpritesDrawn) {
+            this.lineSpritesDrawn = true;
             if (this.fetchInWindow) this.winLY++;
-            if (this.cgbGame) this.renderSpritesCgb();
-            else this.renderSprites();
+            this.fb32.set(this.scratchRow, this.ly * SCREEN_WIDTH);
           }
           this.setMode(Mode.HBlank);
           this.onHBlank?.();
@@ -776,6 +779,76 @@ export class PPU {
     this.lineSpritesDrawn = false;
     this.bgColorBuf.fill(0);
     this.bgPriBuf.fill(0);
+    this.collectVisibleSprites();
+  }
+
+  /** Pre-collect the (up to 10) sprites that intersect the current scanline
+   *  and sort them by priority. The sort order depends on the host:
+   *    - DMG: lowest X first; OAM index breaks ties (lowest first wins).
+   *    - CGB OPRI=0: OAM order (default — lowest OAM index wins).
+   *    - CGB OPRI=1: same as DMG (lowest X first, lowest OAM tiebreaker).
+   *  The pixel-FIFO mixer iterates this list in order and takes the first
+   *  non-transparent pixel at each X. */
+  private collectVisibleSprites(): void {
+    if (!(this.lcdc & 0x02)) {
+      this.visibleSpriteCount = 0;
+      return;
+    }
+    const tallSprites = (this.lcdc & 0x04) !== 0;
+    const spriteHeight = tallSprites ? 16 : 8;
+    const oam = this.oam;
+    let count = 0;
+    for (let i = 0; i < 40 && count < 10; i++) {
+      const sprY = oam[i * 4]! - 16;
+      if (this.ly >= sprY && this.ly < sprY + spriteHeight) this.visibleSprites[count++] = i;
+    }
+    this.visibleSpriteCount = count;
+    if (!this.cgbGame || this.opri & 1) {
+      this.visibleSprites.subarray(0, count).sort((a, b) => {
+        const xa = oam[a * 4 + 1]!,
+          xb = oam[b * 4 + 1]!;
+        return xa !== xb ? xa - xb : a - b;
+      });
+    }
+  }
+
+  /** Resolve the winning sprite pixel for `screenX` (or 0 = transparent if
+   *  no sprite covers that column). Stores the result in three out fields
+   *  (`outSprColor`, `outSprPalette`, `outSprPriority`) to avoid object
+   *  allocation in the hot pixel-emit loop. */
+  private outSprColor = 0;
+  private outSprPalette = 0;
+  private outSprPriority = 0;
+  private resolveSpritePixel(screenX: number): void {
+    this.outSprColor = 0;
+    if (this.visibleSpriteCount === 0) return;
+    const oam = this.oam;
+    const tallSprites = (this.lcdc & 0x04) !== 0;
+    const spriteHeight = tallSprites ? 16 : 8;
+    for (let i = 0; i < this.visibleSpriteCount; i++) {
+      const idx = this.visibleSprites[i]!;
+      const sprX = oam[idx * 4 + 1]! - 8;
+      if (screenX < sprX || screenX >= sprX + 8) continue;
+      const sprY = oam[idx * 4]! - 16;
+      const tileNum = oam[idx * 4 + 2]! & (tallSprites ? 0xfe : 0xff);
+      const attrs = oam[idx * 4 + 3]!;
+      const flipX = (attrs & 0x20) !== 0;
+      const flipY = (attrs & 0x40) !== 0;
+      let fineX = screenX - sprX;
+      if (flipX) fineX = 7 - fineX;
+      let fineY = this.ly - sprY;
+      if (flipY) fineY = spriteHeight - 1 - fineY;
+      const bankOffset = this.cgb && (attrs & 0x08) !== 0 ? 0x2000 : 0;
+      const lo = this.vram[bankOffset + tileNum * 16 + fineY * 2]!;
+      const hi = this.vram[bankOffset + tileNum * 16 + fineY * 2 + 1]!;
+      const bit = 7 - fineX;
+      const colorIdx = ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1);
+      if (colorIdx === 0) continue; // transparent — try the next sprite
+      this.outSprColor = colorIdx;
+      this.outSprPalette = this.cgbGame ? attrs & 0x07 : (attrs & 0x10) !== 0 ? 1 : 0;
+      this.outSprPriority = (attrs & 0x80) !== 0 ? 1 : 0;
+      return;
+    }
   }
 
   /** Advance the BG fetcher one dot. Each step (Get Tile / Get Lo / Get Hi
@@ -879,41 +952,57 @@ export class PPU {
       return;
     }
 
-    const colorIdx = entry & 0x03;
-    const palIdx = (entry >> 2) & 0x07;
-    const priority = (entry >> 5) & 1;
+    const bgColorIdx = entry & 0x03;
+    const bgPalIdx = (entry >> 2) & 0x07;
+    const bgPriBit = (entry >> 5) & 1;
 
-    // Buffers used by the sprite renderer at end of mode 3 to apply
-    // BG-over-sprite priority. BG pixels go to a scratch row first; the
-    // commit-to-fb happens atomically when the line is complete so a
-    // partial mode-3 doesn't leak half-drawn scanlines into the visible
-    // framebuffer.
-    if (this.cgbGame) {
-      this.bgColorBuf[this.currentPx] = colorIdx;
-      this.bgPriBuf[this.currentPx] = priority;
-      this.scratchRow[this.currentPx] = this.cgbBgPalettesActive[palIdx * 4 + colorIdx]!;
-    } else if ((this.lcdc & 0x01) !== 0) {
-      this.bgColorBuf[this.currentPx] = colorIdx;
-      this.scratchRow[this.currentPx] = this.bgPalette[colorIdx]!;
-    } else {
-      // DMG with LCDC.0 cleared: BG forced to color 0; sprites always win.
-      this.bgColorBuf[this.currentPx] = 0;
-      this.scratchRow[this.currentPx] = this.bgPalette[0]!;
+    // Effective BG color index for sprite-priority decisions. DMG with
+    // LCDC.0 cleared forces BG to color 0 so sprites always win.
+    const effectiveBg = !this.cgbGame && !(this.lcdc & 0x01) ? 0 : bgColorIdx;
+
+    // Resolve the winning sprite pixel for this column (if any).
+    if ((this.lcdc & 0x02) !== 0) this.resolveSpritePixel(this.currentPx);
+    else this.outSprColor = 0;
+
+    // Decide if the sprite is on top. CGB has a master-priority gate via
+    // LCDC.0; if cleared, sprites always win. Otherwise BG wins when its
+    // color is non-zero AND (sprite's OAM priority OR BG-attr priority)
+    // is set. DMG just looks at the sprite's OAM priority bit.
+    let useSprite = false;
+    if (this.outSprColor !== 0) {
+      if (this.cgbGame) {
+        if (!(this.lcdc & 0x01)) useSprite = true;
+        else if (effectiveBg === 0) useSprite = true;
+        else if (this.outSprPriority || bgPriBit) useSprite = false;
+        else useSprite = true;
+      } else {
+        if (effectiveBg === 0) useSprite = true;
+        else useSprite = !this.outSprPriority;
+      }
     }
 
+    let rgba: number;
+    if (useSprite) {
+      rgba = this.cgbGame
+        ? this.cgbObPalettesActive[this.outSprPalette * 4 + this.outSprColor]!
+        : (this.outSprPalette === 1 ? this.obp1Palette : this.obp0Palette)[this.outSprColor]!;
+    } else if (this.cgbGame) {
+      rgba = this.cgbBgPalettesActive[bgPalIdx * 4 + bgColorIdx]!;
+    } else {
+      rgba = (this.lcdc & 0x01) !== 0 ? this.bgPalette[bgColorIdx]! : this.bgPalette[0]!;
+    }
+
+    this.bgColorBuf[this.currentPx] = effectiveBg;
+    this.bgPriBuf[this.currentPx] = bgPriBit;
+    this.scratchRow[this.currentPx] = rgba;
     this.currentPx++;
 
-    // Line complete — commit BG scratch row to fb, then overlay sprites.
-    // Doing this here (rather than waiting for mode3Length to elapse)
-    // means a `runFrame()` that returns mid-mode-3 padding still leaves
-    // a complete scanline behind.
+    // Line complete — commit BG scratch row to fb. Sprites are already
+    // mixed in per-pixel above, so no separate sprite-overlay pass.
     if (this.currentPx === SCREEN_WIDTH && !this.lineSpritesDrawn && this.ly < SCREEN_HEIGHT) {
       this.lineSpritesDrawn = true;
-      const fbBase = this.ly * SCREEN_WIDTH;
-      this.fb32.set(this.scratchRow, fbBase);
       if (this.fetchInWindow) this.winLY++;
-      if (this.cgbGame) this.renderSpritesCgb();
-      else this.renderSprites();
+      this.fb32.set(this.scratchRow, this.ly * SCREEN_WIDTH);
     }
 
     // Window activation: only switch if we haven't already and WX condition
