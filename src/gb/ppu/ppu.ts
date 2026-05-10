@@ -108,17 +108,29 @@ export class PPU {
   private dots = 0;
 
   /**
-   * Mode-3 (drawing) length for the current scanline, recomputed at every
-   * mode 2 → mode 3 transition. Real hardware extends mode 3 by `(SCX & 7)`
-   * for fine X scroll, +6 dots when the window is enabled and active, and
-   * 6–11 dots per visible sprite (formula per Pan Docs *Rendering*). With
-   * a fixed 172 dots, our HBlank window was correspondingly longer than
-   * real hardware's, so games that stream BCPD per HBlank fit more writes
-   * per scanline than they would on hardware — the auto-increment counter
-   * runs ahead and the streamed palette content desyncs frame after frame.
-   * Visible as the photo-title corruption in Crawfish Interactive titles.
+   * Mode-3 (drawing) length for the just-completed scanline, recorded at
+   * mode 3 → mode 0 transition by reading the actual dot count consumed by
+   * the FIFO pump. The HBlank handler subtracts this from the 376-dot
+   * post-OAM budget so each scanline still totals 456 dots.
    */
   private mode3Length = DOTS_DRAW;
+
+  /** Sprite-fetcher stall pad for the current scanline (precomputed at
+   *  OAM-search exit). Mode 3 idles for this many dots after the BG FIFO
+   *  finishes emitting all 160 pixels — the per-pixel mixer doesn't model
+   *  fetcher stalls directly, so we honour the spec's `11 - min(5, (X +
+   *  SCX) & 7)` per-sprite penalty as a post-pump pad. */
+  private spriteStallPad = 0;
+  private spriteStallElapsed = 0;
+  /** Set when pixel 159 hits the framebuffer; consumed by 1 dot of mode 3
+   *  hold before sprite-stall / HBlank. The pump itself only takes 171
+   *  dots end-to-end for an SCX=0 line; real hardware spends one more dot
+   *  before the mode 0 transition (Pan Docs: "172 dots minimum"). */
+  private lineHoldPending = false;
+  /** Set when the BG fetcher is reset for window mid-line. Consumed as
+   *  one dot of post-activation stall so the natural 5-dot fetcher restart
+   *  becomes the documented 6-dot window stretch. */
+  private windowStallPending = false;
 
   /**
    * Window internal line counter. Increments each scanline where the window
@@ -150,6 +162,12 @@ export class PPU {
   /** True once the window has activated for the current scanline; the
    *  fetcher then sources from the window map and `winLY`. */
   private fetchInWindow = false;
+  /** Set at the start of mode 3 so the very first BG fetch is "discarded"
+   *  — the FIFO push is dropped and the fetcher starts a second cycle.
+   *  This matches real hardware's 12-dot pre-pixel warmup (= two 6-dot
+   *  fetcher cycles) before pixel 1 emerges; without it our pump finishes
+   *  the line 6 dots early. */
+  private firstTileDiscard = true;
   /** BG FIFO — 8-entry circular buffer. Each entry packs:
    *    bits 0-1: color index (0..3)
    *    bits 2-4: CGB BG palette (0..7), 0 on DMG
@@ -572,21 +590,18 @@ export class PPU {
   }
 
   /**
-   * Mode-3 length for the upcoming scanline. Base 172 dots (= 160 px + 12
-   * setup), plus:
-   *  - `(SCX & 7)` fine-X discard penalty at start
-   *  - +6 dots when the window actually activates on this line (LCDC.5 set,
-   *    WY ≤ LY, WX in [0, 166] so at least one window pixel renders)
-   *  - per visible sprite: `11 - min(5, (X + SCX) & 7)` — 11 dots when the
-   *    sprite is tile-aligned (OAM X = 0 or 8), down to 6 when the sprite
-   *    starts ≥5 pixels into a tile. Disabled sprites (LCDC.1 cleared)
-   *    contribute no penalty since the OBJ fetcher is gated off.
+   * Per-sprite mode-3 stall, summed across the up-to-10 sprites visible on
+   * this scanline: `11 - min(5, (X + SCX) & 7)`. 11 dots when the sprite
+   * is tile-aligned (X = 0 or 8), down to 6 when it starts ≥5 pixels into
+   * a tile. The pump itself doesn't model fetcher stalls per pixel, so we
+   * apply this as a post-pump pad — mode 3 idles for these dots after the
+   * BG FIFO finishes pushing pixel 160. The base 172 dots and (SCX & 7)
+   * fine-X discard come from the FIFO pump itself; the +6 for window
+   * activation is also natural (the fetcher restart on window kick takes
+   * 6 dots to fill the FIFO with the window tile).
    */
-  private computeMode3Length(): void {
-    let length = DOTS_DRAW + (this.scx & 7);
-    if ((this.lcdc & 0x20) !== 0 && this.wy <= this.ly && this.wx <= 166) {
-      length += 6;
-    }
+  private computeSpriteStallPad(): void {
+    let pad = 0;
     if ((this.lcdc & 0x02) !== 0) {
       const spriteHeight = (this.lcdc & 0x04) !== 0 ? 16 : 8;
       let count = 0;
@@ -594,12 +609,12 @@ export class PPU {
         const sprY = this.oam[i * 4]! - 16;
         if (this.ly >= sprY && this.ly < sprY + spriteHeight) {
           const x = this.oam[i * 4 + 1]!;
-          length += 11 - Math.min(5, (x + this.scx) & 7);
+          pad += 11 - Math.min(5, (x + this.scx) & 7);
           count++;
         }
       }
     }
-    this.mode3Length = length;
+    this.spriteStallPad = pad;
   }
 
   private refreshCgbPaletteEntry(lut: Uint32Array, ram: Uint8Array, colorIdx: number): void {
@@ -659,7 +674,7 @@ export class PPU {
         this.dots += consume;
         if (this.dots >= DOTS_OAM) {
           this.dots = 0;
-          this.computeMode3Length();
+          this.computeSpriteStallPad();
           if (this.cgbGame) {
             // Freeze the palette state the upcoming mode-3 render will see.
             this.cgbBgPalettesActive.set(this.cgbBgPalettes);
@@ -672,28 +687,56 @@ export class PPU {
       }
 
       case Mode.Drawing: {
-        const remaining = this.mode3Length - this.dots;
-        const consume = Math.min(maxDots, remaining);
-        for (let i = 0; i < consume; i++) {
-          this.advanceBgFetcher();
-          this.tryPushBgPixel();
-        }
-        this.dots += consume;
-        if (this.dots >= this.mode3Length) {
-          this.dots = 0;
-          // If mode 3 ended before the fetcher reached pixel 160 (shouldn't
-          // happen with a correctly-computed `mode3Length`), commit
-          // whatever the scratch row holds and bump winLY. Sprites were
-          // mixed in per-pixel inside `tryPushBgPixel`.
-          if (this.ly < SCREEN_HEIGHT && !this.lineSpritesDrawn) {
-            this.lineSpritesDrawn = true;
-            if (this.fetchInWindow) this.winLY++;
-            this.fb32.set(this.scratchRow, this.ly * SCREEN_WIDTH);
+        // Mode 3 ends when the BG FIFO has emitted all 160 pixels AND the
+        // sprite-fetcher stall pad has elapsed. The pump produces the line
+        // length naturally — base 172 dots (12-dot warmup + 160 emits),
+        // plus (SCX & 7) discards inside the pump, plus 6 dots if the
+        // window restart kicks in at WX. Sprites contribute via the
+        // post-pump idle pad (`spriteStallPad`) since the per-pixel mixer
+        // doesn't model fetcher stalls.
+        let consumed = 0;
+        while (consumed < maxDots) {
+          if (this.windowStallPending) {
+            // 1-dot stall after window activation so the fetcher restart
+            // contributes the documented 6-dot mode-3 stretch (rather than
+            // the 5-dot natural-cycle delay our pump alone produces).
+            this.windowStallPending = false;
+            this.dots++;
+            consumed++;
+          } else if (this.currentPx < SCREEN_WIDTH) {
+            this.advanceBgFetcher();
+            this.tryPushBgPixel();
+            this.dots++;
+            consumed++;
+          } else if (this.lineHoldPending) {
+            // 1-dot hold between pixel 159 hitting the framebuffer and the
+            // sprite stall / mode 0 transition. Matches Pan Docs' "172 dot
+            // minimum" phrasing.
+            this.lineHoldPending = false;
+            this.dots++;
+            consumed++;
+          } else if (this.spriteStallElapsed < this.spriteStallPad) {
+            const pad = Math.min(maxDots - consumed, this.spriteStallPad - this.spriteStallElapsed);
+            this.dots += pad;
+            this.spriteStallElapsed += pad;
+            consumed += pad;
+          } else {
+            this.mode3Length = this.dots;
+            this.dots = 0;
+            // Safety: if a host config aborted the pump mid-line, commit
+            // whatever the scratch row holds. Normally lineSpritesDrawn
+            // is already true via the in-pump line-complete path.
+            if (this.ly < SCREEN_HEIGHT && !this.lineSpritesDrawn) {
+              this.lineSpritesDrawn = true;
+              if (this.fetchInWindow) this.winLY++;
+              this.fb32.set(this.scratchRow, this.ly * SCREEN_WIDTH);
+            }
+            this.setMode(Mode.HBlank);
+            this.onHBlank?.();
+            break;
           }
-          this.setMode(Mode.HBlank);
-          this.onHBlank?.();
         }
-        return consume;
+        return consumed;
       }
 
       case Mode.HBlank: {
@@ -772,11 +815,15 @@ export class PPU {
     this.fetchTileLo = 0;
     this.fetchTileHi = 0;
     this.fetchInWindow = false;
+    this.firstTileDiscard = true;
     this.bgFifoHead = 0;
     this.bgFifoCount = 0;
     this.currentPx = 0;
     this.discardLeft = this.scx & 7;
     this.lineSpritesDrawn = false;
+    this.spriteStallElapsed = 0;
+    this.lineHoldPending = false;
+    this.windowStallPending = false;
     this.bgColorBuf.fill(0);
     this.bgPriBuf.fill(0);
     this.collectVisibleSprites();
@@ -921,6 +968,15 @@ export class PPU {
    *  and resolve sprite priority without re-reading the attribute byte. */
   private tryPushFetcherToFifo(): void {
     if (this.bgFifoCount > 0) return;
+    if (this.firstTileDiscard) {
+      // Drop the first fetch — its tile data lands "in the air" on real
+      // hardware. Re-arm the fetcher at step 0 so the next 6 dots produce
+      // the line's actual first tile. fetchTileX stays at 0 so we re-read
+      // the same map entry for the real fetch.
+      this.firstTileDiscard = false;
+      this.fetchStep = 0;
+      return;
+    }
     const flipX = (this.fetchAttr & 0x20) !== 0;
     const palAttr = ((this.fetchAttr & 0x07) << 2) | (((this.fetchAttr >> 7) & 1) << 5);
     const lo = this.fetchTileLo;
@@ -1003,11 +1059,13 @@ export class PPU {
       this.lineSpritesDrawn = true;
       if (this.fetchInWindow) this.winLY++;
       this.fb32.set(this.scratchRow, this.ly * SCREEN_WIDTH);
+      this.lineHoldPending = true;
     }
 
-    // Window activation: only switch if we haven't already and WX condition
-    // is met. Clears the BG FIFO and resets the fetcher so the next push
-    // sources from the window tilemap.
+    // Window activation: post-pop check so pixel `WX - 6` is the first
+    // window pixel (matches gbmicrotest win0_a..win7_a references). The
+    // FIFO/fetcher reset plus a 1-dot windowStallPending give the
+    // documented 6-dot mode-3 window stretch.
     if (
       !this.fetchInWindow &&
       (this.lcdc & 0x20) !== 0 &&
@@ -1021,6 +1079,7 @@ export class PPU {
       this.bgFifoCount = 0;
       this.fetchStep = 0;
       this.fetchPhase = 0;
+      this.windowStallPending = true;
     }
   }
 
