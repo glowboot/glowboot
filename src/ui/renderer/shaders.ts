@@ -12,10 +12,6 @@
  *                                 passes so `colorGrade()` compiles
  *                                 without re-applying the effect.
  *   - `FRAG_*`                  — fragment sources per mode.
- *   - `paletteShader(...)`      — factory for the luma-LUT sibling
- *                                 shaders (DMG green / Pocket / Light
- *                                 / SGB). Keeps the four variants
- *                                 structurally identical.
  *   - `ShaderName` + `FRAG_BY_NAME` — the registry.
  *   - `ColorGrade` + `DEFAULT_COLOR_GRADE` — tuning shape passed in
  *                                 from the Settings UI.
@@ -263,8 +259,8 @@ void main() {
 
 // ─── DMG pea-soup green shader ──────────────────────────────────────────
 // Classic olive-green "original Game Boy" look with hand-tuned colour
-// stops. Also the reference implementation for the `paletteShader`
-// sibling set below — this one is kept expanded for clarity.
+// stops — luma-to-4-stop LUT plus a soft cell-grid + faint vertical
+// gradient to fake the LCD's panel character.
 const FRAG_DMG = `precision mediump float;
 varying vec2 vUv;
 uniform sampler2D uFrame;
@@ -298,73 +294,6 @@ void main() {
   dmg *= 0.94 + 0.06 * vUv.y;
   gl_FragColor = vec4(colorGrade(dmg), 1.0);
 }`;
-
-// ─── Palette-LUT sibling shaders ────────────────────────────────────────
-// Same luma-to-4-stop structure as FRAG_DMG; only the four colour stops
-// differ per hardware variant. Factored as a template so adding another
-// variant (Virtual Boy red, etc.) is a one-line call.
-function paletteShader(
-  c0: [number, number, number],
-  c1: [number, number, number],
-  c2: [number, number, number],
-  c3: [number, number, number]
-): string {
-  const fmt = (c: [number, number, number]): string =>
-    `vec3(${c[0].toFixed(3)}, ${c[1].toFixed(3)}, ${c[2].toFixed(3)})`;
-  return `precision mediump float;
-varying vec2 vUv;
-uniform sampler2D uFrame;
-uniform vec2 uSourceSize;
-
-const vec3 C0 = ${fmt(c0)};
-const vec3 C1 = ${fmt(c1)};
-const vec3 C2 = ${fmt(c2)};
-const vec3 C3 = ${fmt(c3)};
-
-void main() {
-  vec2 cell = vUv * uSourceSize;
-  vec2 cellId = floor(cell);
-  vec2 cellUv = fract(cell);
-  vec2 sampleUv = (cellId + 0.5) / uSourceSize;
-  vec3 src = texture2D(uFrame, sampleUv).rgb;
-  float luma = dot(src, vec3(0.2126, 0.7152, 0.0722));
-  vec3 col;
-  if (luma < 0.333) col = mix(C0, C1, luma / 0.333);
-  else if (luma < 0.666) col = mix(C1, C2, (luma - 0.333) / 0.333);
-  else col = mix(C2, C3, (luma - 0.666) / 0.334);
-  vec2 d = abs(cellUv - 0.5) * 2.0;
-  float edge = max(d.x, d.y);
-  float cellMask = smoothstep(0.98, 0.82, edge);
-  col = mix(col * 0.88, col, cellMask);
-  col *= 0.94 + 0.06 * vUv.y;
-  gl_FragColor = vec4(colorGrade(col), 1.0);
-}`;
-}
-
-// Game Boy Pocket (1996): the grey-olive refresh of the DMG panel.
-const FRAG_POCKET = paletteShader(
-  [0.18, 0.275, 0.239], // #2e463d
-  [0.369, 0.42, 0.337], // #5e6b56
-  [0.545, 0.584, 0.455], // #8b9574
-  [0.769, 0.812, 0.631] // #c4cfa1
-);
-
-// Game Boy Light (Japan-only 1998): amber backlit panel.
-const FRAG_LIGHT = paletteShader(
-  [0.11, 0.098, 0.071], // #1c1912
-  [0.29, 0.227, 0.102], // #4a3a1a
-  [0.71, 0.541, 0.227], // #b58a3a
-  [1.0, 0.78, 0.204] // #ffc734
-);
-
-// Super Game Boy default sepia — the warm brown/tan palette the SNES
-// adapter loaded when a DMG cart had no SGB command data of its own.
-const FRAG_SGB = paletteShader(
-  [0.184, 0.122, 0.059], // #2f1f0f
-  [0.361, 0.247, 0.102], // #5c3f1a
-  [0.659, 0.541, 0.361], // #a88a5c
-  [0.91, 0.831, 0.627] // #e8d4a0
-);
 
 // ─── Bloom-only shader ──────────────────────────────────────────────────
 // The glow half of the CRT shader extracted on its own.
@@ -403,103 +332,114 @@ void main() {
   gl_FragColor = vec4(colorGrade(color), 1.0);
 }`;
 
-// ─── Aurora ─────────────────────────────────────────────────────────────
-// Glowboot's signature look. Single-pass, fully self-contained, and
-// colour-faithful:
+// ─── MMPX (Style-Preserving Pixel-Art Magnification) ────────────────────
+// Single-pass GLSL port of Morgan McGuire & Mara Gagiu's MMPX 2× scaler.
+// Each input pixel E expands into 4 sub-pixels (J=NW, K=NE, L=SW, M=SE)
+// via a sequence of pattern-match rules over a 5×5 + far-tap neighbourhood:
 //
-//   1. Edge-smoothing sampler — smoothstep'd bilinear that compresses
-//      the cell-to-cell transition into a narrow band near each source-
-//      pixel boundary. Inside a cell the colour is constant; only the
-//      edges blend. Gives crisp anti-aliasing at any upscale factor
-//      without bilinear's muddiness, and isn't a port of any specific
-//      pixel-art upscaler.
-//   2. Subtle highlight bloom — only the brightest source pixels
-//      contribute to a 4-tap halo around them. The bloom is tinted by
-//      the *source colour itself* (no aurora palette, no warm/cool
-//      shift), so a bright green pixel gets a soft green glow, a bright
-//      blue pixel gets a soft blue glow, etc. Game palettes read as
-//      intended; only the air around bright objects glows.
+//   1. 1:1 slope rules — handle 45° edges between two regions.
+//   2. Intersection rules — handle T-junctions and crossings.
+//   3. 2:1 slope rules — handle steeper diagonals.
 //
-// No volumetric backdrop, no per-pixel hue tilt, no aurora-palette
-// drift — those distorted darker areas of low-contrast scenes (e.g.
-// Mario Land 2 backgrounds) and pulled colours away from the cart's
-// intended palette. The luminous quality now comes from the bloom
-// alone; AA carries the "modern" character.
-const FRAG_AURORA = `precision mediump float;
+// Rules execute sequentially with overwrite semantics (later rules can
+// modify earlier outputs). At canvas resolution > 2× source the shader
+// snaps each output pixel to its containing MMPX sub-pixel — sharp
+// 2× MMPX result with nearest-neighbour amplification to canvas size.
+//
+// Equality uses a half-byte epsilon so NEAREST-sampled byte textures
+// compare reliably under mediump float.
+//
+// Upstream license, retained verbatim as required:
+/*
+   Copyright 2020 Morgan McGuire & Mara Gagiu.
+   Available under the MIT license.
+   https://casual-effects.com/research/McGuire2021PixelArt/
+*/
+const FRAG_MMPX = `precision mediump float;
 varying vec2 vUv;
 uniform sampler2D uFrame;
 uniform vec2 uSourceSize;
 
-// Bloom-style highlight extract: only the upper end of the luma range
-// contributes to the surrounding halo, so flat-colour midtones aren't
-// lifted toward white when neighbours bleed in. Threshold tuned so the
-// brightest DMG-green stop (~0.62 luma) still glows softly; CGB-bright
-// content glows more.
-vec3 brightExtract(vec3 c) {
-  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  return c * smoothstep(0.55, 0.95, l);
+vec3 fetchAt(vec2 cellId, vec2 off) {
+  vec2 ps = 1.0 / uSourceSize;
+  return texture2D(uFrame, (cellId + off + 0.5) * ps).rgb;
 }
-
-// Edge-aware anti-aliased pixel sample. Smoothstep'd bilinear with a
-// per-axis transition width that adapts to local colour difference:
-//
-//   - Strong horizontal/vertical edge (large colour change across an
-//     axis) → wider smoothstep band on that axis = smoother AA along
-//     the edge.
-//   - Flat region (cells share a colour) → narrow band, leaving solid
-//     colour blocks crisp instead of over-blurring them.
-//
-// Per-axis is important: a strong vertical edge widens the y-axis blend
-// without softening sharp horizontals running through the same quad,
-// and vice versa. The colour-distance metric uses the worst-case pair
-// across each axis (not the average), so a single high-contrast row in
-// the quad still triggers full smoothing.
-vec3 smoothSample(vec2 uv, vec2 ps) {
-  vec2 cell = uv * uSourceSize - 0.5;
-  vec2 cellId = floor(cell);
-  vec2 sub = cell - cellId;
-  vec2 base = (cellId + 0.5) * ps;
-
-  vec3 c00 = texture2D(uFrame, base).rgb;
-  vec3 c10 = texture2D(uFrame, base + vec2(ps.x, 0.0)).rgb;
-  vec3 c01 = texture2D(uFrame, base + vec2(0.0, ps.y)).rgb;
-  vec3 c11 = texture2D(uFrame, base + vec2(ps.x, ps.y)).rgb;
-
-  float dH = max(distance(c00, c10), distance(c01, c11));
-  float dV = max(distance(c00, c01), distance(c10, c11));
-  // Width band: 0.15 in flat regions (near-pixel-sharp), 0.50 at strong
-  // edges (full bilinear smoothing). Smoothstep maps colour-distance
-  // 0.04..0.35 across that range — anything past 0.35 is already a
-  // clear edge and gets the full smoothing budget.
-  float wH = mix(0.15, 0.50, smoothstep(0.04, 0.35, dH));
-  float wV = mix(0.15, 0.50, smoothstep(0.04, 0.35, dV));
-
-  vec2 t = vec2(
-    smoothstep(0.5 - wH, 0.5 + wH, sub.x),
-    smoothstep(0.5 - wV, 0.5 + wV, sub.y)
-  );
-  return mix(mix(c00, c10, t.x), mix(c01, c11, t.x), t.y);
+bool eq(vec3 a, vec3 b) {
+  return all(lessThan(abs(a - b), vec3(1.0/512.0)));
 }
+bool ne(vec3 a, vec3 b) { return !eq(a, b); }
+float lumaOf(vec3 c) { return c.r + c.g + c.b; }
+
+bool all_eq2(vec3 B, vec3 A0, vec3 A1) { return eq(B,A0) && eq(B,A1); }
+bool all_eq3(vec3 B, vec3 A0, vec3 A1, vec3 A2) { return eq(B,A0) && eq(B,A1) && eq(B,A2); }
+bool all_eq4(vec3 B, vec3 A0, vec3 A1, vec3 A2, vec3 A3) { return eq(B,A0) && eq(B,A1) && eq(B,A2) && eq(B,A3); }
+bool any_eq3(vec3 B, vec3 A0, vec3 A1, vec3 A2) { return eq(B,A0) || eq(B,A1) || eq(B,A2); }
+bool none_eq2(vec3 B, vec3 A0, vec3 A1) { return ne(B,A0) && ne(B,A1); }
+bool none_eq4(vec3 B, vec3 A0, vec3 A1, vec3 A2, vec3 A3) { return ne(B,A0) && ne(B,A1) && ne(B,A2) && ne(B,A3); }
 
 void main() {
-  vec2 ps = 1.0 / uSourceSize;
-  vec3 src = smoothSample(vUv, ps);
+  vec2 srcSpace = vUv * uSourceSize;
+  vec2 cellId = floor(srcSpace);
+  vec2 sub = srcSpace - cellId;
 
-  // 4-tap halo at the immediate neighbour radius. Each tap is bright-
-  // extracted, so dark/midtone neighbours add nothing and the source
-  // colour dominates everywhere except around true highlights.
-  vec3 halo = 0.25 * (
-    brightExtract(texture2D(uFrame, vUv + vec2( ps.x, 0.0)).rgb) +
-    brightExtract(texture2D(uFrame, vUv + vec2(-ps.x, 0.0)).rgb) +
-    brightExtract(texture2D(uFrame, vUv + vec2(0.0,  ps.y)).rgb) +
-    brightExtract(texture2D(uFrame, vUv + vec2(0.0, -ps.y)).rgb));
+  vec3 A = fetchAt(cellId, vec2(-1.0, -1.0));
+  vec3 B = fetchAt(cellId, vec2( 0.0, -1.0));
+  vec3 C = fetchAt(cellId, vec2( 1.0, -1.0));
+  vec3 D = fetchAt(cellId, vec2(-1.0,  0.0));
+  vec3 E = fetchAt(cellId, vec2( 0.0,  0.0));
+  vec3 F = fetchAt(cellId, vec2( 1.0,  0.0));
+  vec3 G = fetchAt(cellId, vec2(-1.0,  1.0));
+  vec3 H = fetchAt(cellId, vec2( 0.0,  1.0));
+  vec3 I = fetchAt(cellId, vec2( 1.0,  1.0));
+  vec3 Q = fetchAt(cellId, vec2(-2.0,  0.0));
+  vec3 R = fetchAt(cellId, vec2( 2.0,  0.0));
+  vec3 J = E, K = E, L = E, M = E;
 
-  // Add the bloom on top in the source's own hue — no palette tinting,
-  // no warm/cool shift, no time animation. Game colours stay original;
-  // only the air around bright objects glows.
-  vec3 col = src + halo * 0.1;
+  if (ne(A,E) || ne(B,E) || ne(C,E) || ne(D,E) || ne(F,E) || ne(G,E) || ne(H,E) || ne(I,E)) {
+    vec3 P = fetchAt(cellId, vec2(0.0, -2.0));
+    vec3 S = fetchAt(cellId, vec2(0.0,  2.0));
+    float Bl = lumaOf(B), Dl = lumaOf(D), El = lumaOf(E), Fl = lumaOf(F), Hl = lumaOf(H);
 
-  gl_FragColor = vec4(colorGrade(col), 1.0);
+    if (eq(D,B) && ne(D,H) && ne(D,F) && (El >= Dl || eq(E,A)) && any_eq3(E,A,C,G) && (El < Dl || ne(A,D) || ne(E,P) || ne(E,Q))) J = D;
+    if (eq(B,F) && ne(B,D) && ne(B,H) && (El >= Bl || eq(E,C)) && any_eq3(E,A,C,I) && (El < Bl || ne(C,B) || ne(E,P) || ne(E,R))) K = B;
+    if (eq(H,D) && ne(H,F) && ne(H,B) && (El >= Hl || eq(E,G)) && any_eq3(E,A,G,I) && (El < Hl || ne(G,H) || ne(E,S) || ne(E,Q))) L = H;
+    if (eq(F,H) && ne(F,B) && ne(F,D) && (El >= Fl || eq(E,I)) && any_eq3(E,C,G,I) && (El < Fl || ne(I,H) || ne(E,R) || ne(E,S))) M = F;
+
+    if (ne(E,F) && all_eq4(E,C,I,D,Q) && all_eq2(F,B,H) && ne(F, fetchAt(cellId, vec2( 3.0, 0.0)))) { K = F; M = F; }
+    if (ne(E,D) && all_eq4(E,A,G,F,R) && all_eq2(D,B,H) && ne(D, fetchAt(cellId, vec2(-3.0, 0.0)))) { J = D; L = D; }
+    if (ne(E,H) && all_eq4(E,G,I,B,P) && all_eq2(H,D,F) && ne(H, fetchAt(cellId, vec2(0.0,  3.0)))) { L = H; M = H; }
+    if (ne(E,B) && all_eq4(E,A,C,H,S) && all_eq2(B,D,F) && ne(B, fetchAt(cellId, vec2(0.0, -3.0)))) { J = B; K = B; }
+    if (Bl < El && all_eq4(E,G,H,I,S) && none_eq4(E,A,D,C,F)) { J = B; K = B; }
+    if (Hl < El && all_eq4(E,A,B,C,P) && none_eq4(E,D,G,I,F)) { L = H; M = H; }
+    if (Fl < El && all_eq4(E,A,D,G,Q) && none_eq4(E,B,C,I,H)) { K = F; M = F; }
+    if (Dl < El && all_eq4(E,C,F,I,R) && none_eq4(E,B,A,G,H)) { J = D; L = D; }
+
+    if (ne(H,B)) {
+      if (ne(H,A) && ne(H,E) && ne(H,C)) {
+        if (all_eq3(H,G,F,R) && none_eq2(H,D, fetchAt(cellId, vec2( 2.0, -1.0)))) L = M;
+        if (all_eq3(H,I,D,Q) && none_eq2(H,F, fetchAt(cellId, vec2(-2.0, -1.0)))) M = L;
+      }
+      if (ne(B,I) && ne(B,G) && ne(B,E)) {
+        if (all_eq3(B,A,F,R) && none_eq2(B,D, fetchAt(cellId, vec2( 2.0,  1.0)))) J = K;
+        if (all_eq3(B,C,D,Q) && none_eq2(B,F, fetchAt(cellId, vec2(-2.0,  1.0)))) K = J;
+      }
+    }
+    if (ne(F,D)) {
+      if (ne(D,I) && ne(D,E) && ne(D,C)) {
+        if (all_eq3(D,A,H,S) && none_eq2(D,B, fetchAt(cellId, vec2( 1.0,  2.0)))) J = L;
+        if (all_eq3(D,G,B,P) && none_eq2(D,H, fetchAt(cellId, vec2( 1.0, -2.0)))) L = J;
+      }
+      if (ne(F,E) && ne(F,A) && ne(F,G)) {
+        if (all_eq3(F,C,H,S) && none_eq2(F,B, fetchAt(cellId, vec2(-1.0,  2.0)))) K = M;
+        if (all_eq3(F,I,B,P) && none_eq2(F,H, fetchAt(cellId, vec2(-1.0, -2.0)))) M = K;
+      }
+    }
+  }
+
+  vec3 outc;
+  if (sub.x < 0.5) outc = sub.y < 0.5 ? J : L;
+  else             outc = sub.y < 0.5 ? K : M;
+  gl_FragColor = vec4(colorGrade(outc), 1.0);
 }`;
 
 // ─── Super-xBR (multi-pass) ─────────────────────────────────────────────
@@ -529,18 +469,7 @@ void main() {
   gl_FragColor = vec4(colorGrade(clamp(c, mn, mx)), 1.0);
 }`;
 
-export type ShaderName =
-  | "lcd"
-  | "xbr"
-  | "crt"
-  | "dmg"
-  | "pocket"
-  | "light"
-  | "sgb"
-  | "bloom"
-  | "scan"
-  | "sxbr"
-  | "aurora";
+export type ShaderName = "lcd" | "xbr" | "crt" | "dmg" | "bloom" | "scan" | "sxbr" | "mmpx";
 
 /** Shader chain per mode. Single-string entries become a single-pass
  *  shader (renders straight to the canvas). Array entries define a
@@ -552,13 +481,10 @@ export const FRAG_BY_NAME: Record<ShaderName, string | string[]> = {
   xbr: FRAG_XBR,
   crt: FRAG_CRT,
   dmg: FRAG_DMG,
-  pocket: FRAG_POCKET,
-  light: FRAG_LIGHT,
-  sgb: FRAG_SGB,
   bloom: FRAG_BLOOM,
   scan: FRAG_SCAN,
   sxbr: [FRAG_XBR, FRAG_SXBR_CLEANUP],
-  aurora: FRAG_AURORA
+  mmpx: FRAG_MMPX
 };
 
 export interface ColorGrade {

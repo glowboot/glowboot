@@ -19,7 +19,7 @@ export interface CartOverrides {
   /** CGB colour-correction pref. Only meaningful for CGB carts. */
   colorCorrection?: boolean;
   /** Render-mode key (as used in the settings dropdown: `canvas`,
-   *  `webgl-sxbr`, ...). Changing this live swaps the canvas + renderer. */
+   *  `webgl-mmpx`, ...). Changing this live swaps the canvas + renderer. */
   renderMode?: string;
   /** Integer-scaling pref — whether the canvas is sized to a whole-
    *  number multiple of 160×144. Off is useful for games like WarioWare

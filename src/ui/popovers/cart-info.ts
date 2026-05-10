@@ -133,7 +133,7 @@ async function renderCartInfo(): Promise<void> {
   renderSelectOverride({
     label: "Render mode",
     options: RENDER_MODE_OPTIONS,
-    globalValue: lsGet(KEYS.RENDER_MODE) ?? "webgl-sxbr",
+    globalValue: lsGet(KEYS.RENDER_MODE) ?? "webgl-mmpx",
     pinned: overrides.renderMode,
     onPin: (v) => persistOverride({ ...overrides, renderMode: v }),
     onReset: () => persistOverride({ ...overrides, renderMode: undefined })
@@ -187,7 +187,7 @@ function clampPixelResponse(v: number): number {
 /** Mode key → human label. Keep this list in sync with the render-mode
  *  dropdown in `settings/panels.ts`. */
 const RENDER_MODE_OPTIONS: Array<[string, string]> = [
-  ["webgl-aurora", "Aurora"],
+  ["webgl-mmpx", "MMPX"],
   ["webgl-sxbr", "Super-xBR"],
   ["webgl-xbr", "xBR"],
   ["webgl-lcd", "LCD"],
@@ -195,9 +195,6 @@ const RENDER_MODE_OPTIONS: Array<[string, string]> = [
   ["webgl-crt", "CRT"],
   ["webgl-bloom", "Bloom"],
   ["webgl-dmg", "DMG green"],
-  ["webgl-pocket", "Pocket olive"],
-  ["webgl-light", "Light amber"],
-  ["webgl-sgb", "SGB sepia"],
   ["canvas", "Canvas 2D"]
 ];
 

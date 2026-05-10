@@ -436,12 +436,9 @@ type RenderMode =
   | "webgl-sxbr"
   | "webgl-crt"
   | "webgl-dmg"
-  | "webgl-pocket"
-  | "webgl-light"
-  | "webgl-sgb"
   | "webgl-bloom"
   | "webgl-scan"
-  | "webgl-aurora";
+  | "webgl-mmpx";
 const RENDER_MODES: readonly RenderMode[] = [
   "canvas",
   "webgl-lcd",
@@ -449,19 +446,17 @@ const RENDER_MODES: readonly RenderMode[] = [
   "webgl-sxbr",
   "webgl-crt",
   "webgl-dmg",
-  "webgl-pocket",
-  "webgl-light",
-  "webgl-sgb",
   "webgl-bloom",
   "webgl-scan",
-  "webgl-aurora"
+  "webgl-mmpx"
 ];
 
-/** Default render mode for a fresh browser — Super-xBR delivers a sharp
- *  interpolated look that's closer to what users expect from a modern
- *  emulator than raw nearest-neighbour. Users who prefer a different
- *  shader (or pure Canvas 2D) override via the dropdown. */
-const DEFAULT_RENDER_MODE: RenderMode = "webgl-sxbr";
+/** Default render mode for a fresh browser — MMPX (style-preserving 2×
+ *  pixel-art magnification, McGuire & Mara 2020) keeps sprites and fonts
+ *  pixel-crisp while rounding diagonals and corners cleanly. Users who
+ *  prefer a different shader (or pure Canvas 2D) override via the
+ *  dropdown. */
+const DEFAULT_RENDER_MODE: RenderMode = "webgl-mmpx";
 function normaliseRenderMode(v: unknown): RenderMode {
   return RENDER_MODES.includes(v as RenderMode) ? (v as RenderMode) : DEFAULT_RENDER_MODE;
 }

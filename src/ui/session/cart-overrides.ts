@@ -37,7 +37,7 @@ export function applyCartOverrides(overrides: CartOverrides): void {
   // ── Render mode ────────────────────────────────────────────────────
   // Swap only when the mode actually differs — swapping destroys the
   // current canvas element, so no-op swaps would flicker.
-  const wantedMode = overrides.renderMode ?? lsGet(KEYS.RENDER_MODE) ?? "webgl-sxbr";
+  const wantedMode = overrides.renderMode ?? lsGet(KEYS.RENDER_MODE) ?? "webgl-mmpx";
   const currentMode = rendererModeOf(renderer);
   const didSwap = wantedMode !== currentMode;
   if (didSwap) swapRenderer(wantedMode);

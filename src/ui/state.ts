@@ -47,29 +47,23 @@ function shaderForMode(mode: string | null): ShaderName | null {
       return "crt";
     case "webgl-dmg":
       return "dmg";
-    case "webgl-pocket":
-      return "pocket";
-    case "webgl-light":
-      return "light";
-    case "webgl-sgb":
-      return "sgb";
     case "webgl-bloom":
       return "bloom";
     case "webgl-scan":
       return "scan";
-    case "webgl-aurora":
-      return "aurora";
+    case "webgl-mmpx":
+      return "mmpx";
     default:
       return null;
   }
 }
 
 function createRenderer(c: HTMLCanvasElement): CanvasRenderer | WebGLRenderer {
-  // Fall back to Super-xBR when no render-mode pref is stored — matches
-  // the default surfaced by `panels.ts` so a fresh browser sees the same
+  // Fall back to MMPX when no render-mode pref is stored — matches the
+  // default surfaced by `panels.ts` so a fresh browser sees the same
   // shader immediately on first paint (and not a one-frame flash of
   // Canvas 2D before the setting binding has caught up).
-  const stored = lsGet(KEYS.RENDER_MODE) ?? "webgl-sxbr";
+  const stored = lsGet(KEYS.RENDER_MODE) ?? "webgl-mmpx";
   const shader = shaderForMode(stored);
   if (shader) {
     try {
