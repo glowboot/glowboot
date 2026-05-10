@@ -8,10 +8,10 @@ CLAUDE.md
 
 # Test ROMs cloned locally for the `npm run test:roms` harness; not
 # bundled — `npm run test:roms` auto-fetches the c-sp release zip on
-# first run (set GLOWBOOT_NO_FETCH=1 to skip). TEST_ROMS.md lives
-# alongside the corpus as our internal accuracy report and IS tracked.
+# first run (set GLOWBOOT_NO_FETCH=1 to skip). The local accuracy
+# report at `tests/roms/REPORT.md` is also developer-internal and
+# stays out of the repo.
 tests/roms/
-!tests/roms/TEST_ROMS.md
 
 # Vite env files — never commit any of them so secrets can't sneak in
 # through the back door. The repo ships `.env.example` as the only
