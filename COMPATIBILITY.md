@@ -99,6 +99,20 @@ These games are commonly used as emulator-accuracy benchmarks because they exerc
 
 **Status:** Tracked for a follow-up fix; needs a watchpoint on `$C1F1` to identify the missing increment path.
 
+### Audio is functional in all tested games but fails strict cycle-accuracy tests
+
+**Symptom:** No audible glitches reported in real game playback. However, strict APU test ROMs flag many sub-T-cycle quirks (e.g. wave-RAM read timing during channel-3 active read, exact sweep-period reload across power cycles, length-counter behaviour at frame-sequencer half-cycle boundaries).
+
+**Status:** Tracked as a long-tail accuracy gap, not a gameplay blocker. Specific game-audio reports are welcome via the bug-report template — they're prioritised over generic test-ROM failures. See [`TEST_ROMS.md`](./TEST_ROMS.md) for the per-suite breakdown.
+
+### PPU mid-mode-3 raster effects not reproduced
+
+**Symptom:** A small number of CGB titles use mid-scanline register changes (BGP / OBP / LCDC / SCX / SCY altered between specific dot positions of mode 3) to produce raster effects that real hardware shows pixel-by-pixel. Glowboot's PPU renders each scanline atomically at end of mode 3, so these effects don't reproduce.
+
+**Affected (observed so far):** Tony Hawk's Pro Skater 2/3, Razor Freestyle Scooter (already covered by the entry above). Other titles using the same technique would show similar visual differences.
+
+**Status:** Reproducing this faithfully would require a Pixel-FIFO PPU rewrite. Tracked for a future major version.
+
 ---
 
 If you find a game that's broken and isn't on this list, please [file a bug report](https://github.com/glowboot/glowboot/issues/new/choose).
