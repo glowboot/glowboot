@@ -57,6 +57,8 @@ function shaderForMode(mode: string | null): ShaderName | null {
       return "bloom";
     case "webgl-scan":
       return "scan";
+    case "webgl-aurora":
+      return "aurora";
     default:
       return null;
   }

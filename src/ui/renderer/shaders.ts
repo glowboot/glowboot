@@ -403,6 +403,105 @@ void main() {
   gl_FragColor = vec4(colorGrade(color), 1.0);
 }`;
 
+// ─── Aurora ─────────────────────────────────────────────────────────────
+// Glowboot's signature look. Single-pass, fully self-contained, and
+// colour-faithful:
+//
+//   1. Edge-smoothing sampler — smoothstep'd bilinear that compresses
+//      the cell-to-cell transition into a narrow band near each source-
+//      pixel boundary. Inside a cell the colour is constant; only the
+//      edges blend. Gives crisp anti-aliasing at any upscale factor
+//      without bilinear's muddiness, and isn't a port of any specific
+//      pixel-art upscaler.
+//   2. Subtle highlight bloom — only the brightest source pixels
+//      contribute to a 4-tap halo around them. The bloom is tinted by
+//      the *source colour itself* (no aurora palette, no warm/cool
+//      shift), so a bright green pixel gets a soft green glow, a bright
+//      blue pixel gets a soft blue glow, etc. Game palettes read as
+//      intended; only the air around bright objects glows.
+//
+// No volumetric backdrop, no per-pixel hue tilt, no aurora-palette
+// drift — those distorted darker areas of low-contrast scenes (e.g.
+// Mario Land 2 backgrounds) and pulled colours away from the cart's
+// intended palette. The luminous quality now comes from the bloom
+// alone; AA carries the "modern" character.
+const FRAG_AURORA = `precision mediump float;
+varying vec2 vUv;
+uniform sampler2D uFrame;
+uniform vec2 uSourceSize;
+
+// Bloom-style highlight extract: only the upper end of the luma range
+// contributes to the surrounding halo, so flat-colour midtones aren't
+// lifted toward white when neighbours bleed in. Threshold tuned so the
+// brightest DMG-green stop (~0.62 luma) still glows softly; CGB-bright
+// content glows more.
+vec3 brightExtract(vec3 c) {
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  return c * smoothstep(0.55, 0.95, l);
+}
+
+// Edge-aware anti-aliased pixel sample. Smoothstep'd bilinear with a
+// per-axis transition width that adapts to local colour difference:
+//
+//   - Strong horizontal/vertical edge (large colour change across an
+//     axis) → wider smoothstep band on that axis = smoother AA along
+//     the edge.
+//   - Flat region (cells share a colour) → narrow band, leaving solid
+//     colour blocks crisp instead of over-blurring them.
+//
+// Per-axis is important: a strong vertical edge widens the y-axis blend
+// without softening sharp horizontals running through the same quad,
+// and vice versa. The colour-distance metric uses the worst-case pair
+// across each axis (not the average), so a single high-contrast row in
+// the quad still triggers full smoothing.
+vec3 smoothSample(vec2 uv, vec2 ps) {
+  vec2 cell = uv * uSourceSize - 0.5;
+  vec2 cellId = floor(cell);
+  vec2 sub = cell - cellId;
+  vec2 base = (cellId + 0.5) * ps;
+
+  vec3 c00 = texture2D(uFrame, base).rgb;
+  vec3 c10 = texture2D(uFrame, base + vec2(ps.x, 0.0)).rgb;
+  vec3 c01 = texture2D(uFrame, base + vec2(0.0, ps.y)).rgb;
+  vec3 c11 = texture2D(uFrame, base + vec2(ps.x, ps.y)).rgb;
+
+  float dH = max(distance(c00, c10), distance(c01, c11));
+  float dV = max(distance(c00, c01), distance(c10, c11));
+  // Width band: 0.15 in flat regions (near-pixel-sharp), 0.50 at strong
+  // edges (full bilinear smoothing). Smoothstep maps colour-distance
+  // 0.04..0.35 across that range — anything past 0.35 is already a
+  // clear edge and gets the full smoothing budget.
+  float wH = mix(0.15, 0.50, smoothstep(0.04, 0.35, dH));
+  float wV = mix(0.15, 0.50, smoothstep(0.04, 0.35, dV));
+
+  vec2 t = vec2(
+    smoothstep(0.5 - wH, 0.5 + wH, sub.x),
+    smoothstep(0.5 - wV, 0.5 + wV, sub.y)
+  );
+  return mix(mix(c00, c10, t.x), mix(c01, c11, t.x), t.y);
+}
+
+void main() {
+  vec2 ps = 1.0 / uSourceSize;
+  vec3 src = smoothSample(vUv, ps);
+
+  // 4-tap halo at the immediate neighbour radius. Each tap is bright-
+  // extracted, so dark/midtone neighbours add nothing and the source
+  // colour dominates everywhere except around true highlights.
+  vec3 halo = 0.25 * (
+    brightExtract(texture2D(uFrame, vUv + vec2( ps.x, 0.0)).rgb) +
+    brightExtract(texture2D(uFrame, vUv + vec2(-ps.x, 0.0)).rgb) +
+    brightExtract(texture2D(uFrame, vUv + vec2(0.0,  ps.y)).rgb) +
+    brightExtract(texture2D(uFrame, vUv + vec2(0.0, -ps.y)).rgb));
+
+  // Add the bloom on top in the source's own hue — no palette tinting,
+  // no warm/cool shift, no time animation. Game colours stay original;
+  // only the air around bright objects glows.
+  vec3 col = src + halo * 0.1;
+
+  gl_FragColor = vec4(colorGrade(col), 1.0);
+}`;
+
 // ─── Super-xBR (multi-pass) ─────────────────────────────────────────────
 // Pass 1 reuses the xBR-lv2 kernel but renders into a 2× FBO. Pass 2 is
 // this anti-ringing cleanup: samples the 3×3 neighbourhood of the 2×
@@ -430,7 +529,18 @@ void main() {
   gl_FragColor = vec4(colorGrade(clamp(c, mn, mx)), 1.0);
 }`;
 
-export type ShaderName = "lcd" | "xbr" | "crt" | "dmg" | "pocket" | "light" | "sgb" | "bloom" | "scan" | "sxbr";
+export type ShaderName =
+  | "lcd"
+  | "xbr"
+  | "crt"
+  | "dmg"
+  | "pocket"
+  | "light"
+  | "sgb"
+  | "bloom"
+  | "scan"
+  | "sxbr"
+  | "aurora";
 
 /** Shader chain per mode. Single-string entries become a single-pass
  *  shader (renders straight to the canvas). Array entries define a
@@ -447,7 +557,8 @@ export const FRAG_BY_NAME: Record<ShaderName, string | string[]> = {
   sgb: FRAG_SGB,
   bloom: FRAG_BLOOM,
   scan: FRAG_SCAN,
-  sxbr: [FRAG_XBR, FRAG_SXBR_CLEANUP]
+  sxbr: [FRAG_XBR, FRAG_SXBR_CLEANUP],
+  aurora: FRAG_AURORA
 };
 
 export interface ColorGrade {

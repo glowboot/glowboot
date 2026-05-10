@@ -187,6 +187,7 @@ function clampPixelResponse(v: number): number {
 /** Mode key → human label. Keep this list in sync with the render-mode
  *  dropdown in `settings/panels.ts`. */
 const RENDER_MODE_OPTIONS: Array<[string, string]> = [
+  ["webgl-aurora", "Aurora"],
   ["webgl-sxbr", "Super-xBR"],
   ["webgl-xbr", "xBR"],
   ["webgl-lcd", "LCD"],

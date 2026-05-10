@@ -440,7 +440,8 @@ type RenderMode =
   | "webgl-light"
   | "webgl-sgb"
   | "webgl-bloom"
-  | "webgl-scan";
+  | "webgl-scan"
+  | "webgl-aurora";
 const RENDER_MODES: readonly RenderMode[] = [
   "canvas",
   "webgl-lcd",
@@ -452,7 +453,8 @@ const RENDER_MODES: readonly RenderMode[] = [
   "webgl-light",
   "webgl-sgb",
   "webgl-bloom",
-  "webgl-scan"
+  "webgl-scan",
+  "webgl-aurora"
 ];
 
 /** Default render mode for a fresh browser — Super-xBR delivers a sharp

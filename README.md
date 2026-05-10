@@ -189,10 +189,11 @@ session when you've forgotten where you started.
 
 Gear icon in the header → **Display**:
 
-- **Rendering** — several GPU shaders to pick from: Super-xBR
-  (default), xBR, handheld LCD, scanlines, full CRT, bloom, DMG green,
-  Pocket olive, Light amber, SGB sepia, or the clean pixel output
-  (Canvas 2D).
+- **Rendering** — several GPU shaders to pick from: Aurora (Glowboot's
+  signature look — anti-aliased pixel edges with a soft, colour-faithful
+  highlight bloom around bright objects), Super-xBR (default), xBR,
+  handheld LCD, scanlines, full CRT, bloom, DMG green, Pocket olive,
+  Light amber, SGB sepia, or the clean pixel output (Canvas 2D).
 - **Integer scaling** — default ON; keeps every pixel perfectly square.
 - **CGB colour correction** — default ON; emulates the real CGB LCD's
   warm, muted response so Game Boy Color titles don't look neon on an
