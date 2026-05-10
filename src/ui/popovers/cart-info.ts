@@ -189,11 +189,9 @@ function clampPixelResponse(v: number): number {
 const RENDER_MODE_OPTIONS: Array<[string, string]> = [
   ["webgl-mmpx", "MMPX"],
   ["webgl-sxbr", "Super-xBR"],
-  ["webgl-xbr", "xBR"],
   ["webgl-bilinear", "Bilinear"],
   ["webgl-lcd", "LCD"],
   ["webgl-crt", "CRT"],
-  ["webgl-dmg", "DMG green"],
   ["canvas", "Canvas 2D"]
 ];
 

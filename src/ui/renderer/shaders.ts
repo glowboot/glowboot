@@ -257,44 +257,6 @@ void main() {
   gl_FragColor = vec4(colorGrade(color), 1.0);
 }`;
 
-// ─── DMG pea-soup green shader ──────────────────────────────────────────
-// Classic olive-green "original Game Boy" look with hand-tuned colour
-// stops — luma-to-4-stop LUT plus a soft cell-grid + faint vertical
-// gradient to fake the LCD's panel character.
-const FRAG_DMG = `precision mediump float;
-varying vec2 vUv;
-uniform sampler2D uFrame;
-uniform vec2 uSourceSize;
-
-const vec3 DMG_DARK  = vec3(0.059, 0.220, 0.059); // #0f380f
-const vec3 DMG_MID_D = vec3(0.188, 0.384, 0.188); // #306230
-const vec3 DMG_MID_L = vec3(0.545, 0.675, 0.059); // #8bac0f
-const vec3 DMG_LIGHT = vec3(0.608, 0.737, 0.059); // #9bbc0f
-
-void main() {
-  vec2 cell = vUv * uSourceSize;
-  vec2 cellId = floor(cell);
-  vec2 cellUv = fract(cell);
-  vec2 sampleUv = (cellId + 0.5) / uSourceSize;
-  vec3 src = texture2D(uFrame, sampleUv).rgb;
-  float luma = dot(src, vec3(0.2126, 0.7152, 0.0722));
-  vec3 dmg;
-  if (luma < 0.333) {
-    dmg = mix(DMG_DARK, DMG_MID_D, luma / 0.333);
-  } else if (luma < 0.666) {
-    dmg = mix(DMG_MID_D, DMG_MID_L, (luma - 0.333) / 0.333);
-  } else {
-    dmg = mix(DMG_MID_L, DMG_LIGHT, (luma - 0.666) / 0.334);
-  }
-  vec2 d = abs(cellUv - 0.5) * 2.0;
-  float edge = max(d.x, d.y);
-  float cellMask = smoothstep(0.98, 0.82, edge);
-  vec3 gap = dmg * 0.88;
-  dmg = mix(gap, dmg, cellMask);
-  dmg *= 0.94 + 0.06 * vUv.y;
-  gl_FragColor = vec4(colorGrade(dmg), 1.0);
-}`;
-
 // ─── Bilinear ───────────────────────────────────────────────────────────
 // Plain 2×2 bilinear interpolation between source pixels — the simplest
 // upscaling option. Sampling is manual (the source texture is set to
@@ -458,7 +420,7 @@ void main() {
   gl_FragColor = vec4(colorGrade(clamp(c, mn, mx)), 1.0);
 }`;
 
-export type ShaderName = "lcd" | "xbr" | "crt" | "dmg" | "bilinear" | "sxbr" | "mmpx";
+export type ShaderName = "lcd" | "crt" | "bilinear" | "sxbr" | "mmpx";
 
 /** Shader chain per mode. Single-string entries become a single-pass
  *  shader (renders straight to the canvas). Array entries define a
@@ -467,9 +429,7 @@ export type ShaderName = "lcd" | "xbr" | "crt" | "dmg" | "bilinear" | "sxbr" | "
  *  The grading snippet is injected on the last pass only. */
 export const FRAG_BY_NAME: Record<ShaderName, string | string[]> = {
   lcd: FRAG_LCD,
-  xbr: FRAG_XBR,
   crt: FRAG_CRT,
-  dmg: FRAG_DMG,
   bilinear: FRAG_BILINEAR,
   sxbr: [FRAG_XBR, FRAG_SXBR_CLEANUP],
   mmpx: FRAG_MMPX

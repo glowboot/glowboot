@@ -39,14 +39,10 @@ function shaderForMode(mode: string | null): ShaderName | null {
   switch (mode) {
     case "webgl-lcd":
       return "lcd";
-    case "webgl-xbr":
-      return "xbr";
     case "webgl-sxbr":
       return "sxbr";
     case "webgl-crt":
       return "crt";
-    case "webgl-dmg":
-      return "dmg";
     case "webgl-bilinear":
       return "bilinear";
     case "webgl-mmpx":

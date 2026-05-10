@@ -38,8 +38,8 @@ desktop and phones.
 - **Apply romhacks** — drag an `.ips` or `.bps` patch onto the page
   together with a ROM to play translations, randomizers, or fan hacks.
 - **Customise the look** — choose between a clean pixel display, a
-  handheld LCD simulation, CRT scanlines, MMPX or xBR smoothing,
-  authentic DMG green, and more.
+  handheld LCD simulation, CRT scanlines, MMPX or Super-xBR smoothing,
+  and more.
 - **Rebind almost anything** — every Game Boy button, gamepad mapping,
   and shell hotkey (pause, rewind, screenshot, debugger…) is
   customisable in Settings. The save-slot digits `0`–`9` stay fixed
@@ -191,8 +191,8 @@ Gear icon in the header → **Display**:
 
 - **Rendering** — several GPU shaders to pick from: MMPX (default —
   style-preserving 2× pixel-art magnification, McGuire & Mara 2020),
-  Super-xBR, xBR, plain Bilinear, handheld LCD, full CRT, DMG green,
-  or the clean pixel output (Canvas 2D).
+  Super-xBR, plain Bilinear, handheld LCD, full CRT, or the clean
+  pixel output (Canvas 2D).
 - **Integer scaling** — default ON; keeps every pixel perfectly square.
 - **CGB colour correction** — default ON; emulates the real CGB LCD's
   warm, muted response so Game Boy Color titles don't look neon on an
