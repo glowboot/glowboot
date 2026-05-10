@@ -802,14 +802,6 @@ skips a few edges:
 
 ## Known issues (deferred)
 
-### Crawfish / Vicarious Visions photo title screens render with residual artefacts
-
-**Affected:** Tony Hawk's Pro Skater 2/3, Razor Freestyle Scooter (and likely any other title using the same per-scanline BG-palette-streaming engine).
-
-**Symptom:** The photo on the title screen is recognisable but shows fine horizontal stripe artefacts and a vertical seam. Gameplay is unaffected.
-
-**Status:** Tracked for a follow-up fix; needs deeper LCD pipeline / sprite-penalty modelling.
-
 ### The Addams Family (USA) hangs on a black screen after pressing Start
 
 **Symptom:** Title screen renders correctly, music plays, pressing Start leaves the screen black with music continuing.
@@ -823,14 +815,6 @@ skips a few edges:
 **Symptom:** No audible glitches reported in real game playback. However, strict APU test ROMs flag many sub-T-cycle quirks (e.g. wave-RAM read timing during channel-3 active read, exact sweep-period reload across power cycles, length-counter behaviour at frame-sequencer half-cycle boundaries).
 
 **Status:** Tracked as a long-tail accuracy gap, not a gameplay blocker. Specific game-audio reports are welcome via the bug-report template — they're prioritised over generic test-ROM failures. See [`TEST_ROMS.md`](./TEST_ROMS.md) for the per-suite breakdown.
-
-### PPU mid-mode-3 raster effects not fully reproduced
-
-**Symptom:** A small number of CGB titles use mid-scanline register changes (BGP / OBP / LCDC / SCX / SCY altered between specific dot positions of mode 3) to produce raster effects that real hardware shows pixel-by-pixel. Glowboot's pixel-FIFO renderer emits one pixel per dot and picks up most register changes mid-line, but the BG fetcher is simplified (no separate sprite fetcher state machine) and sprite stalls are folded into a post-pump idle pad — so dot-precise effects that depend on sprite-fetch timing don't reproduce exactly.
-
-**Affected (observed so far):** Tony Hawk's Pro Skater 2/3, Razor Freestyle Scooter (already covered by the entry above). Other titles using the same technique would show similar residual visual differences. The Mealybug Tearoom suite (per-pixel mode-3 timing) is the canonical test set — currently 0/30.
-
-**Status:** Mealybug parity needs a full sprite-fetcher state machine and per-dot fetcher stalls. Tracked for a future major version.
 
 ## Privacy
 
