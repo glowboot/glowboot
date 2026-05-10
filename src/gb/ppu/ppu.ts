@@ -523,17 +523,19 @@ export class PPU {
   }
 
   /**
-   * Mode-3 length for the upcoming scanline. Base 172 dots, plus:
-   *  - `(SCX & 7)` fine-X scroll penalty
-   *  - +6 dots when the window is enabled and active for this line
-   *  - per visible sprite: `11 - min(5, (X + SCX) & 7)` (only when LCDC.1
-   *    enables sprites; disabled sprites contribute no penalty per Pan
-   *    Docs, which mirrors what real hardware does with the OBJ-fetch
-   *    pipeline gated off)
+   * Mode-3 length for the upcoming scanline. Base 172 dots (= 160 px + 12
+   * setup), plus:
+   *  - `(SCX & 7)` fine-X discard penalty at start
+   *  - +6 dots when the window actually activates on this line (LCDC.5 set,
+   *    WY ≤ LY, WX in [0, 166] so at least one window pixel renders)
+   *  - per visible sprite: `11 - min(5, (X + SCX) & 7)` — 11 dots when the
+   *    sprite is tile-aligned (OAM X = 0 or 8), down to 6 when the sprite
+   *    starts ≥5 pixels into a tile. Disabled sprites (LCDC.1 cleared)
+   *    contribute no penalty since the OBJ fetcher is gated off.
    */
   private computeMode3Length(): void {
     let length = DOTS_DRAW + (this.scx & 7);
-    if ((this.lcdc & 0x20) !== 0 && this.wy <= this.ly) {
+    if ((this.lcdc & 0x20) !== 0 && this.wy <= this.ly && this.wx <= 166) {
       length += 6;
     }
     if ((this.lcdc & 0x02) !== 0) {
