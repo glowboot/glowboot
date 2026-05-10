@@ -560,9 +560,10 @@ DataChannel — lives in `src/ui/session/webrtc-link.ts`.
 - **CPU** — Full Sharp LR35902 instruction set (256 primary opcodes +
   256 CB-prefix bit-operation opcodes), interrupt servicing,
   `HALT`/`STOP`, M-cycle-accurate timing.
-- **PPU** — Background, window, sprites (8×8 / 8×16), scanline
-  renderer, four-mode timing (OAM / Drawing / HBlank / VBlank), DMG
-  sprite-priority rules, 10-sprite-per-line limit, STAT IRQ blocking.
+- **PPU** — Background, window, sprites (8×8 / 8×16), pixel-FIFO
+  renderer (BG fetcher + per-pixel sprite mixing), four-mode timing
+  (OAM / Drawing / HBlank / VBlank), DMG sprite-priority rules,
+  10-sprite-per-line limit, STAT IRQ blocking.
 - **APU** — All four channels (two square with duty, wave, noise LFSR),
   volume envelopes, CH1 frequency sweep, length counters, 512 Hz frame
   sequencer, NR50 master volume, NR51 stereo panning. DC-blocked output
@@ -622,7 +623,7 @@ src/
 │   ├── cartridge/
 │   │   └── cartridge.ts      #     Header parse + MBC1/2/3/5/7 bank switching, MBC3 RTC, MBC7 accelerometer, Pocket Camera (0xFC)
 │   ├── ppu/
-│   │   └── ppu.ts            #     Scanline renderer, STAT/LYC, mode timing, STAT line
+│   │   └── ppu.ts            #     Pixel-FIFO renderer (BG fetcher, per-pixel sprite mix), STAT/LYC, mode timing, STAT line
 │   ├── apu/
 │   │   ├── apu.ts            #     Frame sequencer, mixer, DC filter, channel mutes
 │   │   └── channels.ts       #     CH1/CH2 square, CH3 wave, CH4 noise LFSR
@@ -823,13 +824,13 @@ skips a few edges:
 
 **Status:** Tracked as a long-tail accuracy gap, not a gameplay blocker. Specific game-audio reports are welcome via the bug-report template — they're prioritised over generic test-ROM failures. See [`TEST_ROMS.md`](./TEST_ROMS.md) for the per-suite breakdown.
 
-### PPU mid-mode-3 raster effects not reproduced
+### PPU mid-mode-3 raster effects not fully reproduced
 
-**Symptom:** A small number of CGB titles use mid-scanline register changes (BGP / OBP / LCDC / SCX / SCY altered between specific dot positions of mode 3) to produce raster effects that real hardware shows pixel-by-pixel. Glowboot's PPU renders each scanline atomically at end of mode 3, so these effects don't reproduce.
+**Symptom:** A small number of CGB titles use mid-scanline register changes (BGP / OBP / LCDC / SCX / SCY altered between specific dot positions of mode 3) to produce raster effects that real hardware shows pixel-by-pixel. Glowboot's pixel-FIFO renderer emits one pixel per dot and picks up most register changes mid-line, but the BG fetcher is simplified (no separate sprite fetcher state machine) and sprite stalls are folded into a post-pump idle pad — so dot-precise effects that depend on sprite-fetch timing don't reproduce exactly.
 
-**Affected (observed so far):** Tony Hawk's Pro Skater 2/3, Razor Freestyle Scooter (already covered by the entry above). Other titles using the same technique would show similar visual differences.
+**Affected (observed so far):** Tony Hawk's Pro Skater 2/3, Razor Freestyle Scooter (already covered by the entry above). Other titles using the same technique would show similar residual visual differences. The Mealybug Tearoom suite (per-pixel mode-3 timing) is the canonical test set — currently 0/30.
 
-**Status:** Reproducing this faithfully would require a Pixel-FIFO PPU rewrite. Tracked for a future major version.
+**Status:** Mealybug parity needs a full sprite-fetcher state machine and per-dot fetcher stalls. Tracked for a future major version.
 
 ## Privacy
 

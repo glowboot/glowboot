@@ -71,16 +71,6 @@ export class PPU {
   private vramBank = 0;
   private readonly oam = new Uint8Array(0x00a0);
 
-  /**
-   * Per-scanline background colour-index buffer (0-3).
-   * Populated by renderBackground() and read by renderSprites() to implement
-   * BG-over-sprite priority (OAM attribute bit 7).
-   */
-  private readonly bgColorBuf = new Uint8Array(SCREEN_WIDTH);
-
-  /** CGB BG-priority flag per pixel (0 or 1) — BG-attr bit 7. */
-  private readonly bgPriBuf = new Uint8Array(SCREEN_WIDTH);
-
   /** Scratch buffer for scanline sprite selection (reused each line). The
    *  10-entry budget matches real hardware's mode-2 OAM-search cap. The
    *  Pixel-FIFO renderer pre-collects + sorts these at mode-3 start, then
@@ -664,8 +654,6 @@ export class PPU {
   /**
    * Consume up to `maxDots` dots in the current mode. Returns the number
    * actually consumed. The caller (`tick`) loops until the budget is empty.
-   * Mode-3 still produces pixels atomically via `renderLine()` — Phase 3
-   * will replace that with a per-dot pixel-FIFO loop inside this method.
    */
   private advanceDots(maxDots: number): number {
     switch (this.mode) {
@@ -824,8 +812,6 @@ export class PPU {
     this.spriteStallElapsed = 0;
     this.lineHoldPending = false;
     this.windowStallPending = false;
-    this.bgColorBuf.fill(0);
-    this.bgPriBuf.fill(0);
     this.collectVisibleSprites();
   }
 
@@ -1048,8 +1034,6 @@ export class PPU {
       rgba = (this.lcdc & 0x01) !== 0 ? this.bgPalette[bgColorIdx]! : this.bgPalette[0]!;
     }
 
-    this.bgColorBuf[this.currentPx] = effectiveBg;
-    this.bgPriBuf[this.currentPx] = bgPriBit;
     this.scratchRow[this.currentPx] = rgba;
     this.currentPx++;
 
@@ -1080,312 +1064,6 @@ export class PPU {
       this.fetchStep = 0;
       this.fetchPhase = 0;
       this.windowStallPending = true;
-    }
-  }
-
-  // ─── Rendering ────────────────────────────────────────────────────────────
-
-  private renderLine(): void {
-    if (this.ly >= SCREEN_HEIGHT) return;
-    const winRendered = this.cgbGame ? this.renderBackgroundCgb() : this.renderBackground();
-    if (this.cgbGame) this.renderSpritesCgb();
-    else this.renderSprites();
-    // winLY increments only when at least one window pixel was actually drawn
-    // this scanline (WX in range 0..166, LCDC bit 5 set, WY ≤ LY).
-    if (winRendered) this.winLY++;
-  }
-
-  /**
-   * Renders background and window for the current scanline.
-   * Returns true if any window pixel was drawn (so winLY should increment).
-   *
-   * Tile data (lo/hi) is fetched once per 8-pixel tile span rather than once
-   * per pixel; unless fine-X scroll splits the span, one tile = two VRAM reads.
-   */
-  private renderBackground(): boolean {
-    const bgEnabled = (this.lcdc & 0x01) !== 0;
-    // On DMG, LCDC bit 0 disables both BG and Window ("Window Display Bit has no effect").
-    const winEnabled = bgEnabled && (this.lcdc & 0x20) !== 0 && this.wy <= this.ly;
-    const palette = this.bgPalette;
-    const fbBase = this.ly * SCREEN_WIDTH;
-    const { vram, fb32, bgColorBuf } = this;
-
-    if (!bgEnabled) {
-      // DMG LCDC.0 clear: BG + window off, fill with color 0 and leave bg
-      // colour buffer at 0 so sprites always win the priority check.
-      const color = palette[0]!;
-      for (let x = 0; x < SCREEN_WIDTH; x++) {
-        bgColorBuf[x] = 0;
-        fb32[fbBase + x] = color;
-      }
-      return false;
-    }
-
-    const bgMap = (this.lcdc & 0x08) !== 0 ? 0x1c00 : 0x1800;
-    const winMap = (this.lcdc & 0x40) !== 0 ? 0x1c00 : 0x1800;
-    const signed = (this.lcdc & 0x10) === 0;
-    const winStartX = this.wx - 7;
-    const bgEndX = winEnabled ? Math.max(0, Math.min(winStartX, SCREEN_WIDTH)) : SCREEN_WIDTH;
-
-    // Shared tile-span blitter for both the BG and the Window — identical
-    // logic except for the tile-map base, the source Y/X, the target screen
-    // range, and whether the source X wraps at 256 (BG wraps, Window
-    // doesn't). Mirrors the `drawSpan` closure in `renderBackgroundCgb`.
-    const drawSpan = (
-      mapBase: number,
-      srcY: number,
-      srcXInit: number,
-      xStart: number,
-      xEnd: number,
-      wrap: boolean
-    ): void => {
-      const tileRow = (srcY >> 3) & 0x1f;
-      const fineY2 = (srcY & 7) * 2;
-      let srcX = srcXInit;
-      let x = xStart;
-      while (x < xEnd) {
-        const tileCol = (srcX >> 3) & 0x1f;
-        const tileIndex = vram[mapBase + tileRow * 32 + tileCol]!;
-        const tileAddr = signed ? 0x1000 + ((tileIndex << 24) >> 24) * 16 : tileIndex * 16;
-        const lo = vram[tileAddr + fineY2]!;
-        const hi = vram[tileAddr + fineY2 + 1]!;
-        const fineXStart = srcX & 7;
-        const count = Math.min(8 - fineXStart, xEnd - x);
-        for (let k = 0; k < count; k++) {
-          const bit = 7 - (fineXStart + k);
-          const colorIdx = ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1);
-          bgColorBuf[x + k] = colorIdx;
-          fb32[fbBase + x + k] = palette[colorIdx]!;
-        }
-        x += count;
-        srcX = wrap ? (srcX + count) & 0xff : srcX + count;
-      }
-    };
-
-    drawSpan(bgMap, (this.ly + this.scy) & 0xff, this.scx & 0xff, 0, bgEndX, true);
-
-    if (winEnabled && bgEndX < SCREEN_WIDTH) {
-      drawSpan(winMap, this.winLY, bgEndX - winStartX, bgEndX, SCREEN_WIDTH, false);
-      return true;
-    }
-    return false;
-  }
-
-  private renderSprites(): void {
-    if (!(this.lcdc & 0x02)) return;
-
-    const tallSprites = (this.lcdc & 0x04) !== 0;
-    const spriteHeight = tallSprites ? 16 : 8;
-
-    // Collect up to 10 sprites that intersect this scanline (in OAM order).
-    const visible = this.visibleSprites;
-    let count = 0;
-    for (let i = 0; i < 40 && count < 10; i++) {
-      const sprY = this.oam[i * 4]! - 16;
-      if (this.ly >= sprY && this.ly < sprY + spriteHeight) visible[count++] = i;
-    }
-
-    // DMG priority: lower X wins; OAM index is tiebreaker (lower = higher priority).
-    // Sort highest-X / highest-index first so the winner (lowest X / index) is painted last.
-    const oam = this.oam;
-    visible.subarray(0, count).sort((a, b) => {
-      const xa = oam[a * 4 + 1]!;
-      const xb = oam[b * 4 + 1]!;
-      return xa !== xb ? xb - xa : b - a;
-    });
-
-    for (let vi = 0; vi < count; vi++) {
-      const i = visible[vi]!;
-      const sprY = this.oam[i * 4]! - 16;
-      const sprX = this.oam[i * 4 + 1]! - 8;
-      const tileNum = this.oam[i * 4 + 2]! & (tallSprites ? 0xfe : 0xff);
-      const attrs = this.oam[i * 4 + 3]!;
-
-      const palette = attrs & 0x10 ? this.obp1Palette : this.obp0Palette;
-      const flipX = (attrs & 0x20) !== 0;
-      const flipY = (attrs & 0x40) !== 0;
-      const priority = (attrs & 0x80) !== 0;
-
-      let fineY = this.ly - sprY;
-      if (flipY) fineY = spriteHeight - 1 - fineY;
-
-      const tileAddr = tileNum * 16 + fineY * 2;
-      const lo = this.vram[tileAddr]!;
-      const hi = this.vram[tileAddr + 1]!;
-
-      for (let fx = 0; fx < 8; fx++) {
-        const screenX = sprX + fx;
-        if (screenX < 0 || screenX >= SCREEN_WIDTH) continue;
-
-        const bit = flipX ? fx : 7 - fx;
-        const colorIdx = ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1);
-        if (colorIdx === 0) continue; // transparent
-
-        // BG-over-sprite priority: attr bit 7 set → sprite only shows over BG color 0.
-        // When LCDC bit 0 is clear, BG/Window are disabled; sprites always win.
-        if (priority && this.lcdc & 0x01 && this.bgColorBuf[screenX] !== 0) continue;
-
-        this.setPixel(screenX, this.ly, palette[colorIdx]!);
-      }
-    }
-  }
-
-  // ─── CGB rendering ────────────────────────────────────────────────────────
-
-  /**
-   * CGB BG + window. Each tile index in VRAM bank 0 is paired with an
-   * attribute byte at the same offset in VRAM bank 1:
-   *   bit 0-2  BG palette (0-7)
-   *   bit 3    tile VRAM bank (0 or 1)
-   *   bit 5    H-flip
-   *   bit 6    V-flip
-   *   bit 7    BG-over-OBJ priority
-   *
-   * On CGB, LCDC.0 doesn't disable BG — it demotes BG+Window priority so OBJs
-   * always appear on top. BG is always drawn; priority is consumed by
-   * `renderSpritesCgb()` via `bgPriBuf`.
-   */
-  private renderBackgroundCgb(): boolean {
-    const fbBase = this.ly * SCREEN_WIDTH;
-    const { vram, fb32, bgColorBuf, bgPriBuf, cgbBgPalettesActive: cgbBgPalettes } = this;
-
-    const winEnabled = (this.lcdc & 0x20) !== 0 && this.wy <= this.ly;
-    const bgMap = (this.lcdc & 0x08) !== 0 ? 0x1c00 : 0x1800;
-    const winMap = (this.lcdc & 0x40) !== 0 ? 0x1c00 : 0x1800;
-    const signed = (this.lcdc & 0x10) === 0;
-    const winStartX = this.wx - 7;
-    const bgEndX = winEnabled ? Math.max(0, Math.min(winStartX, SCREEN_WIDTH)) : SCREEN_WIDTH;
-
-    const drawSpan = (
-      mapBase: number,
-      srcY: number,
-      srcXInit: number,
-      xStart: number,
-      xEnd: number,
-      wrap: boolean
-    ): void => {
-      const tileRow = (srcY >> 3) & 0x1f;
-      const mapRowOff = mapBase + tileRow * 32;
-      const fineY = srcY & 7;
-
-      let srcX = srcXInit;
-      let x = xStart;
-      while (x < xEnd) {
-        const tileCol = (srcX >> 3) & 0x1f;
-        const tileIndex = vram[mapRowOff + tileCol]!;
-        const attrs = vram[0x2000 + mapRowOff + tileCol]!;
-        const tileBank = (attrs >> 3) & 1;
-        const flipX = (attrs & 0x20) !== 0;
-        const flipY = (attrs & 0x40) !== 0;
-        const priority = (attrs & 0x80) !== 0 ? 1 : 0;
-        const palBase = (attrs & 0x07) * 4;
-
-        const fy = flipY ? 7 - fineY : fineY;
-        const tileBase = signed ? 0x1000 + ((tileIndex << 24) >> 24) * 16 : tileIndex * 16;
-        const tileAddr = tileBank * 0x2000 + tileBase + fy * 2;
-        const lo = vram[tileAddr]!;
-        const hi = vram[tileAddr + 1]!;
-
-        const fineXStart = srcX & 7;
-        const count = Math.min(8 - fineXStart, xEnd - x);
-        for (let k = 0; k < count; k++) {
-          const bx = fineXStart + k;
-          const bit = flipX ? bx : 7 - bx;
-          const colorIdx = ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1);
-          bgColorBuf[x + k] = colorIdx;
-          bgPriBuf[x + k] = priority;
-          fb32[fbBase + x + k] = cgbBgPalettes[palBase + colorIdx]!;
-        }
-        x += count;
-        srcX = wrap ? (srcX + count) & 0xff : srcX + count;
-      }
-    };
-
-    drawSpan(bgMap, (this.ly + this.scy) & 0xff, this.scx & 0xff, 0, bgEndX, true);
-
-    if (winEnabled && bgEndX < SCREEN_WIDTH) {
-      drawSpan(winMap, this.winLY, bgEndX - winStartX, bgEndX, SCREEN_WIDTH, false);
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * CGB sprites. Differences from DMG:
-   *  - No X-based priority sort: first-in-OAM wins, so we iterate the 10
-   *    selected sprites in reverse (last loses, so earlier overwrites later).
-   *  - Attribute byte: palette in bits 0-2, VRAM bank in bit 3.
-   *  - BG-over-OBJ priority is a three-way AND of LCDC.0 (master), OAM priority
-   *    bit 7, and BG-attr priority bit 7 captured in bgPriBuf.
-   */
-  private renderSpritesCgb(): void {
-    if (!(this.lcdc & 0x02)) return;
-
-    const tallSprites = (this.lcdc & 0x04) !== 0;
-    const spriteHeight = tallSprites ? 16 : 8;
-    const bgMasterPri = (this.lcdc & 0x01) !== 0;
-
-    const visible = this.visibleSprites;
-    let count = 0;
-    for (let i = 0; i < 40 && count < 10; i++) {
-      const sprY = this.oam[i * 4]! - 16;
-      if (this.ly >= sprY && this.ly < sprY + spriteHeight) visible[count++] = i;
-    }
-
-    // OPRI=1 selects DMG-style X-coord priority. Sort so the winner (lowest X
-    // then lowest OAM index) is painted last.
-    if (this.opri) {
-      const oam = this.oam;
-      visible.subarray(0, count).sort((a, b) => {
-        const xa = oam[a * 4 + 1]!;
-        const xb = oam[b * 4 + 1]!;
-        return xa !== xb ? xb - xa : b - a;
-      });
-      // Paint front-to-back so the last (lowest-priority) ends up on bottom;
-      // with the reverse sort above, iterating normally puts winners last.
-      for (let vi = 0; vi < count; vi++) this.drawCgbSprite(visible[vi]!, tallSprites, spriteHeight, bgMasterPri);
-      return;
-    }
-
-    // Paint back-to-front so the first OAM entry (highest priority) lands on top.
-    for (let vi = count - 1; vi >= 0; vi--) {
-      this.drawCgbSprite(visible[vi]!, tallSprites, spriteHeight, bgMasterPri);
-    }
-  }
-
-  private drawCgbSprite(i: number, tallSprites: boolean, spriteHeight: number, bgMasterPri: boolean): void {
-    const sprY = this.oam[i * 4]! - 16;
-    const sprX = this.oam[i * 4 + 1]! - 8;
-    const tileNum = this.oam[i * 4 + 2]! & (tallSprites ? 0xfe : 0xff);
-    const attrs = this.oam[i * 4 + 3]!;
-
-    const palBase = (attrs & 0x07) * 4;
-    const tileBank = (attrs >> 3) & 1;
-    const flipX = (attrs & 0x20) !== 0;
-    const flipY = (attrs & 0x40) !== 0;
-    const objPri = (attrs & 0x80) !== 0;
-
-    let fineY = this.ly - sprY;
-    if (flipY) fineY = spriteHeight - 1 - fineY;
-
-    const tileAddr = tileBank * 0x2000 + tileNum * 16 + fineY * 2;
-    const lo = this.vram[tileAddr]!;
-    const hi = this.vram[tileAddr + 1]!;
-    const fbRow = this.ly * SCREEN_WIDTH;
-
-    for (let fx = 0; fx < 8; fx++) {
-      const screenX = sprX + fx;
-      if (screenX < 0 || screenX >= SCREEN_WIDTH) continue;
-
-      const bit = flipX ? fx : 7 - fx;
-      const colorIdx = ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1);
-      if (colorIdx === 0) continue; // transparent
-
-      // CGB priority: if LCDC.0 is clear, sprites always win. Otherwise
-      // BG wins if BG colour is non-zero AND (OAM priority OR BG-attr priority).
-      if (bgMasterPri && this.bgColorBuf[screenX] !== 0 && (objPri || this.bgPriBuf[screenX] !== 0)) continue;
-
-      this.fb32[fbRow + screenX] = this.cgbObPalettesActive[palBase + colorIdx]!;
     }
   }
 
@@ -1425,10 +1103,6 @@ export class PPU {
     dst[1] = shades[(reg >> 2) & 3]!;
     dst[2] = shades[(reg >> 4) & 3]!;
     dst[3] = shades[(reg >> 6) & 3]!;
-  }
-
-  private setPixel(x: number, y: number, rgba: number): void {
-    this.fb32[y * SCREEN_WIDTH + x] = rgba;
   }
 
   // ─── Save state ───────────────────────────────────────────────────────────
