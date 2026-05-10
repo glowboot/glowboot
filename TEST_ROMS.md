@@ -8,37 +8,37 @@ Results from running the [c-sp Game Boy test-rom collection](https://github.com/
 
 ## Summary
 
-| Suite                           | Pass | Fail | Skip / Time | Last run                                                                      |
-| ------------------------------- | ---: | ---: | ----------: | ----------------------------------------------------------------------------- |
-| Blargg cpu_instrs               |   11 |    0 |           0 | 2026-05-10                                                                    |
-| Blargg mem_timing v1            |    4 |    0 |           0 | 2026-05-10                                                                    |
-| Blargg instr_timing             |    1 |    0 |           0 | 2026-05-10                                                                    |
-| Blargg halt_bug                 |    1 |    0 |           0 | 2026-05-10 — pixel-perfect framebuffer match                                  |
-| Blargg interrupt_time           |    1 |    0 |           0 | 2026-05-10 — pixel-perfect                                                    |
-| Blargg mem_timing v2 (parent)   |    1 |    0 |           0 | 2026-05-10 — pixel-perfect                                                    |
-| Blargg dmg_sound (parent)       |    0 |    1 |           0 | 2026-05-10 — 3087 px diff (DMG-only ref vs CGB-compat output)                 |
-| Blargg cgb_sound (parent)       |    0 |    1 |           0 | 2026-05-10 — 2949 px diff (cgb_sound 09 known-fail)                           |
-| Blargg oam_bug (parent)         |    0 |    1 |           0 | 2026-05-10 — full-screen diff (DMG-only on CGB host)                          |
-| Blargg dmg_sound (subtests)     |    0 |    0 |          12 | individual subtests have no PNG; serial output not used                       |
-| Blargg cgb_sound (subtests)     |    0 |    0 |          12 | individual subtests have no PNG; serial output not used                       |
-| Blargg mem_timing v2 (subtests) |    0 |    0 |           3 | individual subtests have no PNG                                               |
-| Blargg oam_bug (subtests)       |    0 |    0 |           8 | DMG-only; subtests have no PNG                                                |
-| Mooneye acceptance              |   52 |   23 |           0 | 2026-05-10 — timer tick moved to post-bus-access (matches T=4 increment)      |
-| Mooneye misc (CGB-specific)     |    0 |    2 |           6 | 2026-05-10 — 6 of 8 `boot_*` skipped without `tests/roms/cgb_boot.bin`        |
-| Mealybug PPU (auto-discovered)  |    0 |   30 |           5 | 2026-05-10 — known mid-mode-3 raster gap                                      |
-| acid2 (DMG + CGB + CGB-hell)    |    2 |    1 |           0 | 2026-05-10 — cgb-acid-hell 2 px diff (single-sprite sub-pixel quirk)          |
-| Bully GB                        |    0 |    1 |           0 | 2026-05-10 — 290 px diff, boot-state                                          |
-| GBMicrotest                     |  273 |  240 |           0 | 2026-05-10 — + 4 line_153 LY quirk (LY hidden as 0 from dot 4 of line 153)    |
-| Scribbltests                    |    4 |    1 |           3 | 2026-05-10 — palette config fixed scxly + palettely; statcount-auto still off |
-| Strikethrough                   |    0 |    1 |           0 | 2026-05-10 — 7 px diff (was 22 before per-bus DMA fix); needs Pixel-FIFO      |
-| Turtle Tests                    |    1 |    1 |           0 | 2026-05-10                                                                    |
-| Mooneye-gb (wilbertpol fork)    |    0 |  114 |           7 | 2026-05-10 — most fail via 0xED illegal-opcode (test's own fail-fast)         |
-| Little-things-gb                |    0 |    2 |           0 | 2026-05-10 — firstwhite 2488 px, tellinglys 5549 px                           |
-| MBC3 Tester                     |    0 |    1 |           0 | 2026-05-10 — 5105 px diff                                                     |
-| rtc3test                        |    0 |    0 |           1 | 2026-05-10 — interactive (button press required)                              |
-| Same-suite                      |    3 |   75 |           0 | 2026-05-10 — APU 1/70, DMA 1/4, PPU 1/1                                       |
-| age-test-roms                   |    1 |    3 |          43 | 2026-05-10 — most are screenshot-based; framebuffer detector TBD              |
-| Gambatte test suite             |    5 |  193 |        3326 | 2026-05-10 — 198 ROMs have CGB PNG refs; 3 326 use hex/audio protocol (skip)  |
+| Suite                           | Pass | Fail | Skip / Time | Last run                                                                       |
+| ------------------------------- | ---: | ---: | ----------: | ------------------------------------------------------------------------------ |
+| Blargg cpu_instrs               |   11 |    0 |           0 | 2026-05-10                                                                     |
+| Blargg mem_timing v1            |    4 |    0 |           0 | 2026-05-10                                                                     |
+| Blargg instr_timing             |    1 |    0 |           0 | 2026-05-10                                                                     |
+| Blargg halt_bug                 |    1 |    0 |           0 | 2026-05-10 — pixel-perfect framebuffer match                                   |
+| Blargg interrupt_time           |    1 |    0 |           0 | 2026-05-10 — pixel-perfect                                                     |
+| Blargg mem_timing v2 (parent)   |    1 |    0 |           0 | 2026-05-10 — pixel-perfect                                                     |
+| Blargg dmg_sound (parent)       |    0 |    1 |           0 | 2026-05-10 — 3087 px diff (DMG-only ref vs CGB-compat output)                  |
+| Blargg cgb_sound (parent)       |    0 |    1 |           0 | 2026-05-10 — 2949 px diff (cgb_sound 09 known-fail)                            |
+| Blargg oam_bug (parent)         |    0 |    1 |           0 | 2026-05-10 — full-screen diff (DMG-only on CGB host)                           |
+| Blargg dmg_sound (subtests)     |    0 |    0 |          12 | individual subtests have no PNG; serial output not used                        |
+| Blargg cgb_sound (subtests)     |    0 |    0 |          12 | individual subtests have no PNG; serial output not used                        |
+| Blargg mem_timing v2 (subtests) |    0 |    0 |           3 | individual subtests have no PNG                                                |
+| Blargg oam_bug (subtests)       |    0 |    0 |           8 | DMG-only; subtests have no PNG                                                 |
+| Mooneye acceptance              |   52 |   23 |           0 | 2026-05-10 — timer tick moved to post-bus-access (matches T=4 increment)       |
+| Mooneye misc (CGB-specific)     |    0 |    2 |           6 | 2026-05-10 — 6 of 8 `boot_*` skipped without `tests/roms/cgb_boot.bin`         |
+| Mealybug PPU (auto-discovered)  |    0 |   30 |           5 | 2026-05-10 — known mid-mode-3 raster gap                                       |
+| acid2 (DMG + CGB + CGB-hell)    |    2 |    1 |           0 | 2026-05-10 — cgb-acid-hell 2 px diff (single-sprite sub-pixel quirk)           |
+| Bully GB                        |    0 |    1 |           0 | 2026-05-10 — 290 px diff, boot-state                                           |
+| GBMicrotest                     |  278 |  235 |           0 | 2026-05-10 — + 5 OAM/VRAM mode-locked reads/writes (mode 2/3 OAM, mode 3 VRAM) |
+| Scribbltests                    |    4 |    1 |           3 | 2026-05-10 — palette config fixed scxly + palettely; statcount-auto still off  |
+| Strikethrough                   |    0 |    1 |           0 | 2026-05-10 — 7 px diff (was 22 before per-bus DMA fix); needs Pixel-FIFO       |
+| Turtle Tests                    |    1 |    1 |           0 | 2026-05-10                                                                     |
+| Mooneye-gb (wilbertpol fork)    |    0 |  114 |           7 | 2026-05-10 — most fail via 0xED illegal-opcode (test's own fail-fast)          |
+| Little-things-gb                |    0 |    2 |           0 | 2026-05-10 — firstwhite 2488 px, tellinglys 5549 px                            |
+| MBC3 Tester                     |    0 |    1 |           0 | 2026-05-10 — 5105 px diff                                                      |
+| rtc3test                        |    0 |    0 |           1 | 2026-05-10 — interactive (button press required)                               |
+| Same-suite                      |    3 |   75 |           0 | 2026-05-10 — APU 1/70, DMA 1/4, PPU 1/1                                        |
+| age-test-roms                   |    1 |    3 |          43 | 2026-05-10 — most are screenshot-based; framebuffer detector TBD               |
+| Gambatte test suite             |    5 |  193 |        3326 | 2026-05-10 — 198 ROMs have CGB PNG refs; 3 326 use hex/audio protocol (skip)   |
 
 ## Detail
 
@@ -87,7 +87,7 @@ The pixel-diff counts now serve as quantitative regression markers — fixes can
 | `cgb-acid2`     | ✅     | 0 pixels differ                                                                                                                                                                                                     |
 | `cgb-acid-hell` | ❌     | 2 of 23 040 pixels differ (`(80,68)` / `(80,69)` swapped — middle column of one 8×8 sprite). Author intentionally hides which quirk; deferred until a Pixel-FIFO PPU lets us re-investigate at sub-pixel precision. |
 
-### GBMicrotest — 273 / 513 (53 %)
+### GBMicrotest — 278 / 513 (54 %)
 
 Per-quirk hardware catalogue. Failures cluster:
 

@@ -310,17 +310,42 @@ export class PPU {
 
   // ─── Bus interface ────────────────────────────────────────────────────────
 
+  /** True when CPU bus access to VRAM should return 0xFF / drop writes:
+   *  during mode 3 (Drawing), and only while the LCD is on. Internal PPU
+   *  rendering reads `this.vram[…]` directly and bypasses this gate. */
+  private vramLocked(): boolean {
+    return this.mode === Mode.Drawing && (this.lcdc & 0x80) !== 0;
+  }
+
+  /** True when CPU bus access to OAM should return 0xFF / drop writes:
+   *  during mode 2 (OAM Search) and mode 3 (Drawing), and only while the
+   *  LCD is on. OAM-DMA's lock is handled separately in MMU. */
+  private oamLocked(): boolean {
+    if (!(this.lcdc & 0x80)) return false;
+    return this.mode === Mode.OAMSearch || this.mode === Mode.Drawing;
+  }
+
   readVram(offset: number): number {
+    if (this.vramLocked()) return 0xff;
     return this.vram[this.vramBank * 0x2000 + (offset & 0x1fff)]!;
   }
   writeVram(offset: number, v: number): void {
+    if (this.vramLocked()) return;
     this.vram[this.vramBank * 0x2000 + (offset & 0x1fff)] = v;
   }
 
   readOam(offset: number): number {
+    if (this.oamLocked()) return 0xff;
     return this.oam[offset]!;
   }
   writeOam(offset: number, v: number): void {
+    if (this.oamLocked()) return;
+    this.oam[offset] = v;
+  }
+  /** OAM-DMA bypasses the CPU bus and owns the OAM port directly, so its
+   *  writes go through even when the PPU is in mode 2 / 3. MMU's
+   *  `tickDma` is the only caller; CPU-side writes use `writeOam`. */
+  writeOamFromDma(offset: number, v: number): void {
     this.oam[offset] = v;
   }
 

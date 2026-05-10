@@ -705,7 +705,7 @@ export class MMU {
         continue;
       }
       const byte = this.readDmaSource(this.dmaSrcBase + this.dmaIndex);
-      this.ppu.writeOam(this.dmaIndex, byte);
+      this.ppu.writeOamFromDma(this.dmaIndex, byte);
       this.dmaIndex++;
       if (this.dmaIndex >= 0xa0) this.dmaActive = false;
     }
