@@ -24,11 +24,11 @@ Results from running the [c-sp Game Boy test-rom collection](https://github.com/
 | Mooneye acceptance              |   36 |   39 |           0 | 2026-05-10 — RET / CALL / JP / PUSH-class timing fixed by per-bus DMA tick   |
 | Mooneye misc (CGB-specific)     |    0 |    8 |           0 | 2026-05-10 — 6 of 8 are boot\_\* (expected)                                  |
 | Mealybug PPU (auto-discovered)  |    0 |   30 |           5 | 2026-05-10 — known mid-mode-3 raster gap                                     |
-| acid2 (DMG + CGB + CGB-hell)    |    2 |    1 |           0 | 2026-05-10 — cgb-acid-hell 2 px diff                                         |
+| acid2 (DMG + CGB + CGB-hell)    |    2 |    1 |           0 | 2026-05-10 — cgb-acid-hell 2 px diff (single-sprite sub-pixel quirk)         |
 | Bully GB                        |    0 |    1 |           0 | 2026-05-10 — 290 px diff, boot-state                                         |
 | GBMicrotest                     |  263 |  250 |           0 | 2026-05-10 — 51% pass; per-quirk catalogue                                   |
 | Scribbltests                    |    2 |    3 |           3 | 2026-05-10 — scxly/palettely diverge heavily                                 |
-| Strikethrough                   |    0 |    1 |           0 | 2026-05-10 — 22 px diff (close)                                              |
+| Strikethrough                   |    0 |    1 |           0 | 2026-05-10 — 7 px diff (was 22 before per-bus DMA fix); needs Pixel-FIFO     |
 | Turtle Tests                    |    1 |    1 |           0 | 2026-05-10                                                                   |
 | Mooneye-gb (wilbertpol fork)    |    0 |  114 |           7 | 2026-05-10 — most fail via 0xED illegal-opcode (test's own fail-fast)        |
 | Little-things-gb                |    0 |    2 |           0 | 2026-05-10 — firstwhite 2488 px, tellinglys 5549 px                          |
@@ -75,11 +75,11 @@ The pixel-diff counts now serve as quantitative regression markers — fixes can
 
 ### acid2 — 2 / 3
 
-| Test            | Status | Detail                                                                       |
-| --------------- | ------ | ---------------------------------------------------------------------------- |
-| `dmg-acid2`     | ✅     | 0 pixels differ from reference                                               |
-| `cgb-acid2`     | ✅     | 0 pixels differ                                                              |
-| `cgb-acid-hell` | ❌     | **2 of 23 040 pixels differ** — single tiny PPU edge case worth pinning down |
+| Test            | Status | Detail                                                                                                                                                                                                              |
+| --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dmg-acid2`     | ✅     | 0 pixels differ from reference                                                                                                                                                                                      |
+| `cgb-acid2`     | ✅     | 0 pixels differ                                                                                                                                                                                                     |
+| `cgb-acid-hell` | ❌     | 2 of 23 040 pixels differ (`(80,68)` / `(80,69)` swapped — middle column of one 8×8 sprite). Author intentionally hides which quirk; deferred until a Pixel-FIFO PPU lets us re-investigate at sub-pixel precision. |
 
 ### GBMicrotest — 263 / 513 (51 %)
 
@@ -95,17 +95,17 @@ Per-quirk hardware catalogue. Failures cluster:
 
 ### Scribbltests / Strikethrough / Turtle Tests
 
-| Test                                          | Status | Detail                       |
-| --------------------------------------------- | ------ | ---------------------------- |
-| `scribbltests/lycscx`                         | ✅     | 0 px                         |
-| `scribbltests/lycscy`                         | ✅     | 0 px                         |
-| `scribbltests/palettely`                      | ❌     | 12 800 px diff               |
-| `scribbltests/scxly`                          | ❌     | 23 040 px diff (full screen) |
-| `scribbltests/statcount-auto`                 | ❌     | 1 565 px diff                |
-| `scribbltests/{fairylake, statcount, winpos}` | ⏳     | no reference PNG bundled     |
-| `strikethrough`                               | ❌     | 22 px diff (close)           |
-| `turtle-tests/window_y_trigger`               | ❌     | 1 716 px diff                |
-| `turtle-tests/window_y_trigger_wx_offscreen`  | ✅     | 0 px                         |
+| Test                                          | Status | Detail                                                                                                        |
+| --------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------- |
+| `scribbltests/lycscx`                         | ✅     | 0 px                                                                                                          |
+| `scribbltests/lycscy`                         | ✅     | 0 px                                                                                                          |
+| `scribbltests/palettely`                      | ❌     | 12 800 px diff                                                                                                |
+| `scribbltests/scxly`                          | ❌     | 23 040 px diff (full screen)                                                                                  |
+| `scribbltests/statcount-auto`                 | ❌     | 1 565 px diff                                                                                                 |
+| `scribbltests/{fairylake, statcount, winpos}` | ⏳     | no reference PNG bundled                                                                                      |
+| `strikethrough`                               | ❌     | 7 px diff (was 22; per-bus DMA fix recovered the in-DMA HBlank but mid-scanline OAM re-read needs Pixel-FIFO) |
+| `turtle-tests/window_y_trigger`               | ❌     | 1 716 px diff                                                                                                 |
+| `turtle-tests/window_y_trigger_wx_offscreen`  | ✅     | 0 px                                                                                                          |
 
 ### Bully GB
 
@@ -114,9 +114,9 @@ Per-quirk hardware catalogue. Failures cluster:
 ## Triage candidates (fix before shipping)
 
 - [x] ~~Mooneye `ret_*` timeouts — three tests hang; likely a real RET timing bug~~ — fixed by per-bus-access DMA ticking + 2-cycle setup delay
-- [ ] cgb-acid-hell 2-pixel diff — find which pixels and why
+- [x] ~~cgb-acid-hell 2-pixel diff — find which pixels and why~~ — investigated 2026-05-10: 2 px at `(80,68)`/`(80,69)` are swapped within a single 8×8 sprite's middle column. Author hides the quirk catalogue; with our atomic-scanline PPU we can't probe further. Deferred to Pixel-FIFO.
 - [ ] Mooneye timer `*_div_trigger` (5 tests) — DIV→TIMA trigger edge case
 - [ ] Mooneye `push_timing` / `rst_timing` / `call_*_timing2` — remaining cycle-accounting gaps
-- [ ] Strikethrough 22 px — close to passing; small fix likely
+- [x] ~~Strikethrough 22 px — close to passing; small fix likely~~ — partially fixed 2026-05-10 (22 → 7 px from per-bus DMA tick). Remaining 7 px need mid-scanline OAM re-read; deferred to Pixel-FIFO.
 - [ ] Scribbltests `scxly` 100 % diff — investigate (palette? rendering path off?)
 - [ ] ~~GBMicrotest `hblank_int_scx*` cluster — 24 related fails on the same axis~~ — investigated 2026-05-10: requires sub-M-cycle PPU resolution (paired `_a` / `_b` variants probe ±1 dot of mode-3 boundary). Atomic-mode-3 PPU can pass either side but not both; deferred to the Pixel-FIFO rewrite that gates Mealybug too.
