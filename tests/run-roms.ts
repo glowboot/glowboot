@@ -95,6 +95,12 @@ const ACID2_CGB_OBP = [0xffffffff, 0xff8484ff, 0xff393994, 0xff000000];
 const DMG_GRAY_BG = [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000];
 const DMG_GRAY_OBP = [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000];
 
+// Classic DMG green LCD shades (#9BBC0F / #8BAC0F / #306230 / #0F380F) —
+// scribbletests/scxly's reference image was captured on real DMG hardware
+// and bakes those greens in; the test only uses palette slots 0 and 3.
+const DMG_GREEN_BG = [0xff0fc098, 0xff0fac8b, 0xff306230, 0xff0f380f];
+const DMG_GREEN_OBP = [0xff0fc098, 0xff0fac8b, 0xff306230, 0xff0f380f];
+
 // ─── Screen-only test configs ────────────────────────────────────────────────
 interface ScreenTest {
   romPath: string; // path under test-roms/
@@ -212,13 +218,13 @@ const STATIC_SCREEN_TESTS: ScreenTest[] = [
   {
     romPath: "scribbltests/palettely/palettely.gb",
     refPng: "scribbltests/palettely/palettely-cgb.png",
-    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    palette: { bg: ACID2_CGB_BG, obp0: ACID2_CGB_OBP, obp1: ACID2_CGB_OBP },
     frames: 30
   },
   {
     romPath: "scribbltests/scxly/scxly.gb",
     refPng: "scribbltests/scxly/scxly-cgb.png",
-    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    palette: { bg: DMG_GREEN_BG, obp0: DMG_GREEN_OBP, obp1: DMG_GREEN_OBP },
     frames: 30
   },
   {
