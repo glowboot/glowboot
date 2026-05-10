@@ -152,9 +152,10 @@ describe("WaveChannel", () => {
     writeReg(ch, 2, 0x20); // output level 1 (100%, no shift)
     writeReg(ch, 3, 0xff);
     writeReg(ch, 4, 0x87); // freq=2047, period=2, trigger
-    // Immediately after trigger, waveBuffer is 0 (not yet fetched).
-    // Tick once to advance wavePos=1, fetching low nibble of byte 0 = 2.
-    ch.tick((2048 - 2047) * 2); // exactly one period
+    // Hardware delays the first wave-unit tick after trigger by 6 master
+    // T-cycles (= 3 wave-units), so the first fetch lands `period + 6`
+    // master T-cycles after the trigger.
+    ch.tick((2048 - 2047) * 2 + 6); // one period + post-trigger delay
     expect(ch.sample()).toBe(2);
   });
 

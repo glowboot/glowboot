@@ -385,8 +385,13 @@ export class WaveChannel extends ChannelBase {
   trigger(apuOn: boolean): void {
     this.enabled = apuOn && this.dacEnabled;
     this.reloadLengthOnTrigger();
-    this.freqTimer = 2048 - this.freqReg;
-    this.prescaler = 0;
+    // Real CGB hardware delays the first wave-unit tick after trigger by
+    // 6 master T-cycles (= 3 wave-units), so the fetch from `wavePos=0`
+    // doesn't happen on the very next sample. Without the +3 the
+    // `channel_3_*_delay` family of same-suite tests fails by one
+    // wave-unit. Prescaler is left untouched — the 2-T phase is part of
+    // the global wave-unit clock, not a per-trigger detail.
+    this.freqTimer = 2048 - this.freqReg + 3;
     this.wavePos = 0;
   }
 
