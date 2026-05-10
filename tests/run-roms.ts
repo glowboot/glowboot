@@ -3,11 +3,11 @@
  * against the in-tree emulator and reports pass / fail. Not part of the
  * regular `npm test` chain; invoke via `npm run test:roms`.
  *
- * Test ROMs themselves live under `test-roms/` (gitignored). On first run,
- * if that directory is empty, we fetch the latest c-sp Game Boy test-roms
- * release zip from GitHub and unpack it in place. Set `GLOWBOOT_NO_FETCH=1`
- * to disable the auto-fetch (e.g. when running offline) and fall back to
- * the original "fetch it yourself" instructions.
+ * Test ROMs themselves live under `tests/roms/` (gitignored). On first
+ * run, if that directory is empty, we fetch the latest c-sp Game Boy
+ * test-roms release zip from GitHub and unpack it in place. Set
+ * `GLOWBOOT_NO_FETCH=1` to disable the auto-fetch (e.g. when running
+ * offline) and fall back to the original "fetch it yourself" workflow.
  *
  * Detection covers three protocols:
  *   1. Blargg — ASCII via serial; success = collected text contains
@@ -36,7 +36,7 @@ import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../src/gb/ppu/ppu.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(__dirname, "..");
-const TEST_ROMS_DIR = resolve(ROOT, "test-roms");
+const TEST_ROMS_DIR = resolve(__dirname, "roms");
 const RELEASE_API = "https://api.github.com/repos/c-sp/game-boy-test-roms/releases/latest";
 
 const MAX_FRAMES_SERIAL = 60 * 20; // 20s at 60fps. Slowest passing Blargg test takes ~600 frames; tests that haven't completed by then are either screen-only or hung.
@@ -52,7 +52,7 @@ async function ensureTestRoms(): Promise<void> {
   if (existsSync(TEST_ROMS_DIR) && readdirSync(TEST_ROMS_DIR).length > 0) return;
   if (process.env.GLOWBOOT_NO_FETCH === "1") return;
 
-  console.log(`test-roms/ is empty — fetching latest c-sp Game Boy test-roms release…`);
+  console.log(`tests/roms/ is empty — fetching latest c-sp Game Boy test-roms release…`);
   const releaseRes = await fetch(RELEASE_API, { headers: { "User-Agent": "glowboot-test-runner" } });
   if (!releaseRes.ok) {
     throw new Error(

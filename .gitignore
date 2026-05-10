@@ -7,8 +7,9 @@ CLAUDE.md
 .claude/
 
 # Test ROMs cloned locally for the `npm run test:roms` harness; not
-# bundled — fetch with `git clone --depth 1 https://github.com/c-sp/game-boy-test-roms.git test-roms`.
-test-roms/
+# bundled — `npm run test:roms` auto-fetches the c-sp release zip on
+# first run (set GLOWBOOT_NO_FETCH=1 to skip).
+tests/roms/
 
 # Vite env files — never commit any of them so secrets can't sneak in
 # through the back door. The repo ships `.env.example` as the only
