@@ -812,7 +812,7 @@ skips a few edges:
 
 ### Audio is functional in all tested games but fails strict cycle-accuracy tests
 
-**Symptom:** No audible glitches reported in real game playback. However, strict APU test ROMs flag many sub-T-cycle quirks (e.g. wave-RAM read timing during channel-3 active read, exact sweep-period reload across power cycles, length-counter behaviour at frame-sequencer half-cycle boundaries).
+**Symptom:** No audible glitches reported in real game playback. However, strict APU test ROMs flag many sub-T-cycle quirks (e.g. NRx2 envelope "zombie mode" writes, exact sweep-period reload across power cycles, length-counter behaviour at frame-sequencer half-cycle boundaries, frame-sequencer phase under double-speed switching).
 
 **Status:** Tracked as a long-tail accuracy gap, not a gameplay blocker. Specific game-audio reports are welcome via the bug-report template — they're prioritised over generic test-ROM failures.
 
