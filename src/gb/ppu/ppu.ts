@@ -638,14 +638,23 @@ export class PPU {
   // ─── Timing ───────────────────────────────────────────────────────────────
 
   /**
-   * Advance PPU by `mCycles` M-cycles (1 M-cycle = 4 dots). The internal
-   * loop drains the dot budget across mode boundaries — earlier this method
-   * could only cross one boundary per call, which was fine for typical
-   * 1-6 M-cycle ticks but won't survive Phase 3's per-dot mode-3 stepping.
+   * Advance PPU by `mCycles` M-cycles (1 M-cycle = 4 dots). Thin wrapper
+   * around `tickDots` — kept for callers that still think in M-cycles.
    */
   tick(mCycles: number): void {
+    this.tickDots(mCycles * 4);
+  }
+
+  /**
+   * Advance PPU by `dots` dots directly. Used by the CPU's per-bus-access
+   * tick path so register writes (BGP / SCX / LCDC / …) take effect at
+   * the M-cycle of the write rather than at the end of the writing
+   * instruction. The internal loop drains the dot budget across mode
+   * boundaries.
+   */
+  tickDots(dots: number): void {
     if (!(this.lcdc & 0x80)) return; // LCD off
-    let remaining = mCycles * 4;
+    let remaining = dots;
     while (remaining > 0) {
       remaining -= this.advanceDots(remaining);
     }

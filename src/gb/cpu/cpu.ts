@@ -3,6 +3,7 @@ import { checkPc } from "../debug/breakpoints.js";
 import { notePop, notePush } from "../debug/call-stack.js";
 import { INTERRUPT_VECTORS, type InterruptController } from "../memory/interrupts.js";
 import type { MMU } from "../memory/mmu.js";
+import type { PPU } from "../ppu/ppu.js";
 import type { StateReader, StateWriter } from "../serialization/serialization.js";
 import type { Timer } from "../timer/timer.js";
 import { Registers } from "./registers.js";
@@ -69,6 +70,14 @@ export class CPU {
    *  at the bus-cycle of the read — Blargg `cgb_sound 09` requires this. */
   apu: APU | null = null;
 
+  /** Optional PPU reference. When set, ticked per bus-access in dots
+   *  (4 dots per CPU M-cycle in single-speed, 2 in double-speed) so a
+   *  register write that happens mid-instruction takes effect at the
+   *  M-cycle of the write rather than at the end of the instruction.
+   *  Required for Mealybug / wilbertpol GPU / GBMicrotest hblank_int_scx*
+   *  to converge. */
+  ppu: PPU | null = null;
+
   // ─── Bus access with per-cycle timer ticking ──────────────────────────────
 
   /** Advance the timer by 1 M-cycle before each memory bus access, so reads
@@ -88,10 +97,18 @@ export class CPU {
     this.mmu.tickDma(1);
     const apu = this.apu;
     if (apu) apu.tickTCycles(this.doubleSpeed ? 1 : 3);
+    // The LR35902 lands its read at T=3 of the 4-T M-cycle, so the PPU
+    // has advanced 3 dots before the read returns and 1 more on the way
+    // out. Mid-instruction reads of PPU registers (LY, STAT, BGP, …)
+    // therefore observe the dot-accurate state at the bus cycle. Same
+    // 3+1 split the APU uses above. Double-speed: 1+1 dots (1 CPU
+    // M-cycle = 2 dots).
+    if (this.ppu) this.ppu.tickDots(this.doubleSpeed ? 1 : 3);
     this.ticksThisInstr++;
     const v = this.mmu.readByte(addr);
     this.timer.tick(1);
     if (apu) apu.tickTCycles(1);
+    if (this.ppu) this.ppu.tickDots(1);
     return v;
   }
 
@@ -99,16 +116,22 @@ export class CPU {
     this.mmu.tickDma(1);
     const apu = this.apu;
     if (apu) apu.tickTCycles(this.doubleSpeed ? 1 : 3);
+    // 3 dots advance with the OLD register state before the write lands
+    // at T=3, then 1 more dot with the NEW value — matches real HW for
+    // mid-mode-3 writes (BGP / SCX / LCDC / …).
+    if (this.ppu) this.ppu.tickDots(this.doubleSpeed ? 1 : 3);
     this.ticksThisInstr++;
     this.mmu.writeByte(addr, value);
     this.timer.tick(1);
     if (apu) apu.tickTCycles(1);
+    if (this.ppu) this.ppu.tickDots(1);
   }
 
   private internalCycle(): void {
     this.mmu.tickDma(1);
     this.timer.tick(1);
     if (this.apu) this.apu.tickTCycles(this.doubleSpeed ? 2 : 4);
+    if (this.ppu) this.ppu.tickDots(this.doubleSpeed ? 2 : 4);
     this.ticksThisInstr++;
   }
 
@@ -118,6 +141,7 @@ export class CPU {
       this.mmu.tickDma(remainder);
       this.timer.tick(remainder);
       if (this.apu) this.apu.tickTCycles(remainder * (this.doubleSpeed ? 2 : 4));
+      if (this.ppu) this.ppu.tickDots(remainder * (this.doubleSpeed ? 2 : 4));
     }
   }
 

@@ -81,6 +81,7 @@ export class GameBoy {
     this.cpu = new CPU(this.mmu, this.interrupts, this.timer, /* cgb */ true, /* preBoot */ preBoot);
     this.mmu.cpu = this.cpu; // break the constructor cycle so KEY1 can reach CPU.
     this.cpu.apu = this.apu; // per-bus-access APU ticking — see CPU.busRead
+    this.cpu.ppu = this.ppu; // per-bus-access PPU ticking — register writes settle at the M-cycle of the write
     this.timer.apu = this.apu; // APU FS is clocked by DIV bit 12/13 falling edges.
     this.timer.cpu = this.cpu; // …and the bit selector flips with double-speed.
     this.mmu.cheats = this.cheats; // attach cheat engine for Game Genie ROM patches.
@@ -122,39 +123,28 @@ export class GameBoy {
    * the CPU's clock directly.
    */
   runFrame(): number {
-    let halfways = 0; // half-PPU-M-cycles accumulator
-    let ppuAdvanced = 0;
+    let ppuDots = 0;
     let cpuCycles = 0;
+    const DOTS_PER_FRAME = CYCLES_PER_FRAME * 4;
 
-    while (ppuAdvanced < CYCLES_PER_FRAME) {
+    while (ppuDots < DOTS_PER_FRAME) {
       const stepped = this.cpu.step();
       // `stepped === 0` means a PC breakpoint fired before the fetch;
       // bail out of the frame loop so the scheduler can drain the hit
       // and auto-pause.
       if (stepped === 0) break;
-      // Timer + OAM DMA are driven from inside CPU.step (per-bus-access
-      // ticking), so reads of TIMA observe the cycle-accurate value
-      // required by mem_timing / instr_timing, and DMA's startup delay
-      // (one M-cycle after the write to $FF46) falls out naturally.
-      // RTC oscillator runs at a fixed 32768 Hz independent of CGB
-      // double-speed mode, so convert CPU M-cycles → T-cycles of real
-      // emulated time: single-speed = 4 T/M, double-speed = 2 T/M.
+      // Timer, OAM DMA, APU **and PPU** are driven from inside CPU.step
+      // (per-bus-access ticking), so reads of TIMA / register writes mid-
+      // mode-3 / wave-RAM reads etc. all observe the cycle-accurate
+      // state required by mem_timing / Mealybug / cgb_sound 09. The RTC
+      // oscillator runs at a fixed 32768 Hz independent of CGB double-
+      // speed mode, so convert CPU M-cycles → T-cycles of real emulated
+      // time: single-speed = 4 T/M, double-speed = 2 T/M.
       const tCycles = this.cpu.doubleSpeed ? stepped * 2 : stepped * 4;
       this.cart.tickRtc(tCycles);
       this.mmu.tickSerial(tCycles);
       cpuCycles += stepped;
-
-      // Single-speed: 1 CPU M-cycle = 1 PPU M-cycle (= 2 halfways).
-      // Double-speed: 2 CPU M-cycles per PPU M-cycle (= 1 halfway each).
-      // APU is ticked per CPU bus access from within `cpu.step` at the
-      // real-time T-cycle granularity, so it isn't batched here anymore.
-      halfways += this.cpu.doubleSpeed ? stepped : stepped * 2;
-      const full = halfways >> 1;
-      if (full > 0) {
-        this.ppu.tick(full);
-        halfways -= full * 2;
-        ppuAdvanced += full;
-      }
+      ppuDots += tCycles; // 1 T-cycle = 1 PPU dot
       // Watchpoint latched during this step's bus accesses — finish the
       // step cleanly (already done) then bail so the frame ends early.
       if (peekHit() !== null) break;
@@ -212,12 +202,7 @@ export class GameBoy {
       const tCycles = this.cpu.doubleSpeed ? stepped * 2 : stepped * 4;
       this.cart.tickRtc(tCycles);
       this.mmu.tickSerial(tCycles);
-      // PPU is driven in half-PPU-M-cycles to handle CGB double-speed
-      // without fractional carries — match runFrame's accounting but
-      // round down so we never over-tick on a single instruction.
-      const halfways = this.cpu.doubleSpeed ? stepped : stepped * 2;
-      const full = halfways >> 1;
-      if (full > 0) this.ppu.tick(full);
+      // PPU is ticked from inside CPU.step now; nothing to top up here.
       totalCycles += stepped;
       if (!this.cpu.halted && !this.cpu.stopped) break;
     }
