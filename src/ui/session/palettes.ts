@@ -71,25 +71,11 @@ export const PALETTES: readonly DmgPalette[] = [
     obp1: mono(0xf8d8b0, 0xffa060, 0xc03838, 0x402808)
   },
   {
-    id: "blue",
-    name: "Cool Blue",
-    bg: mono(0xeef7ff, 0x94b7ff, 0x3660a0, 0x0a1032),
-    obp0: mono(0xffffff, 0x8ed4ff, 0x3864b4, 0x0e1834),
-    obp1: mono(0xffffff, 0xb6ffe6, 0x2e7a72, 0x081e1e)
-  },
-  {
     id: "pink",
     name: "Bubblegum",
     bg: mono(0xffe9f2, 0xff9ec7, 0xb04878, 0x440a28),
     obp0: mono(0xffffff, 0xffc6d3, 0xd05a88, 0x3c0820),
     obp1: mono(0xffffff, 0xffe6b8, 0xd89a3c, 0x402410)
-  },
-  {
-    id: "gold",
-    name: "Royal Gold",
-    bg: mono(0xfff6c8, 0xe3c064, 0x9b6f1b, 0x2d1a06),
-    obp0: mono(0xffffff, 0xffd368, 0xb26a1f, 0x2a160c),
-    obp1: mono(0xffffff, 0xc8eac8, 0x468a48, 0x0a2410)
   },
   {
     id: "mono",
