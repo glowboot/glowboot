@@ -775,12 +775,16 @@ Passes the `dmg-acid2` PPU test and Blargg's `cpu_instrs`,
 emulator is **not** cycle-accurate down to the T-cycle and deliberately
 skips a few edges:
 
-- **Not T-cycle accurate at the APU level.** Blargg `cgb_sound 09`
+- **No per-opcode bus-access T-offsets.** Blargg `cgb_sound 09`
   sweeps the CPU's bus access in 2-T-cycle steps to probe wave-RAM
-  read timing; our APU's tick granularity is M-cycle (4 T), so that
-  CRC doesn't match. The same reason makes `dmg_sound` 09 / 10 / 12
-  unreachable, though those are also DMG-only hardware quirks we
-  don't target anyway.
+  read timing. Our CPU lands every memory access at T=3 within its
+  M-cycle (3 T of APU work before the access, 1 T after); real
+  hardware varies that T-offset per opcode, so the wave-RAM
+  read-while-on CRC doesn't match. The fix would be a per-opcode
+  bus-T-offset table, not finer APU ticks.
+- **DMG-only audio quirks not emulated.** `dmg_sound` 09 / 10 / 12
+  exercise behaviours specific to the DMG audio hardware. Glowboot
+  presents as CGB, so those fail by design.
 - **DMG OAM corruption bug not emulated.** Blargg's `oam_bug` tests 02,
   04, 05, 07, 08 exercise a DMG-only quirk where `INC`/`DEC`/`PUSH`/
   `POP`/`LDI`/`LDD` on an address in `$FE00–$FEFF` during OAM search
