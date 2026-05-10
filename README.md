@@ -565,9 +565,12 @@ DataChannel — lives in `src/ui/session/webrtc-link.ts`.
   (OAM / Drawing / HBlank / VBlank), DMG sprite-priority rules,
   10-sprite-per-line limit, STAT IRQ blocking.
 - **APU** — All four channels (two square with duty, wave, noise LFSR),
-  volume envelopes, CH1 frequency sweep, length counters, 512 Hz frame
-  sequencer, NR50 master volume, NR51 stereo panning. DC-blocked output
-  through a Web Audio `GainNode` for master volume.
+  volume envelopes, CH1 frequency sweep, length counters, DIV-driven
+  512 Hz frame sequencer (clocked off DIV bit 12 in single-speed / bit
+  13 in CGB double-speed, so a write to FF04 that drops the bit fires
+  an extra step — matching real hardware), NR50 master volume, NR51
+  stereo panning. DC-blocked output through a Web Audio `GainNode` for
+  master volume.
 - **Memory / MBC** — Work RAM, VRAM, OAM, HRAM, I/O, echo RAM. Mappers:
   ROM_ONLY, MBC1, MBC2, MBC3 (with RTC), MBC5, MBC7 (accelerometer +
   EEPROM, for Kirby Tilt 'n' Tumble), and Pocket Camera (`0xFC`). OAM
@@ -743,9 +746,14 @@ src/
 
 The emulator uses **M-cycles** (= 4 T-cycles / 4 dots) as the lingua
 franca between subsystems. `CPU.step()` returns the M-cycles consumed;
-`Timer.tick(m)` takes M-cycles directly; `APU.tick(m)` and `PPU.tick(m)`
-convert to T-cycles / dots internally. One Game Boy frame is
-`4 194 304 / 4 / 59.73 ≈ 17 556` M-cycles.
+`Timer.tick(m)` takes M-cycles directly; `PPU.tick(m)` takes M-cycles
+and converts to dots internally. The APU is the exception — it ticks
+in real-time T-cycles via `APU.tickTCycles(t)` called per CPU bus
+access, so wave-channel-RAM reads land at the exact M-cycle the access
+happens on. The APU's 512 Hz frame sequencer isn't even tied to that
+counter; it's clocked by the falling edge of DIV bit 12 (single-speed)
+or bit 13 (double-speed), driven from the Timer. One Game Boy frame
+is `4 194 304 / 4 / 59.73 ≈ 17 556` M-cycles.
 
 ### Frame pacing
 
@@ -770,19 +778,12 @@ already-queued audio too.
 
 ### Accuracy and known limitations
 
-Passes the `dmg-acid2` PPU test and Blargg's `cpu_instrs`,
-`instr_timing`, `mem_timing`, `mem_timing-2`, `halt_bug`, and
-`interrupt_time` test suites in full. `cgb_sound` is 11/12. The
-emulator is **not** cycle-accurate down to the T-cycle and deliberately
-skips a few edges:
+Passes the `dmg-acid2` and `cgb-acid2` PPU tests and Blargg's
+`cpu_instrs`, `instr_timing`, `mem_timing`, `mem_timing-2`, `halt_bug`,
+`interrupt_time`, and `cgb_sound` test suites in full. The emulator is
+**not** cycle-accurate down to the T-cycle and deliberately skips a few
+edges:
 
-- **No per-opcode bus-access T-offsets.** Blargg `cgb_sound 09`
-  sweeps the CPU's bus access in 2-T-cycle steps to probe wave-RAM
-  read timing. Our CPU lands every memory access at T=3 within its
-  M-cycle (3 T of APU work before the access, 1 T after); real
-  hardware varies that T-offset per opcode, so the wave-RAM
-  read-while-on CRC doesn't match. The fix would be a per-opcode
-  bus-T-offset table, not finer APU ticks.
 - **DMG-only audio quirks not emulated.** `dmg_sound` 09 / 10 / 12
   exercise behaviours specific to the DMG audio hardware. Glowboot
   presents as CGB, so those fail by design.
@@ -796,9 +797,17 @@ skips a few edges:
   for DMG carts; we don't ship the boot ROM, so DMG carts default to an
   aurora-matched palette that the user can swap from Settings (9
   curated presets).
-- **Some sub-instruction PPU timing** (mid-scanline register writes,
-  mode-3 penalties for sprites/SCX) is approximated rather than
-  cycle-exact.
+- **PPU is per-pixel but not per-T-cycle.** The renderer is a pixel-FIFO
+  (BG fetcher + per-pixel sprite mixer), so most mid-mode-3 register
+  writes land on the right pixel — but the PPU is still ticked in
+  batches after each CPU instruction rather than synchronously per bus
+  access, so dot-precise effects probed by the Mealybug Tearoom suite
+  (BGP / OBP / LCDC changed at specific dot positions) don't fully
+  reproduce. No known gameplay impact; affects the test suite only.
+- **Sprite-fetcher stalls approximated.** Mode-3 length penalties from
+  sprites + window are honoured as a single post-pump idle pad rather
+  than per-sprite at the right dot. Total scanline length is correct;
+  per-sprite timing is not.
 
 ## Known issues (deferred)
 
