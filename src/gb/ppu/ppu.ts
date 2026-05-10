@@ -128,6 +128,51 @@ export class PPU {
    *  visible-LY check in the VBlank case from re-applying the quirk. */
   private line153Quirk = false;
 
+  // ── BG Pixel-FIFO state (Phase 3) ───────────────────────────────────────
+  /** BG fetcher sub-step (0 = Get Tile, 1 = Get Lo, 2 = Get Hi, 3 = Push).
+   *  Each step takes 2 dots; we advance state on every other dot. */
+  private fetchStep = 0;
+  /** 0 → first dot of the current step, 1 → second dot (do the work then). */
+  private fetchPhase = 0;
+  /** Tile column index within the BG/window tilemap for the next fetch. */
+  private fetchTileX = 0;
+  /** Latched tile number from step 0. */
+  private fetchTileNum = 0;
+  /** CGB BG attribute byte (bank 1 of tilemap); 0 on DMG. */
+  private fetchAttr = 0;
+  /** Tile data low / high bytes from steps 1 and 2. */
+  private fetchTileLo = 0;
+  private fetchTileHi = 0;
+  /** True once the window has activated for the current scanline; the
+   *  fetcher then sources from the window map and `winLY`. */
+  private fetchInWindow = false;
+  /** BG FIFO — 8-entry circular buffer. Each entry packs:
+   *    bits 0-1: color index (0..3)
+   *    bits 2-4: CGB BG palette (0..7), 0 on DMG
+   *    bit 5:    CGB BG-over-OBJ priority bit, 0 on DMG */
+  private readonly bgFifo = new Uint8Array(8);
+  private bgFifoHead = 0;
+  private bgFifoCount = 0;
+  /** Next pixel to push (0..160). At 160, the fetcher idles until mode 3
+   *  ends. Sprites (Phase 4 will integrate) still draw atomically post-line. */
+  private currentPx = 0;
+  /** Fine-X discard counter at the start of mode 3 (= SCX & 7). Pixels
+   *  popped while this is > 0 get thrown out without advancing currentPx. */
+  private discardLeft = 0;
+  /** Set to true once sprites have been overlaid for the current scanline.
+   *  We trigger sprite render the moment the fetcher reaches `currentPx
+   *  === 160` so a `runFrame()` ending mid-mode-3 still leaves a fully
+   *  rendered scanline behind. Without this gate the mode-3-end fallback
+   *  in `advanceDots` would overlay sprites a second time. */
+  private lineSpritesDrawn = false;
+  /** Scratch row for BG pixels during mode 3. We commit to `fb32`
+   *  atomically when the line completes (currentPx === 160) so a partial
+   *  mode-3 at end of `runFrame()` doesn't leave half-rendered scanlines
+   *  visible. Per-pixel changes (BGP, palettes, attributes) still take
+   *  effect because each pixel is computed via the fetcher with current
+   *  register state at fetch time. */
+  private readonly scratchRow = new Uint32Array(SCREEN_WIDTH);
+
   /**
    * Fired once per frame the instant the PPU enters VBlank. Cheaper than
    * having the host poll `readByte(0xff44)` from the main loop.
@@ -616,17 +661,32 @@ export class PPU {
             this.cgbBgPalettesActive.set(this.cgbBgPalettes);
             this.cgbObPalettesActive.set(this.cgbObPalettes);
           }
+          this.resetBgFetcher();
           this.setMode(Mode.Drawing);
         }
         return consume;
       }
 
       case Mode.Drawing: {
-        const consume = Math.min(maxDots, this.mode3Length - this.dots);
+        const remaining = this.mode3Length - this.dots;
+        const consume = Math.min(maxDots, remaining);
+        for (let i = 0; i < consume; i++) {
+          this.advanceBgFetcher();
+          this.tryPushBgPixel();
+        }
         this.dots += consume;
         if (this.dots >= this.mode3Length) {
           this.dots = 0;
-          this.renderLine();
+          // If mode 3 ended before the fetcher reached pixel 160 (shouldn't
+          // happen if mode3Length is correct), draw sprites anyway so the
+          // line is at least partially complete. Sprite render gated on
+          // `lineSpritesDrawn` to avoid double-overlay when the fetcher
+          // already triggered it at currentPx=160.
+          if (this.ly < SCREEN_HEIGHT && !this.lineSpritesDrawn) {
+            if (this.fetchInWindow) this.winLY++;
+            if (this.cgbGame) this.renderSpritesCgb();
+            else this.renderSprites();
+          }
           this.setMode(Mode.HBlank);
           this.onHBlank?.();
         }
@@ -690,6 +750,188 @@ export class PPU {
         }
         return consume;
       }
+    }
+  }
+
+  // ─── BG Pixel-FIFO ───────────────────────────────────────────────────────
+
+  /** Reset the BG fetcher + FIFO at the start of mode 3. The fetcher will
+   *  pull from the BG tilemap (or the window tilemap once `fetchInWindow`
+   *  flips), filling the 8-px FIFO. Pixels are popped one per dot in
+   *  `tryPushBgPixel`; the first `(SCX & 7)` pops are discarded as the
+   *  fine-X scroll. */
+  private resetBgFetcher(): void {
+    this.fetchStep = 0;
+    this.fetchPhase = 0;
+    this.fetchTileX = 0;
+    this.fetchTileNum = 0;
+    this.fetchAttr = 0;
+    this.fetchTileLo = 0;
+    this.fetchTileHi = 0;
+    this.fetchInWindow = false;
+    this.bgFifoHead = 0;
+    this.bgFifoCount = 0;
+    this.currentPx = 0;
+    this.discardLeft = this.scx & 7;
+    this.lineSpritesDrawn = false;
+    this.bgColorBuf.fill(0);
+    this.bgPriBuf.fill(0);
+  }
+
+  /** Advance the BG fetcher one dot. Each step (Get Tile / Get Lo / Get Hi
+   *  / Push) takes 2 dots — `fetchPhase` tracks the half-step. Step 3
+   *  (Push) only succeeds when the FIFO is empty; otherwise it stalls and
+   *  retries on the next dot. */
+  private advanceBgFetcher(): void {
+    if (this.fetchPhase === 0) {
+      this.fetchPhase = 1;
+      return;
+    }
+    this.fetchPhase = 0;
+
+    switch (this.fetchStep) {
+      case 0: {
+        // Get Tile — read tilemap entry (and CGB attribute byte from bank 1).
+        const useWindow = this.fetchInWindow;
+        const tileX = useWindow ? this.fetchTileX & 0x1f : ((this.scx >> 3) + this.fetchTileX) & 0x1f;
+        const tileY = useWindow ? (this.winLY >> 3) & 0x1f : (((this.ly + this.scy) & 0xff) >> 3) & 0x1f;
+        const mapBase = useWindow
+          ? (this.lcdc & 0x40) !== 0
+            ? 0x1c00
+            : 0x1800
+          : (this.lcdc & 0x08) !== 0
+            ? 0x1c00
+            : 0x1800;
+        const mapAddr = mapBase + tileY * 32 + tileX;
+        this.fetchTileNum = this.vram[mapAddr]!;
+        this.fetchAttr = this.cgb ? this.vram[0x2000 + mapAddr]! : 0;
+        this.fetchStep = 1;
+        return;
+      }
+      case 1: {
+        this.fetchTileLo = this.readBgTileByte(0);
+        this.fetchStep = 2;
+        return;
+      }
+      case 2: {
+        this.fetchTileHi = this.readBgTileByte(1);
+        this.fetchStep = 3;
+        // Pan Docs: the auto-push at end of step 2 lands here. If the FIFO
+        // happens to be empty already, the push goes straight in.
+        this.tryPushFetcherToFifo();
+        return;
+      }
+      case 3: {
+        this.tryPushFetcherToFifo();
+        return;
+      }
+    }
+  }
+
+  /** Read one of the two tile-data bytes for the currently-latched BG tile,
+   *  honouring LCDC.4 (signed/unsigned addressing) and the CGB attribute
+   *  bits for VRAM bank (0x08) and Y-flip (0x40). */
+  private readBgTileByte(offset: 0 | 1): number {
+    const useWindow = this.fetchInWindow;
+    const fineY = useWindow ? this.winLY & 7 : (this.ly + this.scy) & 7;
+    const flipY = (this.fetchAttr & 0x40) !== 0;
+    const effFineY = flipY ? 7 - fineY : fineY;
+    const tileNum = this.fetchTileNum;
+    const tileBase = (this.lcdc & 0x10) !== 0 ? tileNum * 16 : 0x1000 + ((tileNum << 24) >> 24) * 16;
+    const bankOffset = (this.fetchAttr & 0x08) !== 0 ? 0x2000 : 0;
+    return this.vram[bankOffset + tileBase + effFineY * 2 + offset]!;
+  }
+
+  /** Push 8 fetched pixels into the BG FIFO if it's empty. Each FIFO entry
+   *  packs the 2-bit color index plus CGB BG palette index (3 bits) and
+   *  BG-over-OBJ priority bit, so the popper can apply the right palette
+   *  and resolve sprite priority without re-reading the attribute byte. */
+  private tryPushFetcherToFifo(): void {
+    if (this.bgFifoCount > 0) return;
+    const flipX = (this.fetchAttr & 0x20) !== 0;
+    const palAttr = ((this.fetchAttr & 0x07) << 2) | (((this.fetchAttr >> 7) & 1) << 5);
+    const lo = this.fetchTileLo;
+    const hi = this.fetchTileHi;
+    const fifo = this.bgFifo;
+    for (let i = 0; i < 8; i++) {
+      const bit = flipX ? i : 7 - i;
+      const colorIdx = ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1);
+      fifo[i] = colorIdx | palAttr;
+    }
+    this.bgFifoHead = 0;
+    this.bgFifoCount = 8;
+    this.fetchTileX = (this.fetchTileX + 1) & 0x1f;
+    this.fetchStep = 0;
+  }
+
+  /** Pop one pixel from the BG FIFO and either discard (fine-X scroll) or
+   *  emit it to the framebuffer. Also detects window activation: when the
+   *  pushed-pixel X reaches `WX - 7`, the BG FIFO is cleared and the
+   *  fetcher restarts in window mode for the rest of the line. */
+  private tryPushBgPixel(): void {
+    if (this.currentPx >= SCREEN_WIDTH || this.bgFifoCount === 0) return;
+    const entry = this.bgFifo[this.bgFifoHead]!;
+    this.bgFifoHead = (this.bgFifoHead + 1) & 7;
+    this.bgFifoCount--;
+
+    if (this.discardLeft > 0) {
+      this.discardLeft--;
+      return;
+    }
+
+    const colorIdx = entry & 0x03;
+    const palIdx = (entry >> 2) & 0x07;
+    const priority = (entry >> 5) & 1;
+
+    // Buffers used by the sprite renderer at end of mode 3 to apply
+    // BG-over-sprite priority. BG pixels go to a scratch row first; the
+    // commit-to-fb happens atomically when the line is complete so a
+    // partial mode-3 doesn't leak half-drawn scanlines into the visible
+    // framebuffer.
+    if (this.cgbGame) {
+      this.bgColorBuf[this.currentPx] = colorIdx;
+      this.bgPriBuf[this.currentPx] = priority;
+      this.scratchRow[this.currentPx] = this.cgbBgPalettesActive[palIdx * 4 + colorIdx]!;
+    } else if ((this.lcdc & 0x01) !== 0) {
+      this.bgColorBuf[this.currentPx] = colorIdx;
+      this.scratchRow[this.currentPx] = this.bgPalette[colorIdx]!;
+    } else {
+      // DMG with LCDC.0 cleared: BG forced to color 0; sprites always win.
+      this.bgColorBuf[this.currentPx] = 0;
+      this.scratchRow[this.currentPx] = this.bgPalette[0]!;
+    }
+
+    this.currentPx++;
+
+    // Line complete — commit BG scratch row to fb, then overlay sprites.
+    // Doing this here (rather than waiting for mode3Length to elapse)
+    // means a `runFrame()` that returns mid-mode-3 padding still leaves
+    // a complete scanline behind.
+    if (this.currentPx === SCREEN_WIDTH && !this.lineSpritesDrawn && this.ly < SCREEN_HEIGHT) {
+      this.lineSpritesDrawn = true;
+      const fbBase = this.ly * SCREEN_WIDTH;
+      this.fb32.set(this.scratchRow, fbBase);
+      if (this.fetchInWindow) this.winLY++;
+      if (this.cgbGame) this.renderSpritesCgb();
+      else this.renderSprites();
+    }
+
+    // Window activation: only switch if we haven't already and WX condition
+    // is met. Clears the BG FIFO and resets the fetcher so the next push
+    // sources from the window tilemap.
+    if (
+      !this.fetchInWindow &&
+      (this.lcdc & 0x20) !== 0 &&
+      this.wy <= this.ly &&
+      this.wx <= 166 &&
+      this.currentPx + 7 >= this.wx
+    ) {
+      this.fetchInWindow = true;
+      this.fetchTileX = 0;
+      this.bgFifoHead = 0;
+      this.bgFifoCount = 0;
+      this.fetchStep = 0;
+      this.fetchPhase = 0;
     }
   }
 
