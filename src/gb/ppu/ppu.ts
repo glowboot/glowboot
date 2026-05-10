@@ -123,6 +123,11 @@ export class PPU {
    */
   private winLY = 0;
 
+  /** True while we're past the 4-dot mark of line 153 (LY hidden as 0).
+   *  Drives the early line-153 → line-0 transition and prevents the
+   *  visible-LY check in the VBlank case from re-applying the quirk. */
+  private line153Quirk = false;
+
   /**
    * Fired once per frame the instant the PPU enters VBlank. Cheaper than
    * having the host poll `readByte(0xff44)` from the main loop.
@@ -600,15 +605,34 @@ export class PPU {
       }
 
       case Mode.VBlank:
+        // Line 153 LY quirk: 4 dots after entering line 153 the LY register
+        // wraps to 0 while mode stays at VBlank, and LY=0 holds through the
+        // remaining ~452 dots until line 0 / mode 2 begins. Mooneye / GBM
+        // `line_153_*` and `poweron_stat_*` verify this. Without the quirk,
+        // games / boot ROMs that wait on a specific (LY, mode) pair miss
+        // the LY=0 phase and stall.
+        if (this.ly === 153 && !this.line153Quirk && this.dots >= 4) {
+          this.ly = 0;
+          this.line153Quirk = true;
+          this.checkLyc();
+        }
         if (this.dots >= DOTS_PER_LINE) {
           this.dots -= DOTS_PER_LINE;
-          this.ly++;
-          this.checkLyc();
-          if (this.ly >= TOTAL_LINES) {
-            this.ly = 0;
+          if (this.line153Quirk) {
+            this.line153Quirk = false;
             this.winLY = 0; // Reset window line counter for new frame
-            this.checkLyc();
             this.setMode(Mode.OAMSearch);
+          } else {
+            this.ly++;
+            this.checkLyc();
+            // Defensive: if a tick batch was big enough to skip the LY=0
+            // window entirely, fall through to the same wrap-to-line-0.
+            if (this.ly >= TOTAL_LINES) {
+              this.ly = 0;
+              this.winLY = 0;
+              this.checkLyc();
+              this.setMode(Mode.OAMSearch);
+            }
           }
         }
         break;
@@ -983,6 +1007,7 @@ export class PPU {
     w.u8(this.mode);
     w.i32(this.dots);
     w.u16(this.winLY);
+    w.bool(this.line153Quirk);
     w.u16(this.mode3Length);
     w.u8(this.bgpi);
     w.u8(this.obpi);
@@ -1008,6 +1033,7 @@ export class PPU {
     this.mode = r.u8() as Mode;
     this.dots = r.i32();
     this.winLY = r.u16();
+    this.line153Quirk = r.bool();
     this.mode3Length = r.u16();
     this.bgpi = r.u8();
     this.obpi = r.u8();

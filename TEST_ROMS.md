@@ -28,7 +28,7 @@ Results from running the [c-sp Game Boy test-rom collection](https://github.com/
 | Mealybug PPU (auto-discovered)  |    0 |   30 |           5 | 2026-05-10 — known mid-mode-3 raster gap                                      |
 | acid2 (DMG + CGB + CGB-hell)    |    2 |    1 |           0 | 2026-05-10 — cgb-acid-hell 2 px diff (single-sprite sub-pixel quirk)          |
 | Bully GB                        |    0 |    1 |           0 | 2026-05-10 — 290 px diff, boot-state                                          |
-| GBMicrotest                     |  269 |  244 |           0 | 2026-05-10 — + 13 from timer-tick-after-bus-access (10× phase + halt + ints)  |
+| GBMicrotest                     |  273 |  240 |           0 | 2026-05-10 — + 4 line_153 LY quirk (LY hidden as 0 from dot 4 of line 153)    |
 | Scribbltests                    |    4 |    1 |           3 | 2026-05-10 — palette config fixed scxly + palettely; statcount-auto still off |
 | Strikethrough                   |    0 |    1 |           0 | 2026-05-10 — 7 px diff (was 22 before per-bus DMA fix); needs Pixel-FIFO      |
 | Turtle Tests                    |    1 |    1 |           0 | 2026-05-10                                                                    |
@@ -87,7 +87,7 @@ The pixel-diff counts now serve as quantitative regression markers — fixes can
 | `cgb-acid2`     | ✅     | 0 pixels differ                                                                                                                                                                                                     |
 | `cgb-acid-hell` | ❌     | 2 of 23 040 pixels differ (`(80,68)` / `(80,69)` swapped — middle column of one 8×8 sprite). Author intentionally hides which quirk; deferred until a Pixel-FIFO PPU lets us re-investigate at sub-pixel precision. |
 
-### GBMicrotest — 269 / 513 (52 %)
+### GBMicrotest — 273 / 513 (53 %)
 
 Per-quirk hardware catalogue. Failures cluster:
 
