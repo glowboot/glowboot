@@ -429,14 +429,15 @@ const colorCorrectionEnabledRef = { value: colorCorrectionEnabled };
 // init in state.ts — a canvas's context type is fixed after first use,
 // so changing this setting requires a reload. The select just writes the
 // pref and nudges the user to reload. Unknown values fall back to canvas.
-type RenderMode = "canvas" | "webgl-lcd" | "webgl-sxbr" | "webgl-crt" | "webgl-bilinear" | "webgl-mmpx";
+type RenderMode = "webgl-bilinear" | "canvas" | "webgl-crt" | "webgl-hq2x" | "webgl-lcd" | "webgl-mmpx" | "webgl-sxbr";
 const RENDER_MODES: readonly RenderMode[] = [
-  "canvas",
-  "webgl-lcd",
-  "webgl-sxbr",
-  "webgl-crt",
   "webgl-bilinear",
-  "webgl-mmpx"
+  "canvas",
+  "webgl-crt",
+  "webgl-hq2x",
+  "webgl-lcd",
+  "webgl-mmpx",
+  "webgl-sxbr"
 ];
 
 /** Default render mode for a fresh browser — MMPX (style-preserving 2×

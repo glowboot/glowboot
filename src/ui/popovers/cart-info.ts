@@ -187,12 +187,13 @@ function clampPixelResponse(v: number): number {
 /** Mode key → human label. Keep this list in sync with the render-mode
  *  dropdown in `settings/panels.ts`. */
 const RENDER_MODE_OPTIONS: Array<[string, string]> = [
-  ["webgl-mmpx", "MMPX"],
-  ["webgl-sxbr", "Super-xBR"],
   ["webgl-bilinear", "Bilinear"],
-  ["webgl-lcd", "LCD"],
+  ["canvas", "Canvas 2D"],
   ["webgl-crt", "CRT"],
-  ["canvas", "Canvas 2D"]
+  ["webgl-hq2x", "HQ2x"],
+  ["webgl-lcd", "LCD"],
+  ["webgl-mmpx", "MMPX"],
+  ["webgl-sxbr", "Super-xBR"]
 ];
 
 /** Shared row scaffold — builds `<label class="cart-info-override">`

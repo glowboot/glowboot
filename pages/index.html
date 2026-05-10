@@ -332,16 +332,17 @@
                     </div>
                     <label
                       class="settings-row"
-                      title="Canvas 2D is the plain CPU renderer. The WebGL modes each apply a distinct fragment shader on the GPU — MMPX, Super-xBR upscaler, plain Bilinear, handheld LCD, or full CRT. Changes apply immediately."
+                      title="Canvas 2D is the plain CPU renderer. The WebGL modes each apply a distinct fragment shader on the GPU — Bilinear, CRT, HQ2x, LCD, MMPX (default), or Super-xBR. Changes apply immediately."
                     >
                       <span>Rendering</span>
                       <select id="render-mode">
+                        <option value="webgl-bilinear">Bilinear</option>
+                        <option value="canvas">Canvas 2D</option>
+                        <option value="webgl-crt">CRT</option>
+                        <option value="webgl-hq2x">HQ2x</option>
+                        <option value="webgl-lcd">LCD</option>
                         <option value="webgl-mmpx">MMPX</option>
                         <option value="webgl-sxbr">Super-xBR</option>
-                        <option value="webgl-bilinear">Bilinear</option>
-                        <option value="webgl-lcd">LCD</option>
-                        <option value="webgl-crt">CRT</option>
-                        <option value="canvas">Canvas 2D</option>
                       </select>
                     </label>
                     <!-- Palette picker (DMG only). Sits with the other

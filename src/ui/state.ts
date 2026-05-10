@@ -37,16 +37,18 @@ export let renderer: CanvasRenderer | WebGLRenderer = createRenderer(canvas);
 
 function shaderForMode(mode: string | null): ShaderName | null {
   switch (mode) {
-    case "webgl-lcd":
-      return "lcd";
-    case "webgl-sxbr":
-      return "sxbr";
-    case "webgl-crt":
-      return "crt";
     case "webgl-bilinear":
       return "bilinear";
+    case "webgl-crt":
+      return "crt";
+    case "webgl-hq2x":
+      return "hq2x";
+    case "webgl-lcd":
+      return "lcd";
     case "webgl-mmpx":
       return "mmpx";
+    case "webgl-sxbr":
+      return "sxbr";
     default:
       return null;
   }

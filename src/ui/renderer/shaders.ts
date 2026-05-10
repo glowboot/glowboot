@@ -283,6 +283,128 @@ void main() {
   gl_FragColor = vec4(colorGrade(col), 1.0);
 }`;
 
+// ─── HQ2x helper ────────────────────────────────────────────────────────
+// Reference HQ2x code uses 8-bit pattern matching with bitwise AND on
+// integers — `(pattern & mask) == target`. GLSL ES 1.0 (WebGL 1.0)
+// forbids bitwise operators on integers, so we expand each
+// `P(mask, target)` macro at TypeScript-template-build time into an
+// explicit boolean expression on `d0..d7` (the eight per-neighbour
+// difference flags). Mask bit set + target bit 1 → require `dN`; mask
+// bit set + target bit 0 → require `!dN`; mask bit clear → don't care.
+function P(mask: number, target: number): string {
+  const checks: string[] = [];
+  for (let i = 0; i < 8; i++) {
+    if ((mask >> i) & 1) {
+      checks.push(((target >> i) & 1) !== 0 ? `d${i}` : `!d${i}`);
+    }
+  }
+  return checks.length === 0 ? "true" : "(" + checks.join(" && ") + ")";
+}
+
+// ─── HQ2x (HQnx pattern-based scaler family) ────────────────────────────
+// 2× pixel-art upscaler from Maxim Stepin's HQnx family. Each input
+// pixel's 3×3 neighbourhood is classified into a "different / same" bit
+// pattern, then a cascade of pattern-match rules picks an interpolation
+// for the output sub-pixel. Aesthetically distinct from xBR / MMPX —
+// sharper edges, more posterised, popular with VBA-M users.
+//
+// Ported from Lior Halphon's HQ2x GLSL implementation (MIT licensed).
+// The 8-bit pattern matching is pre-expanded into boolean expressions
+// because GLSL ES 1.0 has no bitwise integer ops.
+//
+// Upstream license, retained verbatim as required:
+/*
+   Copyright (c) 2015-2024 Lior Halphon
+
+   Permission is hereby granted, free of charge, to any person obtaining a
+   copy of this software and associated documentation files (the "Software"),
+   to deal in the Software without restriction, including without limitation
+   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+   and/or sell copies of the Software, and to permit persons to whom the
+   Software is furnished to do so, subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+*/
+const FRAG_HQ2X = `precision mediump float;
+varying vec2 vUv;
+uniform sampler2D uFrame;
+uniform vec2 uSourceSize;
+
+vec3 toHQColor(vec3 c) {
+  return vec3(
+    0.250 * c.r + 0.250 * c.g + 0.250 * c.b,
+    0.250 * c.r - 0.000 * c.g - 0.250 * c.b,
+   -0.125 * c.r + 0.250 * c.g - 0.125 * c.b);
+}
+bool diff(vec3 a, vec3 b) {
+  vec3 d = abs(toHQColor(a) - toHQColor(b));
+  return d.x > 0.018 || d.y > 0.002 || d.z > 0.005;
+}
+vec3 mix2(vec3 c1, float w1, vec3 c2, float w2) {
+  return (c1 * w1 + c2 * w2) / (w1 + w2);
+}
+vec3 mix3(vec3 c1, float w1, vec3 c2, float w2, vec3 c3, float w3) {
+  return (c1 * w1 + c2 * w2 + c3 * w3) / (w1 + w2 + w3);
+}
+
+void main() {
+  vec2 ps = 1.0 / uSourceSize;
+  vec2 cell = vUv * uSourceSize;
+  vec2 cellId = floor(cell);
+  vec2 sub = cell - cellId;
+  vec2 base = (cellId + 0.5) * ps;
+
+  vec2 o = vec2(1.0);
+  if (sub.x > 0.5) o.x = -1.0;
+  if (sub.y > 0.5) o.y = -1.0;
+
+  vec3 w0 = texture2D(uFrame, base + vec2(-o.x, -o.y) * ps).rgb;
+  vec3 w1 = texture2D(uFrame, base + vec2( 0.0, -o.y) * ps).rgb;
+  vec3 w2 = texture2D(uFrame, base + vec2( o.x, -o.y) * ps).rgb;
+  vec3 w3 = texture2D(uFrame, base + vec2(-o.x,  0.0) * ps).rgb;
+  vec3 w4 = texture2D(uFrame, base).rgb;
+  vec3 w5 = texture2D(uFrame, base + vec2( o.x,  0.0) * ps).rgb;
+  vec3 w6 = texture2D(uFrame, base + vec2(-o.x,  o.y) * ps).rgb;
+  vec3 w7 = texture2D(uFrame, base + vec2( 0.0,  o.y) * ps).rgb;
+  vec3 w8 = texture2D(uFrame, base + vec2( o.x,  o.y) * ps).rgb;
+
+  bool d0 = diff(w0, w4);
+  bool d1 = diff(w1, w4);
+  bool d2 = diff(w2, w4);
+  bool d3 = diff(w3, w4);
+  bool d4 = diff(w5, w4);
+  bool d5 = diff(w6, w4);
+  bool d6 = diff(w7, w4);
+  bool d7 = diff(w8, w4);
+
+  vec3 r;
+  if ((${P(0xbf, 0x37)} || ${P(0xdb, 0x13)}) && diff(w1, w5)) r = mix2(w4, 3.0, w3, 1.0);
+  else if ((${P(0xdb, 0x49)} || ${P(0xef, 0x6d)}) && diff(w7, w3)) r = mix2(w4, 3.0, w1, 1.0);
+  else if ((${P(0x0b, 0x0b)} || ${P(0xfe, 0x4a)} || ${P(0xfe, 0x1a)}) && diff(w3, w1)) r = w4;
+  else if ((${P(0x6f, 0x2a)} || ${P(0x5b, 0x0a)} || ${P(0xbf, 0x3a)} || ${P(0xdf, 0x5a)} || ${P(0x9f, 0x8a)} || ${P(0xcf, 0x8a)} || ${P(0xef, 0x4e)} || ${P(0x3f, 0x0e)} || ${P(0xfb, 0x5a)} || ${P(0xbb, 0x8a)} || ${P(0x7f, 0x5a)} || ${P(0xaf, 0x8a)} || ${P(0xeb, 0x8a)}) && diff(w3, w1)) r = mix2(w4, 3.0, w0, 1.0);
+  else if (${P(0x0b, 0x08)}) r = mix3(w4, 2.0, w0, 1.0, w1, 1.0);
+  else if (${P(0x0b, 0x02)}) r = mix3(w4, 2.0, w0, 1.0, w3, 1.0);
+  else if (${P(0x2f, 0x2f)}) r = mix3(w4, 4.0, w3, 1.0, w1, 1.0);
+  else if (${P(0xbf, 0x37)} || ${P(0xdb, 0x13)}) r = mix3(w4, 5.0, w1, 2.0, w3, 1.0);
+  else if (${P(0xdb, 0x49)} || ${P(0xef, 0x6d)}) r = mix3(w4, 5.0, w3, 2.0, w1, 1.0);
+  else if (${P(0x1b, 0x03)} || ${P(0x4f, 0x43)} || ${P(0x8b, 0x83)} || ${P(0x6b, 0x43)}) r = mix2(w4, 3.0, w3, 1.0);
+  else if (${P(0x4b, 0x09)} || ${P(0x8b, 0x89)} || ${P(0x1f, 0x19)} || ${P(0x3b, 0x19)}) r = mix2(w4, 3.0, w1, 1.0);
+  else if (${P(0x7e, 0x2a)} || ${P(0xef, 0xab)} || ${P(0xbf, 0x8f)} || ${P(0x7e, 0x0e)}) r = mix3(w4, 2.0, w3, 3.0, w1, 3.0);
+  else if (${P(0xfb, 0x6a)} || ${P(0x6f, 0x6e)} || ${P(0x3f, 0x3e)} || ${P(0xfb, 0xfa)} || ${P(0xdf, 0xde)} || ${P(0xdf, 0x1e)}) r = mix2(w4, 3.0, w0, 1.0);
+  else if (${P(0x0a, 0x00)} || ${P(0x4f, 0x4b)} || ${P(0x9f, 0x1b)} || ${P(0x2f, 0x0b)} || ${P(0xbe, 0x0a)} || ${P(0xee, 0x0a)} || ${P(0x7e, 0x0a)} || ${P(0xeb, 0x4b)} || ${P(0x3b, 0x1b)}) r = mix3(w4, 2.0, w3, 1.0, w1, 1.0);
+  else r = mix3(w4, 6.0, w3, 1.0, w1, 1.0);
+
+  gl_FragColor = vec4(colorGrade(r), 1.0);
+}`;
 // ─── MMPX (Style-Preserving Pixel-Art Magnification) ────────────────────
 // Single-pass GLSL port of Morgan McGuire & Mara Gagiu's MMPX 2× scaler.
 // Each input pixel E expands into 4 sub-pixels (J=NW, K=NE, L=SW, M=SE)
@@ -420,7 +542,7 @@ void main() {
   gl_FragColor = vec4(colorGrade(clamp(c, mn, mx)), 1.0);
 }`;
 
-export type ShaderName = "lcd" | "crt" | "bilinear" | "sxbr" | "mmpx";
+export type ShaderName = "bilinear" | "crt" | "hq2x" | "lcd" | "mmpx" | "sxbr";
 
 /** Shader chain per mode. Single-string entries become a single-pass
  *  shader (renders straight to the canvas). Array entries define a
@@ -428,11 +550,12 @@ export type ShaderName = "lcd" | "crt" | "bilinear" | "sxbr" | "mmpx";
  *  FBO; the last pass reads the FBO texture and renders to the canvas.
  *  The grading snippet is injected on the last pass only. */
 export const FRAG_BY_NAME: Record<ShaderName, string | string[]> = {
-  lcd: FRAG_LCD,
-  crt: FRAG_CRT,
   bilinear: FRAG_BILINEAR,
-  sxbr: [FRAG_XBR, FRAG_SXBR_CLEANUP],
-  mmpx: FRAG_MMPX
+  crt: FRAG_CRT,
+  hq2x: FRAG_HQ2X,
+  lcd: FRAG_LCD,
+  mmpx: FRAG_MMPX,
+  sxbr: [FRAG_XBR, FRAG_SXBR_CLEANUP]
 };
 
 export interface ColorGrade {
