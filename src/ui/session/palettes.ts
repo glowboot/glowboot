@@ -57,13 +57,6 @@ export const PALETTES: readonly DmgPalette[] = [
     obp1: mono(0xd0f8e0, 0x70c088, 0x566834, 0x201808)
   },
   {
-    id: "blue",
-    name: "Cool Blue",
-    bg: mono(0xdfecff, 0x5294e0, 0x15407a, 0x06122e),
-    obp0: mono(0xeef4ff, 0x74acea, 0x2657a4, 0x0a1840),
-    obp1: mono(0xdfecff, 0x5294e0, 0x15407a, 0x06122e)
-  },
-  {
     id: "light",
     name: "Game Boy Light",
     bg: mono(0xfff6a6, 0xe3bc5b, 0x8c6b22, 0x3a2a0a),
@@ -83,6 +76,13 @@ export const PALETTES: readonly DmgPalette[] = [
     bg: mono(0xf8e8c8, 0xd89048, 0xa82820, 0x301850),
     obp0: mono(0xf8d8b0, 0xffa060, 0xc03838, 0x402808),
     obp1: mono(0xf8d8b0, 0xffa060, 0xc03838, 0x402808)
+  },
+  {
+    id: "twilight",
+    name: "Twilight",
+    bg: mono(0xf3eafe, 0xa974e6, 0x4b1e8a, 0x140530),
+    obp0: mono(0xf3eafe, 0xa974e6, 0x4b1e8a, 0x140530),
+    obp1: mono(0xf3eafe, 0xa974e6, 0x4b1e8a, 0x140530)
   }
 ];
 
