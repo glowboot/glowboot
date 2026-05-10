@@ -36,7 +36,7 @@ Results from running the [c-sp Game Boy test-rom collection](https://github.com/
 | Little-things-gb                |    0 |    2 |           0 | 2026-05-10 — firstwhite 2488 px, tellinglys 5549 px                            |
 | MBC3 Tester                     |    0 |    1 |           0 | 2026-05-10 — 5105 px diff                                                      |
 | rtc3test                        |    0 |    0 |           1 | 2026-05-10 — interactive (button press required)                               |
-| Same-suite                      |    3 |   75 |           0 | 2026-05-10 — APU 1/70, DMA 1/4, PPU 1/1                                        |
+| Same-suite                      |    7 |   71 |           0 | 2026-05-10 — + 3 channel_4 LFSR tests + 1 misc; APU 5/70, DMA 1/4, PPU 1/1     |
 | age-test-roms                   |    1 |    3 |          43 | 2026-05-10 — most are screenshot-based; framebuffer detector TBD               |
 | Gambatte test suite             |    5 |  193 |        3326 | 2026-05-10 — 198 ROMs have CGB PNG refs; 3 326 use hex/audio protocol (skip)   |
 
