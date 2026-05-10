@@ -594,7 +594,29 @@ function runSerialTest(romPath: string, name: string, bootRom: Uint8Array | null
   let lastH = -1;
   let lastL = -1;
   for (let f = 0; f < MAX_FRAMES_SERIAL; f++) {
-    gb.runFrame();
+    try {
+      gb.runFrame();
+    } catch (err) {
+      // Wilbertpol-style exit: the test executes opcode `0xED` (undefined
+      // on LR35902) to signal completion. Register state at the moment
+      // of the throw distinguishes pass (Fibonacci) from fail (anything
+      // else). Other illegal-opcode throws are genuine CPU errors and
+      // bubble up to runOne's catch.
+      const msg = (err as Error).message;
+      if (/^Illegal opcode 0xed /.test(msg)) {
+        const r = gb.cpu.regs;
+        if (r.b === 3 && r.c === 5 && r.d === 8 && r.e === 13 && r.h === 21 && r.l === 34) {
+          return { name, status: "pass", detail: "register Fibonacci (0xED exit)", frames: f + 1 };
+        }
+        return {
+          name,
+          status: "fail",
+          detail: `0xED reached with B=${r.b} C=${r.c} D=${r.d} E=${r.e} H=${r.h} L=${r.l} (expected 3,5,8,13,21,34)`,
+          frames: f + 1
+        };
+      }
+      throw err;
+    }
     if (serial.includes("Passed")) return { name, status: "pass", detail: "blargg: Passed", frames: f + 1 };
     if (serial.includes("Failed")) return { name, status: "fail", detail: serial, frames: f + 1 };
     if (tailMatches(serialBytes, MOONEYE_PASS))
