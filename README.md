@@ -524,19 +524,19 @@ npm run dev
 
 Vite serves the app at `http://localhost:5173`.
 
-| Command                | Description                                                                                    |
-| ---------------------- | ---------------------------------------------------------------------------------------------- |
-| `npm run dev`          | Start the Vite dev server with HMR                                                             |
-| `npm run build`        | Produce a production build in `dist/`                                                          |
-| `npm run preview`      | Serve the production build locally                                                             |
-| `npm run typecheck`    | Typecheck both the UI and the DOM-free engine bundle, no emit                                  |
-| `npm test`             | Run the Vitest unit suite once                                                                 |
-| `npm run test:watch`   | Run Vitest in watch mode                                                                       |
-| `npm run test:roms`    | Run the [external test-ROM harness](TEST_ROMS.md) (auto-fetches the c-sp release on first run) |
-| `npm run lint`         | ESLint across the repo (file globs come from `eslint.config`)                                  |
-| `npm run lint:fix`     | ESLint with `--fix` to auto-resolve safe issues                                                |
-| `npm run format`       | Prettier write across the repo                                                                 |
-| `npm run format:check` | Prettier check (no writes) — used by CI                                                        |
+| Command                | Description                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| `npm run dev`          | Start the Vite dev server with HMR                                             |
+| `npm run build`        | Produce a production build in `dist/`                                          |
+| `npm run preview`      | Serve the production build locally                                             |
+| `npm run typecheck`    | Typecheck both the UI and the DOM-free engine bundle, no emit                  |
+| `npm test`             | Run the Vitest unit suite once                                                 |
+| `npm run test:watch`   | Run Vitest in watch mode                                                       |
+| `npm run test:roms`    | Run the external test-ROM harness (auto-fetches the c-sp release on first run) |
+| `npm run lint`         | ESLint across the repo (file globs come from `eslint.config`)                  |
+| `npm run lint:fix`     | ESLint with `--fix` to auto-resolve safe issues                                |
+| `npm run format`       | Prettier write across the repo                                                 |
+| `npm run format:check` | Prettier check (no writes) — used by CI                                        |
 
 ### Continuous integration
 
@@ -814,7 +814,7 @@ skips a few edges:
 
 **Symptom:** No audible glitches reported in real game playback. However, strict APU test ROMs flag many sub-T-cycle quirks (e.g. wave-RAM read timing during channel-3 active read, exact sweep-period reload across power cycles, length-counter behaviour at frame-sequencer half-cycle boundaries).
 
-**Status:** Tracked as a long-tail accuracy gap, not a gameplay blocker. Specific game-audio reports are welcome via the bug-report template — they're prioritised over generic test-ROM failures. See [`TEST_ROMS.md`](./TEST_ROMS.md) for the per-suite breakdown.
+**Status:** Tracked as a long-tail accuracy gap, not a gameplay blocker. Specific game-audio reports are welcome via the bug-report template — they're prioritised over generic test-ROM failures.
 
 ## Privacy
 
