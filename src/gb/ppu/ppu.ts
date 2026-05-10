@@ -985,14 +985,47 @@ export class PPU {
    *  fetcher restarts in window mode for the rest of the line. */
   private tryPushBgPixel(): void {
     if (this.currentPx >= SCREEN_WIDTH || this.bgFifoCount === 0) return;
-    const entry = this.bgFifo[this.bgFifoHead]!;
-    this.bgFifoHead = (this.bgFifoHead + 1) & 7;
-    this.bgFifoCount--;
 
+    // Drain the SCX fine-X discard before any window check — those pops
+    // happen during the (SCX & 7) "warmup" before the LCD is at screen
+    // X=0, so the WX comparison hasn't started yet.
     if (this.discardLeft > 0) {
+      this.bgFifoHead = (this.bgFifoHead + 1) & 7;
+      this.bgFifoCount--;
       this.discardLeft--;
       return;
     }
+
+    // Pre-pop window activation: real hardware checks `screen X == WX - 7`
+    // every dot, and on a match the BG fetcher resets to window mode
+    // BEFORE the next pixel pops — so pixel `WX - 7` is the first window
+    // pixel (no BG pixel emitted at that column). For WX < 7 we discard
+    // `(7 - wx)` window pixels so the first visible pixel lands on
+    // window-tile-0 fineX `(7 - wx)`, matching pre-FIFO's
+    // `srcXInit = bgEndX - winStartX` calculation. We gate this check on
+    // the FIFO already having data + SCX discard finished, so it fires
+    // at the same moment a real LCD's X counter would actually be at
+    // (currentPx) — not during the warmup, where the LCD's X counter is
+    // still negative.
+    if (
+      !this.fetchInWindow &&
+      (this.lcdc & 0x20) !== 0 &&
+      this.wy <= this.ly &&
+      this.wx <= 166 &&
+      this.currentPx + 7 >= this.wx
+    ) {
+      this.fetchInWindow = true;
+      this.fetchTileX = 0;
+      this.bgFifoHead = 0;
+      this.bgFifoCount = 0;
+      this.fetchStep = 0;
+      this.fetchPhase = 0;
+      return;
+    }
+
+    const entry = this.bgFifo[this.bgFifoHead]!;
+    this.bgFifoHead = (this.bgFifoHead + 1) & 7;
+    this.bgFifoCount--;
 
     const bgColorIdx = entry & 0x03;
     const bgPalIdx = (entry >> 2) & 0x07;
@@ -1044,26 +1077,6 @@ export class PPU {
       if (this.fetchInWindow) this.winLY++;
       this.fb32.set(this.scratchRow, this.ly * SCREEN_WIDTH);
       this.lineHoldPending = true;
-    }
-
-    // Window activation: post-pop check so pixel `WX - 6` is the first
-    // window pixel (matches gbmicrotest win0_a..win7_a references). The
-    // FIFO/fetcher reset plus a 1-dot windowStallPending give the
-    // documented 6-dot mode-3 window stretch.
-    if (
-      !this.fetchInWindow &&
-      (this.lcdc & 0x20) !== 0 &&
-      this.wy <= this.ly &&
-      this.wx <= 166 &&
-      this.currentPx + 7 >= this.wx
-    ) {
-      this.fetchInWindow = true;
-      this.fetchTileX = 0;
-      this.bgFifoHead = 0;
-      this.bgFifoCount = 0;
-      this.fetchStep = 0;
-      this.fetchPhase = 0;
-      this.windowStallPending = true;
     }
   }
 
