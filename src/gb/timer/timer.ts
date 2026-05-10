@@ -21,8 +21,10 @@ import type { StateReader, StateWriter } from "../serialization/serialization.js
 const TAC_SHIFTS = [10, 4, 6, 8] as const;
 
 export class Timer {
-  /** Internal 16-bit DIV counter (upper byte exposed as 0xFF04) */
-  private div = 0xabcc; // post-boot value
+  /** Internal 16-bit DIV counter (upper byte exposed as 0xFF04). Post-boot
+   *  value 0xABCC; cleared to 0 when a real boot ROM is running, since
+   *  the boot ROM itself increments DIV and produces the post-boot value. */
+  private div: number;
   private tima = 0x00;
   private tma = 0x00;
   private tac = 0xf8;
@@ -42,7 +44,12 @@ export class Timer {
   private overflowThisCycle = false;
   private inReloadCycle = false;
 
-  constructor(private readonly interrupts: InterruptController) {}
+  constructor(
+    private readonly interrupts: InterruptController,
+    preBoot = false
+  ) {
+    this.div = preBoot ? 0 : 0xabcc;
+  }
 
   // ─── Bus interface ────────────────────────────────────────────────────────
 

@@ -84,14 +84,17 @@ export class PPU {
   /** Scratch buffer for scanline sprite selection (reused each line). */
   private readonly visibleSprites = new Uint8Array(10);
 
-  // LCD control & status
-  private lcdc = 0x91;
+  // LCD control & status. Post-boot defaults reflect the state the
+  // boot ROM leaves behind (LCD on, BGP=$FC, sprites visible). When a
+  // real boot ROM is loaded the constructor zeros lcdc/bgp ahead of
+  // boot-ROM execution so the boot ROM itself drives them up.
+  private lcdc: number;
   private stat = 0x00;
   private scy = 0x00;
   private scx = 0x00;
   private ly = 0x00;
   private lyc = 0x00;
-  private bgp = 0xfc;
+  private bgp: number;
   private obp0 = 0xff;
   private obp1 = 0xff;
   private wy = 0x00;
@@ -254,8 +257,12 @@ export class PPU {
     /** CGB console features available (VRAM/WRAM banking, palette RAM, HDMA). */
     readonly cgb: boolean = false,
     /** CGB-enhanced cartridge — selects the CGB render path over the DMG one. */
-    readonly cgbGame: boolean = cgb
+    readonly cgbGame: boolean = cgb,
+    /** Boot ROM about to run — zero registers the boot ROM is responsible for. */
+    preBoot = false
   ) {
+    this.lcdc = preBoot ? 0x00 : 0x91;
+    this.bgp = preBoot ? 0x00 : 0xfc;
     this.vram = new Uint8Array(cgb ? 0x4000 : 0x2000);
 
     // Instance shade tables seed from the default green table. `setDmgCompatPalette`

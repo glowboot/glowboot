@@ -4,6 +4,8 @@ Results from running the [c-sp Game Boy test-rom collection](https://github.com/
 
 **Test-rom binaries are not bundled.** On first run, `npm run test:roms` auto-fetches the latest [c-sp Game Boy test-roms release](https://github.com/c-sp/game-boy-test-roms/releases) into `tests/roms/` (gitignored). Set `GLOWBOOT_NO_FETCH=1` to skip the auto-fetch and use a manually-prepared directory.
 
+**Optional boot ROMs.** A handful of Mooneye `boot_*` tests check post-boot DIV / register-file / hardware-IO state and only pass when a real Nintendo boot ROM has run first. Drop your own `dmg_boot.bin` (256 B) and/or `cgb_boot.bin` (2 304 B) into `tests/roms/` and the harness will pick them up automatically — boot tests for which the matching file is missing are reported as `SKIP` instead of `FAIL`. Boot ROMs are not bundled (Nintendo copyright); the rest of the suite runs from the post-boot state regardless.
+
 ## Summary
 
 | Suite                           | Pass | Fail | Skip / Time | Last run                                                                      |
@@ -22,7 +24,7 @@ Results from running the [c-sp Game Boy test-rom collection](https://github.com/
 | Blargg mem_timing v2 (subtests) |    0 |    0 |           3 | individual subtests have no PNG                                               |
 | Blargg oam_bug (subtests)       |    0 |    0 |           8 | DMG-only; subtests have no PNG                                                |
 | Mooneye acceptance              |   47 |   28 |           0 | 2026-05-10 — RET/CALL/JP/PUSH/RST + DIV-trigger + TIMA reload all fixed       |
-| Mooneye misc (CGB-specific)     |    0 |    8 |           0 | 2026-05-10 — 6 of 8 are boot\_\* (expected)                                   |
+| Mooneye misc (CGB-specific)     |    0 |    2 |           6 | 2026-05-10 — 6 of 8 `boot_*` skipped without `tests/roms/cgb_boot.bin`        |
 | Mealybug PPU (auto-discovered)  |    0 |   30 |           5 | 2026-05-10 — known mid-mode-3 raster gap                                      |
 | acid2 (DMG + CGB + CGB-hell)    |    2 |    1 |           0 | 2026-05-10 — cgb-acid-hell 2 px diff (single-sprite sub-pixel quirk)          |
 | Bully GB                        |    0 |    1 |           0 | 2026-05-10 — 290 px diff, boot-state                                          |
@@ -56,15 +58,15 @@ Single ROM passes.
 
 Categorised:
 
-| Group                                                                                                                                               | Pass | Fail | Notes                                                                                                                  |
-| --------------------------------------------------------------------------------------------------------------------------------------------------- | ---: | ---: | ---------------------------------------------------------------------------------------------------------------------- |
-| `boot_*` (boot register / DIV / hwio post-boot snapshots)                                                                                           |    0 |    8 | **expected** — Glowboot deliberately does not run a Nintendo boot ROM, so post-boot register state diverges by design  |
-| `ret_*` / `reti_timing` / `call_timing` / `jp_timing` / `pop_timing` / `ld_hl_sp_e_timing` / `oam_dma_timing` / `oam_dma_restart` / `oam_dma/basic` |    9 |    0 | **fixed** by moving OAM DMA tick to per-bus-access (was per-step), 2-cycle DMA setup delay                             |
-| `push_timing`, `rst_timing`, `call_*_timing2`                                                                                                       |    4 |    0 | **fixed** by writing the high byte before the low byte in `stackPush` + dropping CPU writes to OAM while DMA is active |
-| Remaining timing edge cases (`oam_dma/reg_read`, `oam_dma/sources-GS`, `oam_dma_start`)                                                             |    0 |    3 | DMA-source quirks; not surfaced in any real game so far                                                                |
-| PPU (`stat_irq_blocking` ✅, `intr_1_2_timing-GS` ✅, `intr_2_0_timing` ✅)                                                                         |    3 |    9 | mode-3 + LCD-on edge cases; mid-scanline timing                                                                        |
-| Timer (`tim*_div_trigger`, `tima_reload`, `tima_write_reloading`, `tma_write_reloading`)                                                            |   12 |    1 | **fixed** by falling-edge model on (TAC ∧ div_bit) + 1-M-cycle TIMA reload window (`tima = 0` then snap to TMA + IRQ)  |
-| `bits`, `instr`, `interrupts`, `serial`, misc                                                                                                       |    4 |    3 | mixed                                                                                                                  |
+| Group                                                                                                                                               | Pass | Fail | Notes                                                                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ---: | ---: | ----------------------------------------------------------------------------------------------------------------------- |
+| `boot_*` (boot register / DIV / hwio post-boot snapshots)                                                                                           |    0 |    8 | runnable — drop `tests/roms/dmg_boot.bin` / `cgb_boot.bin` to enable; otherwise reported as `SKIP`. Default sweep skips |
+| `ret_*` / `reti_timing` / `call_timing` / `jp_timing` / `pop_timing` / `ld_hl_sp_e_timing` / `oam_dma_timing` / `oam_dma_restart` / `oam_dma/basic` |    9 |    0 | **fixed** by moving OAM DMA tick to per-bus-access (was per-step), 2-cycle DMA setup delay                              |
+| `push_timing`, `rst_timing`, `call_*_timing2`                                                                                                       |    4 |    0 | **fixed** by writing the high byte before the low byte in `stackPush` + dropping CPU writes to OAM while DMA is active  |
+| Remaining timing edge cases (`oam_dma/reg_read`, `oam_dma/sources-GS`, `oam_dma_start`)                                                             |    0 |    3 | DMA-source quirks; not surfaced in any real game so far                                                                 |
+| PPU (`stat_irq_blocking` ✅, `intr_1_2_timing-GS` ✅, `intr_2_0_timing` ✅)                                                                         |    3 |    9 | mode-3 + LCD-on edge cases; mid-scanline timing                                                                         |
+| Timer (`tim*_div_trigger`, `tima_reload`, `tima_write_reloading`, `tma_write_reloading`)                                                            |   12 |    1 | **fixed** by falling-edge model on (TAC ∧ div_bit) + 1-M-cycle TIMA reload window (`tima = 0` then snap to TMA + IRQ)   |
+| `bits`, `instr`, `interrupts`, `serial`, misc                                                                                                       |    4 |    3 | mixed                                                                                                                   |
 
 ### Mealybug PPU — 0 / 30 (5 skipped)
 

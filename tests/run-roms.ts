@@ -317,6 +317,29 @@ const STATIC_SCREEN_TESTS: ScreenTest[] = [
 // gambatte entries see the freshly extracted directories.
 let SCREEN_BY_ROM = new Map<string, ScreenTest>();
 
+// Optional boot ROMs the user can drop into tests/roms/. They're only
+// consulted for Mooneye `boot_*` tests (which check DIV / register file /
+// hardware-IO state the boot ROM is responsible for); every other test
+// runs from the post-boot state as before. Boot ROMs are not bundled —
+// they're under copyright — so an absent file just skips the test.
+let DMG_BOOT_ROM: Uint8Array | null = null;
+let CGB_BOOT_ROM: Uint8Array | null = null;
+
+function loadBootRoms(): void {
+  const dmgPath = resolve(TEST_ROMS_DIR, "dmg_boot.bin");
+  const cgbPath = resolve(TEST_ROMS_DIR, "cgb_boot.bin");
+  if (existsSync(dmgPath)) DMG_BOOT_ROM = new Uint8Array(readFileSync(dmgPath));
+  if (existsSync(cgbPath)) CGB_BOOT_ROM = new Uint8Array(readFileSync(cgbPath));
+}
+
+/** Mooneye `boot_*` tests target a specific console — we infer that from the
+ *  filename suffix. Everything else returns null and runs in post-boot mode. */
+function bootRomForTest(name: string): { kind: "dmg" | "cgb"; rom: Uint8Array | null } | null {
+  if (!/\/boot_[^/]+\.(gb|gbc)$/.test(name)) return null;
+  const kind = /-cgb/i.test(name) || name.endsWith(".gbc") ? "cgb" : "dmg";
+  return { kind, rom: kind === "cgb" ? CGB_BOOT_ROM : DMG_BOOT_ROM };
+}
+
 type Outcome = {
   name: string;
   status: "pass" | "fail" | "timeout" | "skip";
@@ -462,9 +485,9 @@ function runGbMicrotest(romPath: string, name: string): Outcome {
   return { name, status: "fail", detail: `ff82=0x${flag.toString(16).padStart(2, "0")} (unset/incomplete)`, frames };
 }
 
-function runSerialTest(romPath: string, name: string): Outcome {
+function runSerialTest(romPath: string, name: string, bootRom: Uint8Array | null = null): Outcome {
   const bytes = new Uint8Array(readFileSync(romPath));
-  const gb = new GameBoy(bytes);
+  const gb = new GameBoy(bytes, bootRom);
   const serialBytes: number[] = [];
   let serial = "";
   gb.mmu.onSerialOut = (b: number) => {
@@ -497,10 +520,14 @@ function runOne(romPath: string): Outcome {
   if (skipReason) {
     return { name, status: "skip", detail: skipReason, frames: 0 };
   }
+  const boot = bootRomForTest(name);
+  if (boot && !boot.rom) {
+    return { name, status: "skip", detail: `requires tests/roms/${boot.kind}_boot.bin (not bundled)`, frames: 0 };
+  }
   try {
     if (name.startsWith("gbmicrotest/") || name.startsWith("gbmicrotest\\")) return runGbMicrotest(romPath, name);
     const cfg = SCREEN_BY_ROM.get(name);
-    return cfg ? runFramebufferTest(romPath, cfg, name) : runSerialTest(romPath, name);
+    return cfg ? runFramebufferTest(romPath, cfg, name) : runSerialTest(romPath, name, boot?.rom ?? null);
   } catch (err) {
     // Some test ROMs deliberately exercise illegal opcodes / out-of-range
     // bus accesses to verify that our CPU throws or short-circuits the
@@ -518,6 +545,7 @@ async function main(): Promise<void> {
   SCREEN_BY_ROM = new Map<string, ScreenTest>(screenTests.map((t) => [t.romPath, t]));
   indexMealybugSkips();
   indexGambatteSkips();
+  loadBootRoms();
 
   const filter = process.argv[2];
   const all = findRoms(TEST_ROMS_DIR);

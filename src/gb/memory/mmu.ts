@@ -47,6 +47,16 @@ export class MMU {
   private hdmaDstCur = 0;
   private hdmaBlocks = 0; // remaining 16-byte blocks
 
+  /** Optional boot ROM. When set, the CPU starts from PC=0 with cleared
+   *  registers and the bytes here are mapped over 0x0000–0x00FF (DMG) or
+   *  0x0000–0x00FF + 0x0200–0x08FF (CGB) until the program writes any
+   *  value to 0xFF50, which unmaps the boot ROM permanently. The browser
+   *  shell never sets this; the test harness optionally loads a user-
+   *  supplied `dmg_boot.bin` / `cgb_boot.bin` to make Mooneye's `boot_*`
+   *  acceptance ROMs reach a real post-boot state. */
+  private bootRom: Uint8Array | null = null;
+  private bootRomLocked = false;
+
   /** OAM DMA state. 160 bytes copied at one byte per M-cycle, plus a
    *  setup delay before the first copy. Mooneye `ret_timing` is the
    *  cycle-precise reference: it parks SP so RET pops the high byte from
@@ -117,9 +127,15 @@ export class MMU {
     private readonly timer: Timer,
     private readonly joypad: Joypad,
     private readonly interrupts: InterruptController,
-    private readonly cgb: boolean = false
+    private readonly cgb: boolean = false,
+    bootRom: Uint8Array | null = null
   ) {
     this.wram = new Uint8Array(cgb ? 0x8000 : 0x2000);
+    if (bootRom) {
+      this.bootRom = bootRom;
+      // No locking yet — the boot ROM is mapped until the program writes
+      // to 0xFF50. `bootRomLocked` flips on that write.
+    }
     this.installPeerHandler();
   }
 
@@ -233,6 +249,13 @@ export class MMU {
       case 0x5:
       case 0x6:
       case 0x7:
+        // Boot ROM overlays the start of ROM space until 0xFF50 unlocks it.
+        // DMG: 0x0000-0x00FF. CGB: same plus 0x0200-0x08FF (the 0x0100-0x01FF
+        // gap is the cartridge header, which the boot ROM reads from cart).
+        if (this.bootRom && !this.bootRomLocked) {
+          if (addr < 0x100) return this.bootRom[addr];
+          if (this.cgb && addr >= 0x200 && addr < this.bootRom.length) return this.bootRom[addr];
+        }
         return this.cartridge.read(addr); // ROM
       case 0x8:
       case 0x9:
@@ -489,6 +512,12 @@ export class MMU {
       // OAM DMA transfer
       case 0xff46:
         this.dmaTransfer(value);
+        return;
+      // BOOT register — any write with bit 0 set permanently unmaps the
+      // boot ROM. Real hardware ignores writes once locked; we mirror that
+      // by latching `bootRomLocked = true` on the first qualifying write.
+      case 0xff50:
+        if (value & 0x01) this.bootRomLocked = true;
         return;
       // ── CGB registers ───────────────────────────────────────────────────
       case 0xff4d:

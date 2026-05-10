@@ -60,15 +60,25 @@ export class GameBoy {
    */
   onAudioFrame: ((left: Float32Array, right: Float32Array, count: number) => void) | null = null;
 
-  constructor(romData: Uint8Array) {
+  constructor(romData: Uint8Array, bootRom: Uint8Array | null = null) {
+    const preBoot = bootRom !== null;
     this.cart = new Cartridge(romData);
     // Always emulate a CGB console so DMG carts get CGB "compatibility mode"
     // colourisation just like they do on real hardware.
-    this.ppu = new PPU(this.interrupts, /* cgb */ true, /* cgbGame */ this.cart.cgb);
-    this.timer = new Timer(this.interrupts);
+    this.ppu = new PPU(this.interrupts, /* cgb */ true, /* cgbGame */ this.cart.cgb, preBoot);
+    this.timer = new Timer(this.interrupts, preBoot);
     this.joypad = new Joypad(this.interrupts);
-    this.mmu = new MMU(this.cart, this.ppu, this.apu, this.timer, this.joypad, this.interrupts, /* cgb console */ true);
-    this.cpu = new CPU(this.mmu, this.interrupts, this.timer, /* cgb */ true);
+    this.mmu = new MMU(
+      this.cart,
+      this.ppu,
+      this.apu,
+      this.timer,
+      this.joypad,
+      this.interrupts,
+      /* cgb console */ true,
+      bootRom
+    );
+    this.cpu = new CPU(this.mmu, this.interrupts, this.timer, /* cgb */ true, /* preBoot */ preBoot);
     this.mmu.cpu = this.cpu; // break the constructor cycle so KEY1 can reach CPU.
     this.cpu.apu = this.apu; // per-bus-access APU ticking — see CPU.busRead
     this.mmu.cheats = this.cheats; // attach cheat engine for Game Genie ROM patches.
@@ -76,7 +86,9 @@ export class GameBoy {
     this.ppu.onVBlank = () => this.onFrame?.(this.ppu.framebuffer);
     this.ppu.onHBlank = () => this.mmu.hdmaHBlankStep();
 
-    if (!this.cart.cgb) this.applyDmgCompatPalette();
+    // DMG-compat palette is applied by the boot ROM itself based on the
+    // cart-title hash. Skip our shortcut when a real boot ROM is loaded.
+    if (!this.cart.cgb && !bootRom) this.applyDmgCompatPalette();
   }
 
   /**

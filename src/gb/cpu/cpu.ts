@@ -57,9 +57,10 @@ export class CPU {
     private readonly mmu: MMU,
     private readonly interrupts: InterruptController,
     private readonly timer: Timer,
-    cgb: boolean = false
+    cgb: boolean = false,
+    preBoot: boolean = false
   ) {
-    this.regs = new Registers(cgb);
+    this.regs = new Registers(cgb, preBoot);
   }
 
   /** Optional APU reference. When set, ticked per bus-access at real-time
