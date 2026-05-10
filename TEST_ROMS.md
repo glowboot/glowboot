@@ -119,4 +119,4 @@ Per-quirk hardware catalogue. Failures cluster:
 - [ ] Mooneye `push_timing` / `rst_timing` / `call_*_timing2` — remaining cycle-accounting gaps
 - [ ] Strikethrough 22 px — close to passing; small fix likely
 - [ ] Scribbltests `scxly` 100 % diff — investigate (palette? rendering path off?)
-- [ ] GBMicrotest `hblank_int_scx*` cluster — 24 related fails on the same axis
+- [ ] ~~GBMicrotest `hblank_int_scx*` cluster — 24 related fails on the same axis~~ — investigated 2026-05-10: requires sub-M-cycle PPU resolution (paired `_a` / `_b` variants probe ±1 dot of mode-3 boundary). Atomic-mode-3 PPU can pass either side but not both; deferred to the Pixel-FIFO rewrite that gates Mealybug too.
