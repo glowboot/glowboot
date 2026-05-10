@@ -69,6 +69,10 @@ export class MMU {
   private dmaStartDelay = 0;
   private dmaSrcBase = 0;
   private dmaIndex = 0;
+  /** Last value written to FF46. FF46 reads return this byte on real
+   *  hardware (Mooneye `oam_dma/reg_read`), even after the transfer has
+   *  finished — the register is just an 8-bit latch. */
+  private dmaLastWrite = 0xff;
 
   /** Set after construction — breaks the MMU ↔ CPU reference cycle. */
   cpu: CPU | null = null;
@@ -441,6 +445,8 @@ export class MMU {
       case 0xff76:
       case 0xff77:
         return this.cgb ? this.apu.readByte(addr) : 0xff;
+      case 0xff46:
+        return this.dmaLastWrite;
       default:
         if (addr >= 0xff10 && addr <= 0xff3f) return this.apu.readByte(addr);
         if (addr >= 0xff40 && addr <= 0xff4b) return this.ppu.readByte(addr);
@@ -682,7 +688,8 @@ export class MMU {
   private dmaTransfer(value: number): void {
     // Values > 0xDF would read from OAM / unmapped space; real hardware
     // clamps, but most emulators just copy whatever the CPU asked for.
-    this.dmaSrcBase = (value & 0xff) * 0x100;
+    this.dmaLastWrite = value & 0xff;
+    this.dmaSrcBase = this.dmaLastWrite * 0x100;
     this.dmaIndex = 0;
     this.dmaActive = true;
     this.dmaStartDelay = 2;
@@ -712,6 +719,13 @@ export class MMU {
    * bus-restriction logic.
    */
   private readDmaSource(addr: number): number {
-    return this.readMemoryPage(addr & 0xffff) ?? 0xff;
+    // DMA source bus quirks: pages 0xE0-0xFF mirror WRAM via the echo
+    // mechanism — 0xFE/0xFF wrap all the way back to WRAM 0xDE/0xDF
+    // (Mooneye `oam_dma/sources-GS`). The CPU's view of 0xFE00-0xFFFF
+    // is OAM/IO/HRAM, but the DMA controller has its own bus and reads
+    // continuous echo WRAM there.
+    addr &= 0xffff;
+    if (addr >= 0xe000) return this.wramRead((addr & 0x1fff) + 0xc000);
+    return this.readMemoryPage(addr) ?? 0xff;
   }
 }

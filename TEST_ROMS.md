@@ -23,7 +23,7 @@ Results from running the [c-sp Game Boy test-rom collection](https://github.com/
 | Blargg cgb_sound (subtests)     |    0 |    0 |          12 | individual subtests have no PNG; serial output not used                       |
 | Blargg mem_timing v2 (subtests) |    0 |    0 |           3 | individual subtests have no PNG                                               |
 | Blargg oam_bug (subtests)       |    0 |    0 |           8 | DMG-only; subtests have no PNG                                                |
-| Mooneye acceptance              |   49 |   26 |           0 | 2026-05-10 — RET/CALL/JP/PUSH/RST + DIV-trigger + TIMA reload + ie_push fixed |
+| Mooneye acceptance              |   51 |   24 |           0 | 2026-05-10 — + `oam_dma/reg_read` (FF46 latch) + `oam_dma/sources-GS` (echo)  |
 | Mooneye misc (CGB-specific)     |    0 |    2 |           6 | 2026-05-10 — 6 of 8 `boot_*` skipped without `tests/roms/cgb_boot.bin`        |
 | Mealybug PPU (auto-discovered)  |    0 |   30 |           5 | 2026-05-10 — known mid-mode-3 raster gap                                      |
 | acid2 (DMG + CGB + CGB-hell)    |    2 |    1 |           0 | 2026-05-10 — cgb-acid-hell 2 px diff (single-sprite sub-pixel quirk)          |
@@ -54,7 +54,7 @@ All 11 individual subtests pass: `01-special` through `11-op a,(hl)`.
 
 Single ROM passes.
 
-### Mooneye acceptance — 49 / 75 (26 fail, 0 timeout)
+### Mooneye acceptance — 51 / 75 (24 fail, 0 timeout)
 
 Categorised:
 
@@ -63,7 +63,8 @@ Categorised:
 | `boot_*` (boot register / DIV / hwio post-boot snapshots)                                                                                           |    0 |    8 | runnable — drop `tests/roms/dmg_boot.bin` / `cgb_boot.bin` to enable; otherwise reported as `SKIP`. Default sweep skips                            |
 | `ret_*` / `reti_timing` / `call_timing` / `jp_timing` / `pop_timing` / `ld_hl_sp_e_timing` / `oam_dma_timing` / `oam_dma_restart` / `oam_dma/basic` |    9 |    0 | **fixed** by moving OAM DMA tick to per-bus-access (was per-step), 2-cycle DMA setup delay                                                         |
 | `push_timing`, `rst_timing`, `call_*_timing2`                                                                                                       |    4 |    0 | **fixed** by writing the high byte before the low byte in `stackPush` + dropping CPU writes to OAM while DMA is active                             |
-| Remaining timing edge cases (`oam_dma/reg_read`, `oam_dma/sources-GS`, `oam_dma_start`)                                                             |    0 |    3 | DMA-source quirks; not surfaced in any real game so far                                                                                            |
+| `oam_dma/reg_read`, `oam_dma/sources-GS`                                                                                                            |    2 |    0 | **fixed** by latching last-write at FF46 + extending DMA-source echo through 0xFE/0xFF                                                             |
+| `oam_dma_start`                                                                                                                                     |    0 |    1 | needs sub-M-cycle DMA start-window modelling (test runs code from OAM mid-DMA)                                                                     |
 | PPU (`stat_irq_blocking` ✅, `intr_1_2_timing-GS` ✅, `intr_2_0_timing` ✅)                                                                         |    3 |    9 | mode-3 + LCD-on edge cases; mid-scanline timing                                                                                                    |
 | Timer (`tim*_div_trigger`, `tima_reload`, `tima_write_reloading`, `tma_write_reloading`)                                                            |   12 |    1 | **fixed** by falling-edge model on (TAC ∧ div_bit) + 1-M-cycle TIMA reload window (`tima = 0` then snap to TMA + IRQ)                              |
 | `interrupts/ie_push`                                                                                                                                |    1 |    0 | **fixed** by latching IRQ vector between PCH and PCL pushes — when SP=0 the PCH push clobbers IE and the vector becomes 0x0000 with no acknowledge |
