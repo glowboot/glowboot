@@ -538,6 +538,12 @@ function runOne(romPath: string): Outcome {
 }
 
 async function main(): Promise<void> {
+  // The cartridge constructor logs a one-line summary on every load.
+  // Useful in the browser shell, but at one line per ROM × 4 500+ ROMs
+  // it drowns the harness output. Drop `console.info` for the duration
+  // of the run; harness messages use `console.log` and stay visible.
+  console.info = () => {};
+
   await ensureTestRoms();
   // Discovery + skip indexing happen here so they see the freshly
   // extracted directories on first-run, not the empty placeholder.
