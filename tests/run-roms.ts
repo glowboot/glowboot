@@ -399,6 +399,91 @@ function indexGambatteSkips(): void {
   walk(root);
 }
 
+// AGE test naming convention (see age-test-roms/README.md):
+//   `<test>-cgbBCE.gb`     — runs on CGB B/C/E
+//   `<test>-cgbE.gb`       — runs on CGB E only
+//   `<test>-dmgC.gb`       — DMG-only build
+//   `<test>-dmgC-cgbBC.gb` — cross-compatible build (DMG + CGB)
+//   `<test>-ncm[A-Z]+.gb`  — non-CGB-mode reference (CGB hardware in DMG mode)
+//   `<test>-nocgb.gb`      — non-CGB-mode build
+// Glowboot is CGB-only and presents as CGB-E. We skip pure DMG and
+// non-CGB-mode variants — they either won't run or won't match the
+// reference. Tests with NO PNG reference are register-state checks that
+// halt on `LD B, B`; we run those via the serial harness (which now
+// detects the LD-B,B-with-non-Fibonacci-regs failure case).
+function indexAgeSkips(): void {
+  const root = resolve(TEST_ROMS_DIR, "age-test-roms");
+  if (!existsSync(root)) return;
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.endsWith(".gb") && !entry.endsWith(".gbc")) continue;
+      const stem = entry.replace(/\.(gb|gbc)$/, "");
+      const dirRel = relative(TEST_ROMS_DIR, dir);
+      // Non-CGB-mode builds — explicit "-nocgb" suffix or "-ncm<X>" reference.
+      if (stem.endsWith("-nocgb") || /-ncm[A-Z]+$/.test(stem)) {
+        SKIP_ROMS.set(join(dirRel, entry), "AGE non-CGB-mode test (Glowboot is CGB-only)");
+        continue;
+      }
+      // DMG-only — name ends with "-dmg<X>" with no trailing "-cgb<Y>".
+      if (/-dmg[A-Z]+$/.test(stem)) {
+        SKIP_ROMS.set(join(dirRel, entry), "AGE DMG-only test (Glowboot is CGB-only)");
+        continue;
+      }
+      // ROM has no hardware suffix and no CGB-mode reference PNG in its
+      // directory — there's nothing to compare against and the ROM
+      // itself may be DMG-only despite the unsuffixed name (e.g.
+      // `m3-bg-bgp.gb` ships only dmgC/ncm[BC|E] references).
+      const hasHwSuffix = /-(cgb|dmg|ncm)[A-Z]+$/.test(stem);
+      if (!hasHwSuffix) {
+        const dirEntries = readdirSync(dir);
+        const hasCgbRef = dirEntries.some((e) => e.startsWith(stem + "-cgb") && e.endsWith(".png"));
+        const hasAnyRef = dirEntries.some((e) => e.startsWith(stem + "-") && e.endsWith(".png"));
+        if (hasAnyRef && !hasCgbRef) {
+          SKIP_ROMS.set(join(dirRel, entry), "AGE: only DMG/non-CGB references bundled");
+          continue;
+        }
+      }
+    }
+  };
+  walk(root);
+}
+
+// AGE screenshot-based tests with CGB references. ROM `<stem>.gb` matches
+// `<stem>-cgbBCE.png` / `<stem>-cgbE.png` etc. We try the variants in
+// preference order; the first hit wins.
+function discoverAgeScreenTests(): ScreenTest[] {
+  const root = resolve(TEST_ROMS_DIR, "age-test-roms");
+  if (!existsSync(root)) return [];
+  const tests: ScreenTest[] = [];
+  const variants = ["cgbBCE", "cgbBE", "cgbBC", "cgbE", "cgbB", "cgbC"];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.endsWith(".gb") && !entry.endsWith(".gbc")) continue;
+      const stem = entry.replace(/\.(gb|gbc)$/, "");
+      const dirRel = relative(TEST_ROMS_DIR, dir);
+      for (const v of variants) {
+        const refName = `${stem}-${v}.png`;
+        if (existsSync(resolve(TEST_ROMS_DIR, dirRel, refName))) {
+          tests.push({ romPath: join(dirRel, entry), refPng: join(dirRel, refName), frames: 60 });
+          break;
+        }
+      }
+    }
+  };
+  walk(root);
+  return tests;
+}
+
 function findRoms(dir: string): string[] {
   if (!existsSync(dir)) return [];
   const out: string[] = [];
@@ -494,6 +579,20 @@ function runSerialTest(romPath: string, name: string, bootRom: Uint8Array | null
     serialBytes.push(b);
     serial += String.fromCharCode(b);
   };
+  // AGE-style "test done" signal: the test executes `LD B, B` (0x40) once
+  // it's finished, then loops or halts on it. We detect that by watching
+  // the PC + general regs settle for several frames in a row while PC
+  // sits on a `LD B, B` byte. On settle, registers carry the Fibonacci
+  // marker for pass; any other values mean fail. Without this fallback,
+  // AGE tests that fail just time out silently.
+  let stableFrames = 0;
+  let lastPc = -1;
+  let lastB = -1;
+  let lastC = -1;
+  let lastD = -1;
+  let lastE = -1;
+  let lastH = -1;
+  let lastL = -1;
   for (let f = 0; f < MAX_FRAMES_SERIAL; f++) {
     gb.runFrame();
     if (serial.includes("Passed")) return { name, status: "pass", detail: "blargg: Passed", frames: f + 1 };
@@ -509,6 +608,36 @@ function runSerialTest(romPath: string, name: string, bootRom: Uint8Array | null
     const r = gb.cpu.regs;
     if (r.b === 3 && r.c === 5 && r.d === 8 && r.e === 13 && r.h === 21 && r.l === 34) {
       return { name, status: "pass", detail: "register Fibonacci", frames: f + 1 };
+    }
+    // AGE-style fail: PC + general regs stable across frames AND PC on
+    // LD B, B. Compare component-wise so distinct states never collide.
+    const stable =
+      r.pc === lastPc &&
+      r.b === lastB &&
+      r.c === lastC &&
+      r.d === lastD &&
+      r.e === lastE &&
+      r.h === lastH &&
+      r.l === lastL;
+    if (stable) {
+      stableFrames++;
+      if (stableFrames >= 4 && gb.mmu.readByte(r.pc) === 0x40) {
+        return {
+          name,
+          status: "fail",
+          detail: `LD B,B reached with B=${r.b} C=${r.c} D=${r.d} E=${r.e} H=${r.h} L=${r.l} (expected 3,5,8,13,21,34)`,
+          frames: f + 1
+        };
+      }
+    } else {
+      stableFrames = 0;
+      lastPc = r.pc;
+      lastB = r.b;
+      lastC = r.c;
+      lastD = r.d;
+      lastE = r.e;
+      lastH = r.h;
+      lastL = r.l;
     }
   }
   return { name, status: "timeout", detail: serial, frames: MAX_FRAMES_SERIAL };
@@ -547,10 +676,16 @@ async function main(): Promise<void> {
   await ensureTestRoms();
   // Discovery + skip indexing happen here so they see the freshly
   // extracted directories on first-run, not the empty placeholder.
-  const screenTests = [...STATIC_SCREEN_TESTS, ...discoverMealybugTests(), ...discoverGambatteTests()];
+  const screenTests = [
+    ...STATIC_SCREEN_TESTS,
+    ...discoverMealybugTests(),
+    ...discoverGambatteTests(),
+    ...discoverAgeScreenTests()
+  ];
   SCREEN_BY_ROM = new Map<string, ScreenTest>(screenTests.map((t) => [t.romPath, t]));
   indexMealybugSkips();
   indexGambatteSkips();
+  indexAgeSkips();
   loadBootRoms();
 
   const filter = process.argv[2];
