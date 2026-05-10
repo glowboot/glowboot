@@ -1,0 +1,102 @@
+name: Bug report
+description: A specific game runs incorrectly, the app crashes, audio is wrong, etc.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! A clear, reproducible report saves a lot of back-and-forth.
+
+        **Please don't share copyrighted ROMs.** Game name + region + revision is enough — no .gb / .gbc files in attachments.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: One or two sentences describing the bug. Screenshots / short clips are very welcome.
+      placeholder: e.g. "On the title screen of Tony Hawk's Pro Skater 2 (USA) the photo renders with vertical bands."
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Load Tony Hawk's Pro Skater 2 (USA, Rev 1).
+        2. Wait for the title screen.
+        3. Observe the photo background.
+    validations:
+      required: true
+
+  - type: input
+    id: game
+    attributes:
+      label: Game (title, region, revision)
+      placeholder: "e.g. Pokémon Crystal (USA, Rev 1)"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: console-mode
+    attributes:
+      label: Console mode the cart was running in
+      options:
+        - DMG (original Game Boy)
+        - CGB (Game Boy Color)
+        - Not sure
+    validations:
+      required: false
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser + version
+      placeholder: "e.g. Chrome 138, Safari 18.4, Firefox 134"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system + version
+      placeholder: "e.g. macOS 15.2, Windows 11, Android 14, iOS 18"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device (if mobile)
+      placeholder: "e.g. iPhone 15 Pro, Pixel 8"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: Where you ran Glowboot
+      options:
+        - Hosted at glowboot.pages.dev
+        - Local dev build (npm run dev)
+        - Self-hosted production build (npm run build)
+    validations:
+      required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Browser console errors (if any)
+      description: Open DevTools → Console and paste any red error lines you see.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Other emulators where it works correctly, related issues, settings you tried — anything that helps narrow it down.
+    validations:
+      required: false
