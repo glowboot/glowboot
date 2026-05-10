@@ -134,6 +134,14 @@ export class PPU {
    *  visible-LY check in the VBlank case from re-applying the quirk. */
   private line153Quirk = false;
 
+  /** LY value used for the LYC=LY comparison in STAT bit 2. Tracks `ly`
+   *  for almost the entire frame, but lags during the line-153 quirk:
+   *  visible LY changes from 153 → 0 at dot 4, while LYC compare
+   *  continues to use 153 for an additional 8 dots (until dot 12).
+   *  GBMicrotest `line_153_lyc*_stat_timing` and Mooneye `ly_lyc_*`
+   *  detect this lag. */
+  private lyForCompare = 0;
+
   // ── BG Pixel-FIFO state (Phase 3) ───────────────────────────────────────
   /** BG fetcher sub-step (0 = Get Tile, 1 = Get Lo, 2 = Get Hi, 3 = Push).
    *  Each step takes 2 dots; we advance state on every other dot. */
@@ -415,7 +423,10 @@ export class PPU {
         // would spuriously latch true when LY and LYC both happen to be 0,
         // trapping any wait-for-mode<2 loop a game uses to gate palette writes).
         if (!(this.lcdc & 0x80)) return 0x80 | (this.stat & 0x78);
-        return 0x80 | (this.stat & 0x78) | (this.ly === this.lyc ? 0x04 : 0) | this.mode;
+        // LYC compare uses `lyForCompare`, which lags `ly` during the line
+        // 153 quirk so STAT bit 2 doesn't briefly latch true between dots
+        // 4–11 of line 153 with LYC=0.
+        return 0x80 | (this.stat & 0x78) | (this.lyForCompare === this.lyc ? 0x04 : 0) | this.mode;
       case ADDR_SCY:
         return this.scy;
       case ADDR_SCX:
@@ -464,6 +475,7 @@ export class PPU {
           // than normal (hence the initial `dots=4`), which matches the
           // oam_bug lcd_sync test's LY→1 transition at M-cycle 113.
           this.ly = 0;
+          this.lyForCompare = 0;
           this.winLY = 0;
           this.dots = 4;
           this.mode = Mode.OAMSearch;
@@ -473,6 +485,7 @@ export class PPU {
           // LCD turning off: PPU halts. Clear counters so the resume state
           // is well-defined.
           this.ly = 0;
+          this.lyForCompare = 0;
           this.winLY = 0;
           this.dots = 0;
           this.mode = Mode.HBlank;
@@ -745,6 +758,7 @@ export class PPU {
         if (this.dots >= hblankLen) {
           this.dots = 0;
           this.ly++;
+          this.lyForCompare = this.ly;
           this.checkLyc();
           if (this.ly === LINES_VISIBLE) {
             this.setMode(Mode.VBlank);
@@ -762,12 +776,29 @@ export class PPU {
         // wraps to 0 while mode stays at VBlank, and LY=0 holds through the
         // remaining ~452 dots until line 0 / mode 2 begins. Mooneye / GBM
         // `line_153_*` and `poweron_stat_*` verify this.
+        //
+        // Sub-quirk: the LYC=LY compare lags the visible LY change by 8
+        // more dots (until dot 12), so STAT bit 2 doesn't briefly latch
+        // true with LYC=0 between dots 4–11. `lyForCompare` keeps the
+        // pre-change value (153) until dot 12 and is then reconciled
+        // with `ly` (= 0).
         if (this.ly === 153 && !this.line153Quirk && this.dots < 4) {
           const consume = Math.min(maxDots, 4 - this.dots);
           this.dots += consume;
           if (this.dots >= 4) {
             this.ly = 0;
             this.line153Quirk = true;
+            // Don't update lyForCompare here — it stays at 153 for ~8
+            // more dots so STAT bit 2 keeps comparing against 153 until
+            // dot 12 of line 153.
+          }
+          return consume;
+        }
+        if (this.line153Quirk && this.lyForCompare === 153 && this.dots < 6) {
+          const consume = Math.min(maxDots, 6 - this.dots);
+          this.dots += consume;
+          if (this.dots >= 6) {
+            this.lyForCompare = 0;
             this.checkLyc();
           }
           return consume;
@@ -782,9 +813,11 @@ export class PPU {
             this.setMode(Mode.OAMSearch);
           } else {
             this.ly++;
+            this.lyForCompare = this.ly;
             this.checkLyc();
             if (this.ly >= TOTAL_LINES) {
               this.ly = 0;
+              this.lyForCompare = 0;
               this.winLY = 0;
               this.checkLyc();
               this.setMode(Mode.OAMSearch);
@@ -1104,7 +1137,7 @@ export class PPU {
     const bitHBlank = (this.stat & 0x08) !== 0 && this.mode === Mode.HBlank;
     const bitVBlank = (this.stat & 0x10) !== 0 && this.mode === Mode.VBlank;
     const bitOAM = (this.stat & 0x20) !== 0 && this.mode === Mode.OAMSearch;
-    const bitLYC = (this.stat & 0x40) !== 0 && this.ly === this.lyc;
+    const bitLYC = (this.stat & 0x40) !== 0 && this.lyForCompare === this.lyc;
     const line = bitHBlank || bitVBlank || bitOAM || bitLYC;
     if (line && !this.statLine) this.interrupts.request(INTERRUPT_LCD);
     this.statLine = line;
@@ -1148,6 +1181,7 @@ export class PPU {
     w.i32(this.dots);
     w.u16(this.winLY);
     w.bool(this.line153Quirk);
+    w.u16(this.lyForCompare);
     w.u16(this.mode3Length);
     w.u8(this.bgpi);
     w.u8(this.obpi);
@@ -1174,6 +1208,7 @@ export class PPU {
     this.dots = r.i32();
     this.winLY = r.u16();
     this.line153Quirk = r.bool();
+    this.lyForCompare = r.u16();
     this.mode3Length = r.u16();
     this.bgpi = r.u8();
     this.obpi = r.u8();
