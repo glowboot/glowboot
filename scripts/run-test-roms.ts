@@ -34,7 +34,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const TEST_ROMS_DIR = resolve(ROOT, "test-roms");
 
-const MAX_FRAMES_SERIAL = 60 * 60; // 60s at 60fps — longer than any Blargg test.
+const MAX_FRAMES_SERIAL = 60 * 20; // 20s at 60fps. Slowest passing Blargg test takes ~600 frames; tests that haven't completed by then are either screen-only or hung.
 const FAIL_PREVIEW_LIMIT = 200;
 
 // ─── Palette overrides for screen-only tests ──────────────────────────────────
@@ -171,6 +171,24 @@ const SCREEN_TESTS: ScreenTest[] = [
     refPng: "turtle-tests/window_y_trigger_wx_offscreen/window_y_trigger_wx_offscreen.png",
     palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
     frames: 30
+  },
+  {
+    romPath: "little-things-gb/firstwhite.gb",
+    refPng: "little-things-gb/firstwhite-dmg-cgb.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 30
+  },
+  {
+    romPath: "little-things-gb/tellinglys.gb",
+    refPng: "little-things-gb/tellinglys-cgb.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 60
+  },
+  {
+    romPath: "mbc3-tester/mbc3-tester.gb",
+    refPng: "mbc3-tester/mbc3-tester-cgb.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 60
   },
   ...discoverMealybugTests()
 ];
@@ -320,6 +338,13 @@ function runSerialTest(romPath: string, name: string): Outcome {
     if (serialBytes.length >= 6 && serialBytes.slice(-6).every((b) => b === 0x42)) {
       return { name, status: "fail", detail: "mooneye: 0x42 ×6", frames: f + 1 };
     }
+    // Same-suite-style: CPU registers carry the Fibonacci pass marker
+    // after the test halts on `LD B, B`; check after each frame so we
+    // don't run any longer than necessary.
+    const r = gb.cpu.regs;
+    if (r.b === 3 && r.c === 5 && r.d === 8 && r.e === 13 && r.h === 21 && r.l === 34) {
+      return { name, status: "pass", detail: "register Fibonacci", frames: f + 1 };
+    }
   }
   return { name, status: "timeout", detail: serial, frames: MAX_FRAMES_SERIAL };
 }
@@ -329,9 +354,17 @@ function runOne(romPath: string): Outcome {
   if (MEALYBUG_NO_CGB_REF.has(name)) {
     return { name, status: "skip", detail: "no CGB reference PNG bundled", frames: 0 };
   }
-  if (name.startsWith("gbmicrotest/") || name.startsWith("gbmicrotest\\")) return runGbMicrotest(romPath, name);
-  const cfg = SCREEN_BY_ROM.get(name);
-  return cfg ? runFramebufferTest(romPath, cfg, name) : runSerialTest(romPath, name);
+  try {
+    if (name.startsWith("gbmicrotest/") || name.startsWith("gbmicrotest\\")) return runGbMicrotest(romPath, name);
+    const cfg = SCREEN_BY_ROM.get(name);
+    return cfg ? runFramebufferTest(romPath, cfg, name) : runSerialTest(romPath, name);
+  } catch (err) {
+    // Some test ROMs deliberately exercise illegal opcodes / out-of-range
+    // bus accesses to verify that our CPU throws or short-circuits the
+    // way real hardware does. We surface those as "fail" rather than
+    // letting them crash the whole sweep.
+    return { name, status: "fail", detail: `threw: ${(err as Error).message}`, frames: 0 };
+  }
 }
 
 function main(): void {
