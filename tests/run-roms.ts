@@ -31,8 +31,7 @@ import { fileURLToPath } from "node:url";
 import AdmZip from "adm-zip";
 import { PNG } from "pngjs";
 
-import { GameBoy } from "../src/gb/gameboy.js";
-import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../src/gb/ppu/ppu.js";
+import { GameBoy, SCREEN_HEIGHT, SCREEN_WIDTH } from "../src/gb";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -407,7 +406,7 @@ function loadReferencePng(absPath: string): Uint8Array {
   return new Uint8Array(png.data);
 }
 
-function diffPixels(a: Uint8Array, b: Uint8Array): number {
+function diffPixels(a: Uint8Array | Uint8ClampedArray, b: Uint8Array | Uint8ClampedArray): number {
   let diff = 0;
   for (let i = 0; i < a.length; i += 4) {
     if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) diff++;
