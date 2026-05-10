@@ -398,8 +398,7 @@ export class PPU {
         // (Addams Family, Road Rash): their in-game STAT handler is
         // what restores the BG / OBJ palettes after the title screen.
         if (!this.cgbGame) {
-          const modeEligible =
-            (this.mode === Mode.HBlank || this.mode === Mode.VBlank) && (this.lcdc & 0x80) !== 0;
+          const modeEligible = (this.mode === Mode.HBlank || this.mode === Mode.VBlank) && (this.lcdc & 0x80) !== 0;
           const lycEligible = this.ly === this.lyc;
           if (modeEligible || lycEligible) {
             const saved = this.stat;
