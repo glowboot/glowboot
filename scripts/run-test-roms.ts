@@ -49,6 +49,11 @@ const FAIL_PREVIEW_LIMIT = 200;
 const ACID2_CGB_BG = [0xffffffff, 0xff31ff7b, 0xffc66300, 0xff000000];
 const ACID2_CGB_OBP = [0xffffffff, 0xff8484ff, 0xff393994, 0xff000000];
 
+// Bully / Mealybug etc. — straight DMG grayscale per their howtos:
+//   "#000000, #555555, #AAAAAA and #FFFFFF are used for the four DMG LCD shades"
+const DMG_GRAY_BG = [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000];
+const DMG_GRAY_OBP = [0xffffffff, 0xffaaaaaa, 0xff555555, 0xff000000];
+
 // ─── Screen-only test configs ────────────────────────────────────────────────
 interface ScreenTest {
   romPath: string; // path under test-roms/
@@ -111,6 +116,61 @@ const SCREEN_TESTS: ScreenTest[] = [
     romPath: "cgb-acid-hell/cgb-acid-hell.gbc",
     refPng: "cgb-acid-hell/cgb-acid-hell.png",
     frames: 60
+  },
+  {
+    romPath: "bully/bully.gb",
+    refPng: "bully/bully.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 60
+  },
+  // Hacktix small framebuffer-comparison tests
+  {
+    romPath: "scribbltests/lycscx/lycscx.gb",
+    refPng: "scribbltests/lycscx/lycscx-cgb-dmg.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 30
+  },
+  {
+    romPath: "scribbltests/lycscy/lycscy.gb",
+    refPng: "scribbltests/lycscy/lycscy-cgb-dmg.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 30
+  },
+  {
+    romPath: "scribbltests/palettely/palettely.gb",
+    refPng: "scribbltests/palettely/palettely-cgb.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 30
+  },
+  {
+    romPath: "scribbltests/scxly/scxly.gb",
+    refPng: "scribbltests/scxly/scxly-cgb.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 30
+  },
+  {
+    romPath: "scribbltests/statcount/statcount-auto.gb",
+    refPng: "scribbltests/statcount/statcount_auto-cgb-dmg.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 300
+  },
+  {
+    romPath: "strikethrough/strikethrough.gb",
+    refPng: "strikethrough/strikethrough-cgb.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 30
+  },
+  {
+    romPath: "turtle-tests/window_y_trigger/window_y_trigger.gb",
+    refPng: "turtle-tests/window_y_trigger/window_y_trigger.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 30
+  },
+  {
+    romPath: "turtle-tests/window_y_trigger_wx_offscreen/window_y_trigger_wx_offscreen.gb",
+    refPng: "turtle-tests/window_y_trigger_wx_offscreen/window_y_trigger_wx_offscreen.png",
+    palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
+    frames: 30
   },
   ...discoverMealybugTests()
 ];
@@ -216,6 +276,32 @@ function runFramebufferTest(romPath: string, cfg: ScreenTest, name: string): Out
   };
 }
 
+/**
+ * GBMicrotest result convention (from the suite's howto):
+ *   0xFF80 — actual result, 0xFF81 — expected result, 0xFF82 — pass flag
+ *   (`0x01` = pass, `0xFF` = fail). Most tests stabilise within 2 frames;
+ *   a few need ~380 ms (~23 frames). Run 30 to be safe.
+ */
+function runGbMicrotest(romPath: string, name: string): Outcome {
+  const bytes = new Uint8Array(readFileSync(romPath));
+  const gb = new GameBoy(bytes);
+  const frames = 30;
+  for (let f = 0; f < frames; f++) gb.runFrame();
+  const flag = gb.mmu.readByte(0xff82);
+  if (flag === 0x01) return { name, status: "pass", detail: "ff82=01", frames };
+  if (flag === 0xff) {
+    const actual = gb.mmu.readByte(0xff80);
+    const expected = gb.mmu.readByte(0xff81);
+    return {
+      name,
+      status: "fail",
+      detail: `actual=0x${actual.toString(16).padStart(2, "0")} expected=0x${expected.toString(16).padStart(2, "0")}`,
+      frames
+    };
+  }
+  return { name, status: "fail", detail: `ff82=0x${flag.toString(16).padStart(2, "0")} (unset/incomplete)`, frames };
+}
+
 function runSerialTest(romPath: string, name: string): Outcome {
   const bytes = new Uint8Array(readFileSync(romPath));
   const gb = new GameBoy(bytes);
@@ -243,6 +329,7 @@ function runOne(romPath: string): Outcome {
   if (MEALYBUG_NO_CGB_REF.has(name)) {
     return { name, status: "skip", detail: "no CGB reference PNG bundled", frames: 0 };
   }
+  if (name.startsWith("gbmicrotest/") || name.startsWith("gbmicrotest\\")) return runGbMicrotest(romPath, name);
   const cfg = SCREEN_BY_ROM.get(name);
   return cfg ? runFramebufferTest(romPath, cfg, name) : runSerialTest(romPath, name);
 }
