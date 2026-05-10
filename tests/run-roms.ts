@@ -399,6 +399,42 @@ function indexGambatteSkips(): void {
   walk(root);
 }
 
+// Mooneye `boot_*` tests target a specific console revision via the
+// filename suffix (e.g. `boot_div-S.gb` = SGB, `boot_regs-mgb.gb` = MGB,
+// `boot_div-dmgABCmgb.gb` = DMG-A/B/C plus MGB). Glowboot is CGB-only —
+// post-boot register state and HWIO depend on the specific model, so
+// these can't pass even with `dmg_boot.bin` present. Skip them with a
+// clear reason rather than letting them fail. Tests with `-cgb*` (or
+// `.gbc` extension) keep going through the existing `bootRomForTest`
+// path, which handles them correctly.
+function indexBootRomSkips(): void {
+  const walk = (dir: string): void => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.endsWith(".gb") && !entry.endsWith(".gbc")) continue;
+      if (!/^boot_/.test(entry)) continue;
+      const stem = entry.replace(/\.(gb|gbc)$/, "");
+      // Explicit non-CGB hardware suffixes (per Mooneye naming convention):
+      //   -sgb, -sgb2, -S    SGB / SGB2
+      //   -mgb               Game Boy Pocket
+      //   -dmg, -dmg0,       DMG variants (incl. DMG-A/B/C)
+      //   -dmgABC*           DMG-A/B/C combined with MGB
+      //   -G                 DMG+MGB group
+      //   -A, -agb, -ags     Game Boy Advance / SP (we don't emulate AGB)
+      const isNonCgb = /-(sgb2?|S|G|A|agb|ags)$/.test(stem) || /-mgb$/i.test(stem) || /-dmg[A-Za-z0-9]*$/i.test(stem);
+      if (!isNonCgb) continue;
+      SKIP_ROMS.set(join(relative(TEST_ROMS_DIR, dir), entry), "model-specific boot test (Glowboot is CGB-only)");
+    }
+  };
+  walk(resolve(TEST_ROMS_DIR, "mooneye-test-suite"));
+  walk(resolve(TEST_ROMS_DIR, "mooneye-test-suite-wilbertpol"));
+}
+
 // AGE test naming convention (see age-test-roms/README.md):
 //   `<test>-cgbBCE.gb`     — runs on CGB B/C/E
 //   `<test>-cgbE.gb`       — runs on CGB E only
@@ -708,6 +744,7 @@ async function main(): Promise<void> {
   indexMealybugSkips();
   indexGambatteSkips();
   indexAgeSkips();
+  indexBootRomSkips();
   loadBootRoms();
 
   const filter = process.argv[2];
