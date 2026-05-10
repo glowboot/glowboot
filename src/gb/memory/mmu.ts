@@ -47,13 +47,16 @@ export class MMU {
   private hdmaDstCur = 0;
   private hdmaBlocks = 0; // remaining 16-byte blocks
 
-  /** OAM DMA state. Takes 160 M-cycles total on real hardware; while active
-   *  the CPU can only read HRAM (and IE) — everything else returns 0xFF.
-   *  Because the CPU now ticks the MMU per-bus-access, DMA copying starts
-   *  naturally on the M-cycle *after* the write to $FF46: that write's
-   *  own tickDma runs before `dmaActive` is set, and the next bus cycle
-   *  (from the following instruction) is the first copy. */
+  /** OAM DMA state. 160 bytes copied at one byte per M-cycle, plus a
+   *  setup delay before the first copy. Mooneye `ret_timing` is the
+   *  cycle-precise reference: it parks SP so RET pops the high byte from
+   *  OAM[0] exactly on the cycle DMA writes byte 159, and expects to read
+   *  the locked-DMA value (0xFF). For our `tickDma` runs *before* the
+   *  bus access in the same M-cycle, we need a 2-cycle setup window so
+   *  byte 159 is still copying — not just-finished — when the read
+   *  resolves. */
   private dmaActive = false;
+  private dmaStartDelay = 0;
   private dmaSrcBase = 0;
   private dmaIndex = 0;
 
@@ -186,11 +189,13 @@ export class MMU {
   readByte(addr: number): number {
     addr &= 0xffff;
     checkRead(addr);
-    // While OAM DMA is copying, the CPU's external bus is blocked — it can
-    // only see HRAM ($FF80–$FFFE) and the IE register ($FFFF). Any other
-    // read returns 0xFF. Games park the DMA-trigger routine in HRAM for
-    // exactly this reason.
-    if (this.dmaActive && addr < 0xff80) return 0xff;
+    // While OAM DMA is copying, *only OAM* is locked (it's being written
+    // by the DMA). ROM / VRAM / WRAM / IO remain CPU-readable — the bus
+    // is busy but instruction fetches still work. Mooneye's `ret_timing`
+    // and similar tests rely on the CPU being able to execute the DMA
+    // wait loop from ROM rather than HRAM. Games that *do* park their
+    // wait loop in HRAM still work fine; this is just less restrictive.
+    if (this.dmaActive && addr >= 0xfe00 && addr < 0xfea0) return 0xff;
     const paged = this.readMemoryPage(addr);
     if (paged !== undefined) {
       // Game Genie ROM patches only apply to the 0x0000-0x7FFF range; for
@@ -329,6 +334,7 @@ export class MMU {
     w.bool(this.dmaActive);
     w.u16(this.dmaSrcBase);
     w.u8(this.dmaIndex);
+    w.u8(this.dmaStartDelay);
   }
   deserialize(r: StateReader): void {
     r.bytes(this.wram);
@@ -346,6 +352,7 @@ export class MMU {
     this.dmaActive = r.bool();
     this.dmaSrcBase = r.u16();
     this.dmaIndex = r.u8();
+    this.dmaStartDelay = r.u8();
   }
 
   // ─── I/O registers ────────────────────────────────────────────────────────
@@ -608,13 +615,18 @@ export class MMU {
     this.dmaSrcBase = (value & 0xff) * 0x100;
     this.dmaIndex = 0;
     this.dmaActive = true;
+    this.dmaStartDelay = 2;
   }
 
-  /** Advance the OAM DMA by `mCycles` M-cycles. Called once per world-clock
-   *  M-cycle (i.e. once per CPU bus access / internal cycle). */
+  /** Advance the OAM DMA by `mCycles` M-cycles. Called once per CPU bus
+   *  access / internal cycle from the CPU itself. */
   tickDma(mCycles: number): void {
     if (!this.dmaActive) return;
     for (let i = 0; i < mCycles && this.dmaActive; i++) {
+      if (this.dmaStartDelay > 0) {
+        this.dmaStartDelay--;
+        continue;
+      }
       const byte = this.readDmaSource(this.dmaSrcBase + this.dmaIndex);
       this.ppu.writeOam(this.dmaIndex, byte);
       this.dmaIndex++;

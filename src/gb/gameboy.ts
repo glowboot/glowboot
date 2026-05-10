@@ -118,10 +118,10 @@ export class GameBoy {
       // bail out of the frame loop so the scheduler can drain the hit
       // and auto-pause.
       if (stepped === 0) break;
-      // Timer is driven from inside CPU.step (per-bus-access ticking), so
-      // reads of TIMA observe the cycle-accurate value required by
-      // mem_timing / instr_timing. DMA still ticks at the M-cycle level.
-      this.mmu.tickDma(stepped); // OAM DMA progresses one byte per CPU M-cycle
+      // Timer + OAM DMA are driven from inside CPU.step (per-bus-access
+      // ticking), so reads of TIMA observe the cycle-accurate value
+      // required by mem_timing / instr_timing, and DMA's startup delay
+      // (one M-cycle after the write to $FF46) falls out naturally.
       // RTC oscillator runs at a fixed 32768 Hz independent of CGB
       // double-speed mode, so convert CPU M-cycles → T-cycles of real
       // emulated time: single-speed = 4 T/M, double-speed = 2 T/M.
@@ -195,7 +195,6 @@ export class GameBoy {
     while (totalCycles < cap) {
       const stepped = this.cpu.step();
       if (stepped === 0) break;
-      this.mmu.tickDma(stepped);
       const tCycles = this.cpu.doubleSpeed ? stepped * 2 : stepped * 4;
       this.cart.tickRtc(tCycles);
       this.mmu.tickSerial(tCycles);

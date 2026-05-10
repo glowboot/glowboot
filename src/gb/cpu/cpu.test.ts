@@ -18,7 +18,8 @@ function makeStubMmu(): { mem: Uint8Array; mmu: MMU } {
     readByte: (addr: number) => mem[addr & 0xffff]!,
     writeByte: (addr: number, value: number) => {
       mem[addr & 0xffff] = value & 0xff;
-    }
+    },
+    tickDma: () => {}
   } as unknown as MMU;
   return { mem, mmu };
 }

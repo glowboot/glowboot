@@ -84,6 +84,7 @@ export class CPU {
    *  the exact 1.5 + 0.5; double-speed isn't what the sound tests
    *  exercise). */
   private busRead(addr: number): number {
+    this.mmu.tickDma(1);
     this.timer.tick(1);
     const apu = this.apu;
     if (apu) apu.tickTCycles(this.doubleSpeed ? 1 : 3);
@@ -94,6 +95,7 @@ export class CPU {
   }
 
   private busWrite(addr: number, value: number): void {
+    this.mmu.tickDma(1);
     this.timer.tick(1);
     const apu = this.apu;
     if (apu) apu.tickTCycles(this.doubleSpeed ? 1 : 3);
@@ -103,6 +105,7 @@ export class CPU {
   }
 
   private internalCycle(): void {
+    this.mmu.tickDma(1);
     this.timer.tick(1);
     if (this.apu) this.apu.tickTCycles(this.doubleSpeed ? 2 : 4);
     this.ticksThisInstr++;
@@ -111,6 +114,7 @@ export class CPU {
   private finishTicks(total: number): void {
     const remainder = total - this.ticksThisInstr;
     if (remainder > 0) {
+      this.mmu.tickDma(remainder);
       this.timer.tick(remainder);
       if (this.apu) this.apu.tickTCycles(remainder * (this.doubleSpeed ? 2 : 4));
     }
