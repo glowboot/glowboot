@@ -17,6 +17,7 @@ desktop and phones.
 - [Known issues (deferred)](#known-issues-deferred)
 - [Privacy](#privacy)
 - [Disclaimer](#disclaimer)
+- [Credits](#credits)
 - [License](#license)
 
 ## What you can do
@@ -887,6 +888,42 @@ freely-licensed homebrew, and with patches whose authors permit
 redistribution. Game saves, screenshots, recordings, and printer
 output you produce while playing belong to you. The Glowboot authors
 take no responsibility for content users load into the emulator.
+
+## Credits
+
+Glowboot ships three third-party algorithm ports in
+`src/ui/renderer/shaders.ts`. Each retains its upstream copyright and
+MIT license notice in the file itself; the summary here is for quick
+reference.
+
+- **xBR-lv2** — Sergio "Hyllian" Galiano (2011–2016, MIT). Single-pass
+  weighted-edge upscaler. Used by the **Super-xBR** render mode (Pass 1
+  is xBR-lv2; Pass 2 is an original anti-ringing min/max clamp).
+- **MMPX (Style-Preserving Pixel-Art Magnification)** — Morgan McGuire
+  & Mara Gagiu (2020, MIT) —
+  [casual-effects.com paper](https://casual-effects.com/research/McGuire2021PixelArt/).
+  2× pattern-match scaler. Used by the **MMPX** render mode (default).
+- **HQ2x (GLSL implementation)** — Lior Halphon (MIT). The HQ-family
+  algorithm itself is by Maxim Stepin (2003); Halphon's GLSL port is
+  what we ported into Glowboot's WebGL renderer (with the bitwise
+  pattern matches expanded to boolean expressions because GLSL ES 1.0
+  has no integer bitwise ops). Used by the **HQ2x** render mode.
+
+Glowboot's test-ROM harness (`npm run test:roms`, developer-only — the
+ROMs are auto-fetched into `tests/roms/` on first run, never bundled)
+runs against
+[c-sp's game-boy-test-roms](https://github.com/c-sp/game-boy-test-roms)
+collection. That archive aggregates work by Joonas "Gekkio" Javanainen
+(Mooneye Test Suite), Shay "Blargg" Green, Matt Currie (dmg-acid2,
+cgb-acid2, cgb-acid-hell, Mealybug Tearoom Tests), Christoph Sprenger
+(AGE test ROMs), the Hacktix collective (Bully, Strikethrough,
+little-things-gb), Toxa (GBMicrotest), Wilbert Pol, and others.
+
+The hardware accuracy work owes a debt to the open documentation
+maintained at [Pan Docs](https://gbdev.io/pandocs/) and the
+[gbdev wiki](https://gbdev.gg8.se/wiki/), and to Joonas Javanainen's
+extensive [hardware-research notes](https://gbdev.io/) on Game Boy
+timing edge cases.
 
 ## License
 
