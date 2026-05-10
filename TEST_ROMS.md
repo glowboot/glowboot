@@ -31,7 +31,7 @@ Results from running the [c-sp Game Boy test-rom collection](https://github.com/
 | GBMicrotest                     |  293 |  220 |           0 | 2026-05-10 — pixel-FIFO PPU rewrite (+15 sprite4\_\*/stat_write/lcdon_to_stat0) |
 | Scribbltests                    |    4 |    1 |           3 | 2026-05-10 — statcount-auto down to 1473 px (was 1565)                          |
 | Strikethrough                   |    0 |    1 |           0 | 2026-05-10 — 13 px diff (regressed from 7 with the FIFO; mid-line OAM re-read)  |
-| Turtle Tests                    |    0 |    2 |           0 | 2026-05-10 — window_y_trigger_wx_offscreen 862 px (FIFO window timing tradeoff) |
+| Turtle Tests                    |    1 |    1 |           0 | 2026-05-10 — window_y_trigger_wx_offscreen recovered via pop-time window check  |
 | Mooneye-gb (wilbertpol fork)    |    0 |  114 |           7 | 2026-05-10 — most fail via 0xED illegal-opcode (test's own fail-fast)           |
 | Little-things-gb                |    0 |    2 |           0 | 2026-05-10 — firstwhite 2488 px, tellinglys 5549 px                             |
 | MBC3 Tester                     |    0 |    1 |           0 | 2026-05-10 — 5105 px diff                                                       |
@@ -103,17 +103,17 @@ Per-quirk hardware catalogue. The pixel-FIFO PPU rewrite (Phase 3-6, 2026-05-10)
 
 ### Scribbltests / Strikethrough / Turtle Tests
 
-| Test                                          | Status | Detail                                                                             |
-| --------------------------------------------- | ------ | ---------------------------------------------------------------------------------- |
-| `scribbltests/lycscx`                         | ✅     | 0 px                                                                               |
-| `scribbltests/lycscy`                         | ✅     | 0 px                                                                               |
-| `scribbltests/palettely`                      | ✅     | 0 px (CGB-compat palette)                                                          |
-| `scribbltests/scxly`                          | ✅     | 0 px (DMG-green palette)                                                           |
-| `scribbltests/statcount-auto`                 | ❌     | 1 473 px diff (was 1 565 pre-FIFO)                                                 |
-| `scribbltests/{fairylake, statcount, winpos}` | ⏳     | no reference PNG bundled                                                           |
-| `strikethrough`                               | ❌     | 13 px diff (regressed from 7 with the FIFO; mid-scanline OAM re-read still needed) |
-| `turtle-tests/window_y_trigger`               | ❌     | 1 710 px diff                                                                      |
-| `turtle-tests/window_y_trigger_wx_offscreen`  | ❌     | 862 px (regressed from pass — FIFO window-activation timing tradeoff)              |
+| Test                                          | Status | Detail                                                                            |
+| --------------------------------------------- | ------ | --------------------------------------------------------------------------------- |
+| `scribbltests/lycscx`                         | ✅     | 0 px                                                                              |
+| `scribbltests/lycscy`                         | ✅     | 0 px                                                                              |
+| `scribbltests/palettely`                      | ✅     | 0 px (CGB-compat palette)                                                         |
+| `scribbltests/scxly`                          | ✅     | 0 px (DMG-green palette)                                                          |
+| `scribbltests/statcount-auto`                 | ❌     | 1 473 px diff (was 1 565 pre-FIFO)                                                |
+| `scribbltests/{fairylake, statcount, winpos}` | ⏳     | no reference PNG bundled                                                          |
+| `strikethrough`                               | ❌     | 13 px diff (regressed from 7 with the FIFO; per-T-cycle CPU↔PPU sync would fix)   |
+| `turtle-tests/window_y_trigger`               | ❌     | 1 710 px diff                                                                     |
+| `turtle-tests/window_y_trigger_wx_offscreen`  | ✅     | 0 px (pop-time pre-pop window check; first window pixel lands at screen X = WX−7) |
 
 ### Same-suite — 14 / 78 (DIV-edge FS + wave +6-T trigger)
 
@@ -142,8 +142,8 @@ Same-suite mostly probes precise APU + DMA + interrupt timing. The session's APU
 - [x] ~~Mooneye timer `*_div_trigger` (5 tests) — DIV→TIMA trigger edge case~~ — fixed 2026-05-10 by modeling the timer's input as `(TAC enable) AND (div_bit)` and bumping TIMA on its falling edge (covers DIV reset, TAC enable→disable, TAC mode change). Also fixed `tima_reload`/`tima_write_reloading`/`tma_write_reloading` via the 1-M-cycle reload window.
 - [x] ~~Mooneye `push_timing` / `rst_timing` / `call_*_timing2` — remaining cycle-accounting gaps~~ — fixed 2026-05-10 by reversing `stackPush` byte order (high before low) and dropping CPU writes to OAM while DMA is active
 - [ ] ~~Mooneye `rapid_toggle` — off-by-1 on IRQ servicing under rapid TAC toggling (BC=$FFD8 vs expected $FFD9)~~ — investigated 2026-05-10: traced 16 falling-edge bumps at iters 8-14 / 23-29 / 38-39, each one iteration later than real HW's 7-13 / 22-28 / 37-38. The shift is a ~2 M-cycle DIV alignment difference that pushes every bit-9 boundary across one iteration. Fixing requires sub-M-cycle bus-write timing in the CPU; deferred.
-- [ ] **Strikethrough — regressed 7 → 13 px with the pixel-FIFO** (window/sprite mid-scanline interaction). New work: figure out which scanlines diverge and whether it's BG-vs-window timing, sprite-priority during window, or a missing OAM re-read.
-- [ ] **Turtle Tests `window_y_trigger_wx_offscreen` — regressed pass → 862 px with the pixel-FIFO**. Almost certainly the WX > 166 / off-screen-window edge case; my Phase 5 gate (`wx <= 166`) likely activates window where it shouldn't, or vice versa. Should be a tight investigation.
+- [x] ~~**Turtle Tests `window_y_trigger_wx_offscreen` — regressed pass → 862 px with the pixel-FIFO**~~ — fixed 2026-05-10 by moving the window-activation check to pop-time (gated on FIFO has data + SCX discards finished) so the first window pixel lands at screen X = WX − 7 rather than WX − 6. Matches pre-FIFO `bgEndX = wx − 7` semantics; gbmicrotest win[0-15]\_a all still pass because mode-3 length stays 178 dots for wx=7.
+- [ ] **Strikethrough — regressed 7 → 13 px with the pixel-FIFO** (the 6 extra px land at sprite-X boundaries past the 10-sprite limit, where the FIFO catches mid-mode-3 BG/OAM updates that the atomic renderer didn't). The reference matches the atomic behavior, so closing this needs per-T-cycle CPU↔PPU sync — same blocker as Mealybug.
 - [x] ~~Scribbltests `scxly` 100 % diff — investigate (palette? rendering path off?)~~ — fixed 2026-05-10: reference uses DMG green LCD shades (#98C00F / #0F380F), not gray. `palettely` had a similar mismatch (uses CGB-compat shades, not gray); both now pass with the right palette config in the test runner.
 - [ ] **GBMicrotest `hblank_int_scx*` cluster — ~24 related fails on the same axis**. Pixel-FIFO didn't unlock these because they need T-cycle-precise mode-0 IRQ timing relative to `(SCX & 7)`. Same root cause as Mealybug — needs per-T-cycle CPU↔PPU sync.
 - [ ] **Same-suite `div_*_10` (3 tests) — double-speed FS variants**. STOP-resets-DIV landed but didn't unlock these; they likely need the 0x20000 T-cycle CPU pause that real CGB performs during a speed switch.
