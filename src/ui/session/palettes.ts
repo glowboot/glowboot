@@ -43,6 +43,13 @@ export const PALETTES: readonly DmgPalette[] = [
     obp1: mono(0xffffff, 0x83ff83, 0x29a929, 0x000000)
   },
   {
+    id: "pink",
+    name: "Bubblegum",
+    bg: mono(0xffe9f2, 0xff9ec7, 0xb04878, 0x440a28),
+    obp0: mono(0xffffff, 0xffc6d3, 0xd05a88, 0x3c0820),
+    obp1: mono(0xffffff, 0xffe6b8, 0xd89a3c, 0x402410)
+  },
+  {
     id: "green",
     name: "Classic Green",
     bg: mono(0xd0f8e0, 0x70c088, 0x566834, 0x201808),
@@ -50,11 +57,11 @@ export const PALETTES: readonly DmgPalette[] = [
     obp1: mono(0xd0f8e0, 0x70c088, 0x566834, 0x201808)
   },
   {
-    id: "pocket",
-    name: "Pocket",
-    bg: mono(0xffffff, 0xaaaaaa, 0x555555, 0x000000),
-    obp0: mono(0xffffff, 0xaaaaaa, 0x555555, 0x000000),
-    obp1: mono(0xffffff, 0xaaaaaa, 0x555555, 0x000000)
+    id: "blue",
+    name: "Cool Blue",
+    bg: mono(0xdfecff, 0x5294e0, 0x15407a, 0x06122e),
+    obp0: mono(0xeef4ff, 0x74acea, 0x2657a4, 0x0a1840),
+    obp1: mono(0xdfecff, 0x5294e0, 0x15407a, 0x06122e)
   },
   {
     id: "light",
@@ -64,25 +71,18 @@ export const PALETTES: readonly DmgPalette[] = [
     obp1: mono(0xfff6a6, 0xe3bc5b, 0x8c6b22, 0x3a2a0a)
   },
   {
+    id: "pocket",
+    name: "Pocket",
+    bg: mono(0xffffff, 0xaaaaaa, 0x555555, 0x000000),
+    obp0: mono(0xffffff, 0xaaaaaa, 0x555555, 0x000000),
+    obp1: mono(0xffffff, 0xaaaaaa, 0x555555, 0x000000)
+  },
+  {
     id: "sgb",
     name: "SGB Default",
     bg: mono(0xf8e8c8, 0xd89048, 0xa82820, 0x301850),
     obp0: mono(0xf8d8b0, 0xffa060, 0xc03838, 0x402808),
     obp1: mono(0xf8d8b0, 0xffa060, 0xc03838, 0x402808)
-  },
-  {
-    id: "pink",
-    name: "Bubblegum",
-    bg: mono(0xffe9f2, 0xff9ec7, 0xb04878, 0x440a28),
-    obp0: mono(0xffffff, 0xffc6d3, 0xd05a88, 0x3c0820),
-    obp1: mono(0xffffff, 0xffe6b8, 0xd89a3c, 0x402410)
-  },
-  {
-    id: "mono",
-    name: "Ink",
-    bg: mono(0xf4ece4, 0xb8a494, 0x6c5c50, 0x1a130d),
-    obp0: mono(0xf4ece4, 0xb8a494, 0x6c5c50, 0x1a130d),
-    obp1: mono(0xf4ece4, 0xb8a494, 0x6c5c50, 0x1a130d)
   }
 ];
 
