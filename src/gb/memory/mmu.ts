@@ -294,6 +294,11 @@ export class MMU {
           return;
         }
         if (addr < 0xfea0) {
+          // OAM is locked during OAM DMA — CPU writes to it are dropped.
+          // Mooneye `push_timing`'s round 2 verifies this: a PUSH that
+          // straddles the DMA-finish boundary should leave the high-byte
+          // slot holding the DMA-sourced byte, not the pushed register.
+          if (this.dmaActive) return;
           this.ppu.writeOam(addr - 0xfe00, value);
           return;
         }

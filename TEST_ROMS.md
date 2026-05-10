@@ -21,7 +21,7 @@ Results from running the [c-sp Game Boy test-rom collection](https://github.com/
 | Blargg cgb_sound (subtests)     |    0 |    0 |          12 | individual subtests have no PNG; serial output not used                      |
 | Blargg mem_timing v2 (subtests) |    0 |    0 |           3 | individual subtests have no PNG                                              |
 | Blargg oam_bug (subtests)       |    0 |    0 |           8 | DMG-only; subtests have no PNG                                               |
-| Mooneye acceptance              |   43 |   32 |           0 | 2026-05-10 — RET/CALL/JP timing + DIV-trigger + TIMA reload window all fixed |
+| Mooneye acceptance              |   47 |   28 |           0 | 2026-05-10 — RET/CALL/JP/PUSH/RST + DIV-trigger + TIMA reload all fixed      |
 | Mooneye misc (CGB-specific)     |    0 |    8 |           0 | 2026-05-10 — 6 of 8 are boot\_\* (expected)                                  |
 | Mealybug PPU (auto-discovered)  |    0 |   30 |           5 | 2026-05-10 — known mid-mode-3 raster gap                                     |
 | acid2 (DMG + CGB + CGB-hell)    |    2 |    1 |           0 | 2026-05-10 — cgb-acid-hell 2 px diff (single-sprite sub-pixel quirk)         |
@@ -56,14 +56,15 @@ Single ROM passes.
 
 Categorised:
 
-| Group                                                                                                                                               | Pass | Fail | Notes                                                                                                                 |
-| --------------------------------------------------------------------------------------------------------------------------------------------------- | ---: | ---: | --------------------------------------------------------------------------------------------------------------------- |
-| `boot_*` (boot register / DIV / hwio post-boot snapshots)                                                                                           |    0 |    8 | **expected** — Glowboot deliberately does not run a Nintendo boot ROM, so post-boot register state diverges by design |
-| `ret_*` / `reti_timing` / `call_timing` / `jp_timing` / `pop_timing` / `ld_hl_sp_e_timing` / `oam_dma_timing` / `oam_dma_restart` / `oam_dma/basic` |    9 |    0 | **fixed** by moving OAM DMA tick to per-bus-access (was per-step), 2-cycle DMA setup delay                            |
-| Remaining timing edge cases (`call_*_timing2`, `push_timing`, `rst_timing`, `oam_dma/reg_read`, `oam_dma/sources-GS`, `oam_dma_start`)              |    0 |    6 | sub-instruction / DMA-source quirks; not surfaced in any real game so far                                             |
-| PPU (`stat_irq_blocking` ✅, `intr_1_2_timing-GS` ✅, `intr_2_0_timing` ✅)                                                                         |    3 |    9 | mode-3 + LCD-on edge cases; mid-scanline timing                                                                       |
-| Timer (`tim*_div_trigger`, `tima_reload`, `tima_write_reloading`, `tma_write_reloading`)                                                            |   12 |    1 | **fixed** by falling-edge model on (TAC ∧ div_bit) + 1-M-cycle TIMA reload window (`tima = 0` then snap to TMA + IRQ) |
-| `bits`, `instr`, `interrupts`, `serial`, misc                                                                                                       |    4 |    3 | mixed                                                                                                                 |
+| Group                                                                                                                                               | Pass | Fail | Notes                                                                                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ---: | ---: | ---------------------------------------------------------------------------------------------------------------------- |
+| `boot_*` (boot register / DIV / hwio post-boot snapshots)                                                                                           |    0 |    8 | **expected** — Glowboot deliberately does not run a Nintendo boot ROM, so post-boot register state diverges by design  |
+| `ret_*` / `reti_timing` / `call_timing` / `jp_timing` / `pop_timing` / `ld_hl_sp_e_timing` / `oam_dma_timing` / `oam_dma_restart` / `oam_dma/basic` |    9 |    0 | **fixed** by moving OAM DMA tick to per-bus-access (was per-step), 2-cycle DMA setup delay                             |
+| `push_timing`, `rst_timing`, `call_*_timing2`                                                                                                       |    4 |    0 | **fixed** by writing the high byte before the low byte in `stackPush` + dropping CPU writes to OAM while DMA is active |
+| Remaining timing edge cases (`oam_dma/reg_read`, `oam_dma/sources-GS`, `oam_dma_start`)                                                             |    0 |    3 | DMA-source quirks; not surfaced in any real game so far                                                                |
+| PPU (`stat_irq_blocking` ✅, `intr_1_2_timing-GS` ✅, `intr_2_0_timing` ✅)                                                                         |    3 |    9 | mode-3 + LCD-on edge cases; mid-scanline timing                                                                        |
+| Timer (`tim*_div_trigger`, `tima_reload`, `tima_write_reloading`, `tma_write_reloading`)                                                            |   12 |    1 | **fixed** by falling-edge model on (TAC ∧ div_bit) + 1-M-cycle TIMA reload window (`tima = 0` then snap to TMA + IRQ)  |
+| `bits`, `instr`, `interrupts`, `serial`, misc                                                                                                       |    4 |    3 | mixed                                                                                                                  |
 
 ### Mealybug PPU — 0 / 30 (5 skipped)
 
@@ -116,7 +117,7 @@ Per-quirk hardware catalogue. Failures cluster:
 - [x] ~~Mooneye `ret_*` timeouts — three tests hang; likely a real RET timing bug~~ — fixed by per-bus-access DMA ticking + 2-cycle setup delay
 - [x] ~~cgb-acid-hell 2-pixel diff — find which pixels and why~~ — investigated 2026-05-10: 2 px at `(80,68)`/`(80,69)` are swapped within a single 8×8 sprite's middle column. Author hides the quirk catalogue; with our atomic-scanline PPU we can't probe further. Deferred to Pixel-FIFO.
 - [x] ~~Mooneye timer `*_div_trigger` (5 tests) — DIV→TIMA trigger edge case~~ — fixed 2026-05-10 by modeling the timer's input as `(TAC enable) AND (div_bit)` and bumping TIMA on its falling edge (covers DIV reset, TAC enable→disable, TAC mode change). Also fixed `tima_reload`/`tima_write_reloading`/`tma_write_reloading` via the 1-M-cycle reload window.
-- [ ] Mooneye `push_timing` / `rst_timing` / `call_*_timing2` — remaining cycle-accounting gaps
+- [x] ~~Mooneye `push_timing` / `rst_timing` / `call_*_timing2` — remaining cycle-accounting gaps~~ — fixed 2026-05-10 by reversing `stackPush` byte order (high before low) and dropping CPU writes to OAM while DMA is active
 - [ ] Mooneye `rapid_toggle` — off-by-1 on IRQ servicing under rapid TAC toggling (BC=$FFD8 vs expected $FFD9); subtle interaction between the falling-edge model and CPU IRQ-sampling alignment
 - [x] ~~Strikethrough 22 px — close to passing; small fix likely~~ — partially fixed 2026-05-10 (22 → 7 px from per-bus DMA tick). Remaining 7 px need mid-scanline OAM re-read; deferred to Pixel-FIFO.
 - [ ] Scribbltests `scxly` 100 % diff — investigate (palette? rendering path off?)

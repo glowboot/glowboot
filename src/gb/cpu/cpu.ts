@@ -238,9 +238,13 @@ export class CPU {
   // ─── Stack ────────────────────────────────────────────────────────────────
 
   private stackPush(value: number): void {
+    // Real hardware pushes the HIGH byte first, then the low byte
+    // (M=2 hi-write, M=3 lo-write). This shows up in Mooneye `push_timing`
+    // / `rst_timing` / `call_*_timing2`, all of which probe whether the
+    // bus access at M=2 hits the right address with the right data.
     this.regs.sp = (this.regs.sp - 2) & 0xffff;
-    this.busWrite(this.regs.sp, value & 0xff);
     this.busWrite((this.regs.sp + 1) & 0xffff, (value >> 8) & 0xff);
+    this.busWrite(this.regs.sp, value & 0xff);
   }
 
   private stackPop(): number {
