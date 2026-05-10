@@ -190,10 +190,9 @@ const RENDER_MODE_OPTIONS: Array<[string, string]> = [
   ["webgl-mmpx", "MMPX"],
   ["webgl-sxbr", "Super-xBR"],
   ["webgl-xbr", "xBR"],
+  ["webgl-bilinear", "Bilinear"],
   ["webgl-lcd", "LCD"],
-  ["webgl-scan", "Scanlines"],
   ["webgl-crt", "CRT"],
-  ["webgl-bloom", "Bloom"],
   ["webgl-dmg", "DMG green"],
   ["canvas", "Canvas 2D"]
 ];

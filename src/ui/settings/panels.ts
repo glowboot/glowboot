@@ -436,8 +436,7 @@ type RenderMode =
   | "webgl-sxbr"
   | "webgl-crt"
   | "webgl-dmg"
-  | "webgl-bloom"
-  | "webgl-scan"
+  | "webgl-bilinear"
   | "webgl-mmpx";
 const RENDER_MODES: readonly RenderMode[] = [
   "canvas",
@@ -446,8 +445,7 @@ const RENDER_MODES: readonly RenderMode[] = [
   "webgl-sxbr",
   "webgl-crt",
   "webgl-dmg",
-  "webgl-bloom",
-  "webgl-scan",
+  "webgl-bilinear",
   "webgl-mmpx"
 ];
 

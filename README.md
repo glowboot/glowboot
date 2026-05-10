@@ -191,7 +191,7 @@ Gear icon in the header → **Display**:
 
 - **Rendering** — several GPU shaders to pick from: MMPX (default —
   style-preserving 2× pixel-art magnification, McGuire & Mara 2020),
-  Super-xBR, xBR, handheld LCD, scanlines, full CRT, bloom, DMG green,
+  Super-xBR, xBR, plain Bilinear, handheld LCD, full CRT, DMG green,
   or the clean pixel output (Canvas 2D).
 - **Integer scaling** — default ON; keeps every pixel perfectly square.
 - **CGB colour correction** — default ON; emulates the real CGB LCD's

@@ -295,41 +295,30 @@ void main() {
   gl_FragColor = vec4(colorGrade(dmg), 1.0);
 }`;
 
-// ─── Bloom-only shader ──────────────────────────────────────────────────
-// The glow half of the CRT shader extracted on its own.
-const FRAG_BLOOM = `precision mediump float;
+// ─── Bilinear ───────────────────────────────────────────────────────────
+// Plain 2×2 bilinear interpolation between source pixels — the simplest
+// upscaling option. Sampling is manual (the source texture is set to
+// NEAREST so other shaders can snap to cell centres) — we look up the
+// four corners of the surrounding source quad and lerp by the subpixel
+// position. Result is the universally-familiar "soft pixel" look that
+// most other emulators ship as their default.
+const FRAG_BILINEAR = `precision mediump float;
 varying vec2 vUv;
 uniform sampler2D uFrame;
 uniform vec2 uSourceSize;
 
 void main() {
   vec2 ps = 1.0 / uSourceSize;
-  vec2 cell = vUv * uSourceSize;
-  vec2 sampleUv = (floor(cell) + 0.5) / uSourceSize;
-  vec3 color = texture2D(uFrame, sampleUv).rgb;
-  vec3 halo = texture2D(uFrame, sampleUv + vec2( ps.x, 0.0)).rgb
-            + texture2D(uFrame, sampleUv + vec2(-ps.x, 0.0)).rgb
-            + texture2D(uFrame, sampleUv + vec2(0.0,  ps.y)).rgb
-            + texture2D(uFrame, sampleUv + vec2(0.0, -ps.y)).rgb;
-  color = mix(color, color + halo * 0.25, 0.35);
-  gl_FragColor = vec4(colorGrade(color), 1.0);
-}`;
-
-// ─── Scanlines-only shader ──────────────────────────────────────────────
-// Horizontal dimming at one cycle per source row, without CRT's
-// curvature / aperture mask / bloom / vignette.
-const FRAG_SCAN = `precision mediump float;
-varying vec2 vUv;
-uniform sampler2D uFrame;
-uniform vec2 uSourceSize;
-
-void main() {
-  vec2 cell = vUv * uSourceSize;
-  vec2 sampleUv = (floor(cell) + 0.5) / uSourceSize;
-  vec3 color = texture2D(uFrame, sampleUv).rgb;
-  float scan = 0.5 + 0.5 * cos(vUv.y * uSourceSize.y * 6.2831853);
-  color *= 0.72 + 0.28 * scan;
-  gl_FragColor = vec4(colorGrade(color), 1.0);
+  vec2 cell = vUv * uSourceSize - 0.5;
+  vec2 cellId = floor(cell);
+  vec2 sub = cell - cellId;
+  vec2 base = (cellId + 0.5) * ps;
+  vec3 c00 = texture2D(uFrame, base).rgb;
+  vec3 c10 = texture2D(uFrame, base + vec2(ps.x, 0.0)).rgb;
+  vec3 c01 = texture2D(uFrame, base + vec2(0.0, ps.y)).rgb;
+  vec3 c11 = texture2D(uFrame, base + vec2(ps.x, ps.y)).rgb;
+  vec3 col = mix(mix(c00, c10, sub.x), mix(c01, c11, sub.x), sub.y);
+  gl_FragColor = vec4(colorGrade(col), 1.0);
 }`;
 
 // ─── MMPX (Style-Preserving Pixel-Art Magnification) ────────────────────
@@ -469,7 +458,7 @@ void main() {
   gl_FragColor = vec4(colorGrade(clamp(c, mn, mx)), 1.0);
 }`;
 
-export type ShaderName = "lcd" | "xbr" | "crt" | "dmg" | "bloom" | "scan" | "sxbr" | "mmpx";
+export type ShaderName = "lcd" | "xbr" | "crt" | "dmg" | "bilinear" | "sxbr" | "mmpx";
 
 /** Shader chain per mode. Single-string entries become a single-pass
  *  shader (renders straight to the canvas). Array entries define a
@@ -481,8 +470,7 @@ export const FRAG_BY_NAME: Record<ShaderName, string | string[]> = {
   xbr: FRAG_XBR,
   crt: FRAG_CRT,
   dmg: FRAG_DMG,
-  bloom: FRAG_BLOOM,
-  scan: FRAG_SCAN,
+  bilinear: FRAG_BILINEAR,
   sxbr: [FRAG_XBR, FRAG_SXBR_CLEANUP],
   mmpx: FRAG_MMPX
 };

@@ -47,10 +47,8 @@ function shaderForMode(mode: string | null): ShaderName | null {
       return "crt";
     case "webgl-dmg":
       return "dmg";
-    case "webgl-bloom":
-      return "bloom";
-    case "webgl-scan":
-      return "scan";
+    case "webgl-bilinear":
+      return "bilinear";
     case "webgl-mmpx":
       return "mmpx";
     default:
