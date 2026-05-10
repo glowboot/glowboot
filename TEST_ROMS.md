@@ -23,12 +23,12 @@ Results from running the [c-sp Game Boy test-rom collection](https://github.com/
 | Blargg cgb_sound (subtests)     |    0 |    0 |          12 | individual subtests have no PNG; serial output not used                       |
 | Blargg mem_timing v2 (subtests) |    0 |    0 |           3 | individual subtests have no PNG                                               |
 | Blargg oam_bug (subtests)       |    0 |    0 |           8 | DMG-only; subtests have no PNG                                                |
-| Mooneye acceptance              |   51 |   24 |           0 | 2026-05-10 — + `oam_dma/reg_read` (FF46 latch) + `oam_dma/sources-GS` (echo)  |
+| Mooneye acceptance              |   52 |   23 |           0 | 2026-05-10 — timer tick moved to post-bus-access (matches T=4 increment)      |
 | Mooneye misc (CGB-specific)     |    0 |    2 |           6 | 2026-05-10 — 6 of 8 `boot_*` skipped without `tests/roms/cgb_boot.bin`        |
 | Mealybug PPU (auto-discovered)  |    0 |   30 |           5 | 2026-05-10 — known mid-mode-3 raster gap                                      |
 | acid2 (DMG + CGB + CGB-hell)    |    2 |    1 |           0 | 2026-05-10 — cgb-acid-hell 2 px diff (single-sprite sub-pixel quirk)          |
 | Bully GB                        |    0 |    1 |           0 | 2026-05-10 — 290 px diff, boot-state                                          |
-| GBMicrotest                     |  263 |  250 |           0 | 2026-05-10 — 51% pass; per-quirk catalogue                                    |
+| GBMicrotest                     |  269 |  244 |           0 | 2026-05-10 — + 13 from timer-tick-after-bus-access (10× phase + halt + ints)  |
 | Scribbltests                    |    4 |    1 |           3 | 2026-05-10 — palette config fixed scxly + palettely; statcount-auto still off |
 | Strikethrough                   |    0 |    1 |           0 | 2026-05-10 — 7 px diff (was 22 before per-bus DMA fix); needs Pixel-FIFO      |
 | Turtle Tests                    |    1 |    1 |           0 | 2026-05-10                                                                    |
@@ -54,7 +54,7 @@ All 11 individual subtests pass: `01-special` through `11-op a,(hl)`.
 
 Single ROM passes.
 
-### Mooneye acceptance — 51 / 75 (24 fail, 0 timeout)
+### Mooneye acceptance — 52 / 75 (23 fail, 0 timeout)
 
 Categorised:
 
@@ -87,7 +87,7 @@ The pixel-diff counts now serve as quantitative regression markers — fixes can
 | `cgb-acid2`     | ✅     | 0 pixels differ                                                                                                                                                                                                     |
 | `cgb-acid-hell` | ❌     | 2 of 23 040 pixels differ (`(80,68)` / `(80,69)` swapped — middle column of one 8×8 sprite). Author intentionally hides which quirk; deferred until a Pixel-FIFO PPU lets us re-investigate at sub-pixel precision. |
 
-### GBMicrotest — 263 / 513 (51 %)
+### GBMicrotest — 269 / 513 (52 %)
 
 Per-quirk hardware catalogue. Failures cluster:
 

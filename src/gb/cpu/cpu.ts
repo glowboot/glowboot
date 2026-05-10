@@ -86,22 +86,22 @@ export class CPU {
    *  exercise). */
   private busRead(addr: number): number {
     this.mmu.tickDma(1);
-    this.timer.tick(1);
     const apu = this.apu;
     if (apu) apu.tickTCycles(this.doubleSpeed ? 1 : 3);
     this.ticksThisInstr++;
     const v = this.mmu.readByte(addr);
+    this.timer.tick(1);
     if (apu) apu.tickTCycles(1);
     return v;
   }
 
   private busWrite(addr: number, value: number): void {
     this.mmu.tickDma(1);
-    this.timer.tick(1);
     const apu = this.apu;
     if (apu) apu.tickTCycles(this.doubleSpeed ? 1 : 3);
     this.ticksThisInstr++;
     this.mmu.writeByte(addr, value);
+    this.timer.tick(1);
     if (apu) apu.tickTCycles(1);
   }
 
