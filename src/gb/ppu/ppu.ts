@@ -386,10 +386,32 @@ export class PPU {
         }
         break;
       }
-      case ADDR_STAT:
+      case ADDR_STAT: {
+        // DMG STAT-write bug: on monochrome hardware (and on CGB running
+        // a DMG cart in compat mode) writing any value to STAT latches
+        // 0xFF for ~1 M-cycle before the real value. Pan Docs / devrs
+        // FAQ specifies it fires only when ((mode is HBlank or VBlank)
+        // AND LCD is on), OR when LY == LYC (any mode, even LCD off).
+        // Mode 2 / mode 3 alone must NOT trigger it — otherwise mid-
+        // scanline STAT-writes produce spurious OAM-IRQs that crash
+        // games like Pinball Deluxe. Required by Ocean engine titles
+        // (Addams Family, Road Rash): their in-game STAT handler is
+        // what restores the BG / OBJ palettes after the title screen.
+        if (!this.cgbGame) {
+          const modeEligible =
+            (this.mode === Mode.HBlank || this.mode === Mode.VBlank) && (this.lcdc & 0x80) !== 0;
+          const lycEligible = this.ly === this.lyc;
+          if (modeEligible || lycEligible) {
+            const saved = this.stat;
+            this.stat = 0x78 | (saved & 0x07);
+            this.updateStatLine();
+            this.stat = saved;
+          }
+        }
         this.stat = (v & 0x78) | (this.stat & 0x07);
         this.updateStatLine();
         break;
+      }
       case ADDR_SCY:
         this.scy = v;
         break;
