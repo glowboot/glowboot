@@ -735,10 +735,15 @@ export class CPU {
       case 0x10: {
         // STOP
         this.fetchByte();
-        // In CGB mode STOP with KEY1.0 armed performs a speed switch instead of halting.
+        // In CGB mode STOP with KEY1.0 armed performs a speed switch
+        // instead of halting. Real hardware also resets DIV to 0 — that
+        // edge is what same-suite's `div_*_10` tests probe (a STOP-driven
+        // speed switch must drop DIV bit 12/13 to fall, stepping the
+        // APU's frame sequencer).
         if (this.key1Armed) {
           this.doubleSpeed = !this.doubleSpeed;
           this.key1Armed = false;
+          this.timer.writeByte(0xff04, 0);
         } else {
           this.stopped = true;
         }
