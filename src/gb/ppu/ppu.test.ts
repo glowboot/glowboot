@@ -25,6 +25,9 @@ describe("PPU", () => {
     });
 
     it("OAM round-trips in the 160-byte sprite attribute table", () => {
+      // OAM is bus-locked during mode 2/3 — turn the LCD off so the write
+      // and read both bypass the lock for this storage-round-trip check.
+      ppu.writeByte(0xff40, 0x00);
       ppu.writeOam(0x10, 0x42);
       expect(ppu.readOam(0x10)).toBe(0x42);
     });

@@ -583,16 +583,33 @@ export class PPU {
 
   // ─── Timing ───────────────────────────────────────────────────────────────
 
-  /** Advance PPU by `mCycles` M-cycles (1 M-cycle = 4 dots). */
+  /**
+   * Advance PPU by `mCycles` M-cycles (1 M-cycle = 4 dots). The internal
+   * loop drains the dot budget across mode boundaries — earlier this method
+   * could only cross one boundary per call, which was fine for typical
+   * 1-6 M-cycle ticks but won't survive Phase 3's per-dot mode-3 stepping.
+   */
   tick(mCycles: number): void {
     if (!(this.lcdc & 0x80)) return; // LCD off
+    let remaining = mCycles * 4;
+    while (remaining > 0) {
+      remaining -= this.advanceDots(remaining);
+    }
+  }
 
-    this.dots += mCycles * 4;
-
+  /**
+   * Consume up to `maxDots` dots in the current mode. Returns the number
+   * actually consumed. The caller (`tick`) loops until the budget is empty.
+   * Mode-3 still produces pixels atomically via `renderLine()` — Phase 3
+   * will replace that with a per-dot pixel-FIFO loop inside this method.
+   */
+  private advanceDots(maxDots: number): number {
     switch (this.mode) {
-      case Mode.OAMSearch:
+      case Mode.OAMSearch: {
+        const consume = Math.min(maxDots, DOTS_OAM - this.dots);
+        this.dots += consume;
         if (this.dots >= DOTS_OAM) {
-          this.dots -= DOTS_OAM;
+          this.dots = 0;
           this.computeMode3Length();
           if (this.cgbGame) {
             // Freeze the palette state the upcoming mode-3 render will see.
@@ -601,23 +618,29 @@ export class PPU {
           }
           this.setMode(Mode.Drawing);
         }
-        break;
+        return consume;
+      }
 
-      case Mode.Drawing:
+      case Mode.Drawing: {
+        const consume = Math.min(maxDots, this.mode3Length - this.dots);
+        this.dots += consume;
         if (this.dots >= this.mode3Length) {
-          this.dots -= this.mode3Length;
+          this.dots = 0;
           this.renderLine();
           this.setMode(Mode.HBlank);
           this.onHBlank?.();
         }
-        break;
+        return consume;
+      }
 
       case Mode.HBlank: {
         // HBlank consumes whatever's left of the 376-dot mode 3 + mode 0
         // budget after a variable-length mode 3 — total scanline still 456.
         const hblankLen = DOTS_PER_LINE - DOTS_OAM - this.mode3Length;
+        const consume = Math.min(maxDots, hblankLen - this.dots);
+        this.dots += consume;
         if (this.dots >= hblankLen) {
-          this.dots -= hblankLen;
+          this.dots = 0;
           this.ly++;
           this.checkLyc();
           if (this.ly === LINES_VISIBLE) {
@@ -628,23 +651,28 @@ export class PPU {
             this.setMode(Mode.OAMSearch);
           }
         }
-        break;
+        return consume;
       }
 
-      case Mode.VBlank:
+      case Mode.VBlank: {
         // Line 153 LY quirk: 4 dots after entering line 153 the LY register
         // wraps to 0 while mode stays at VBlank, and LY=0 holds through the
         // remaining ~452 dots until line 0 / mode 2 begins. Mooneye / GBM
-        // `line_153_*` and `poweron_stat_*` verify this. Without the quirk,
-        // games / boot ROMs that wait on a specific (LY, mode) pair miss
-        // the LY=0 phase and stall.
-        if (this.ly === 153 && !this.line153Quirk && this.dots >= 4) {
-          this.ly = 0;
-          this.line153Quirk = true;
-          this.checkLyc();
+        // `line_153_*` and `poweron_stat_*` verify this.
+        if (this.ly === 153 && !this.line153Quirk && this.dots < 4) {
+          const consume = Math.min(maxDots, 4 - this.dots);
+          this.dots += consume;
+          if (this.dots >= 4) {
+            this.ly = 0;
+            this.line153Quirk = true;
+            this.checkLyc();
+          }
+          return consume;
         }
+        const consume = Math.min(maxDots, DOTS_PER_LINE - this.dots);
+        this.dots += consume;
         if (this.dots >= DOTS_PER_LINE) {
-          this.dots -= DOTS_PER_LINE;
+          this.dots = 0;
           if (this.line153Quirk) {
             this.line153Quirk = false;
             this.winLY = 0; // Reset window line counter for new frame
@@ -652,8 +680,6 @@ export class PPU {
           } else {
             this.ly++;
             this.checkLyc();
-            // Defensive: if a tick batch was big enough to skip the LY=0
-            // window entirely, fall through to the same wrap-to-line-0.
             if (this.ly >= TOTAL_LINES) {
               this.ly = 0;
               this.winLY = 0;
@@ -662,7 +688,8 @@ export class PPU {
             }
           }
         }
-        break;
+        return consume;
+      }
     }
   }
 
