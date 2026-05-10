@@ -25,13 +25,13 @@ Results from running the [c-sp Game Boy test-rom collection](https://github.com/
 | Blargg oam_bug (subtests)       |    0 |    0 |           8 | DMG-only; subtests have no PNG                                                  |
 | Mooneye acceptance              |   51 |   24 |           0 | 2026-05-10 — pixel-FIFO Phase 5 net +/-: regressed `intr_2_0_timing` only       |
 | Mooneye misc (CGB-specific)     |    0 |    2 |           6 | 2026-05-10 — 6 of 8 `boot_*` skipped without `tests/roms/cgb_boot.bin`          |
-| Mealybug PPU (auto-discovered)  |    0 |   30 |           5 | 2026-05-10 — known mid-mode-3 raster gap                                        |
+| Mealybug PPU (auto-discovered)  |    0 |   30 |           5 | 2026-05-10 — pixel-FIFO renderer; gap is sub-T-cycle CPU↔PPU sync               |
 | acid2 (DMG + CGB + CGB-hell)    |    2 |    1 |           0 | 2026-05-10 — cgb-acid-hell 2 px diff (single-sprite sub-pixel quirk)            |
 | Bully GB                        |    0 |    1 |           0 | 2026-05-10 — 290 px diff, boot-state                                            |
 | GBMicrotest                     |  293 |  220 |           0 | 2026-05-10 — pixel-FIFO PPU rewrite (+15 sprite4\_\*/stat_write/lcdon_to_stat0) |
-| Scribbltests                    |    4 |    1 |           3 | 2026-05-10 — palette config fixed scxly + palettely; statcount-auto still off   |
-| Strikethrough                   |    0 |    1 |           0 | 2026-05-10 — 7 px diff (was 22 before per-bus DMA fix); needs Pixel-FIFO        |
-| Turtle Tests                    |    1 |    1 |           0 | 2026-05-10                                                                      |
+| Scribbltests                    |    4 |    1 |           3 | 2026-05-10 — statcount-auto down to 1473 px (was 1565)                          |
+| Strikethrough                   |    0 |    1 |           0 | 2026-05-10 — 13 px diff (regressed from 7 with the FIFO; mid-line OAM re-read)  |
+| Turtle Tests                    |    0 |    2 |           0 | 2026-05-10 — window_y_trigger_wx_offscreen 862 px (FIFO window timing tradeoff) |
 | Mooneye-gb (wilbertpol fork)    |    0 |  114 |           7 | 2026-05-10 — most fail via 0xED illegal-opcode (test's own fail-fast)           |
 | Little-things-gb                |    0 |    2 |           0 | 2026-05-10 — firstwhite 2488 px, tellinglys 5549 px                             |
 | MBC3 Tester                     |    0 |    1 |           0 | 2026-05-10 — 5105 px diff                                                       |
@@ -54,7 +54,7 @@ All 11 individual subtests pass: `01-special` through `11-op a,(hl)`.
 
 Single ROM passes.
 
-### Mooneye acceptance — 52 / 75 (23 fail, 0 timeout)
+### Mooneye acceptance — 51 / 75 (24 fail, 0 timeout)
 
 Categorised:
 
@@ -73,45 +73,63 @@ Categorised:
 
 ### Mealybug PPU — 0 / 30 (5 skipped)
 
-All 30 framebuffer-comparison failures are expected in the current architecture. The mealybug suite tests **mid-mode-3 register changes** (BGP / OBP / LCDC / SCX / SCY changed between specific dot positions of mode 3, with reference images showing the resulting per-pixel raster effect). Glowboot's PPU renders each scanline atomically at end of mode 3, so these effects can't be reproduced without a Pixel-FIFO PPU rewrite.
+The pixel-FIFO PPU rewrite (Phase 3-6, 2026-05-10) shrank these failures from full-screen diffs to mostly single-digit-pixel territory — the smallest are 2, 10, 19, 21 px out of 23 040. Closing the gap fully needs three more pieces:
 
-The pixel-diff counts now serve as quantitative regression markers — fixes can be tracked by watching counts drop.
+1. **Per-T-cycle CPU↔PPU sync** — PPU is currently ticked in batches after each CPU instruction, so mid-mode-3 register writes (BGP / OBP / LCDC / etc.) take effect at the END of the writing instruction instead of the exact T-cycle. The 4-pixel-wide error blocks visible in `m3_bgp_change` are exactly consistent with this PPU lag.
+2. **Sprite-fetcher state machine** — Phase 5 approximates per-sprite mode-3 stalls via a post-pump idle pad, which gets the total length right but not per-sprite dot positions.
+3. **Per-fetcher-step register snapshots** — some tests need BGP read at fetch time, not pop time.
 
-5 ROMs are skipped because they only ship `_dmg_blob.png` references; Glowboot is CGB-only and the comparison would be apples-to-oranges.
+The pixel-diff counts serve as quantitative regression markers — fixes can be tracked by watching counts drop. 5 ROMs are skipped because they only ship `_dmg_blob.png` references; Glowboot is CGB-only and the comparison would be apples-to-oranges.
 
 ### acid2 — 2 / 3
 
-| Test            | Status | Detail                                                                                                                                                                                                              |
-| --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dmg-acid2`     | ✅     | 0 pixels differ from reference                                                                                                                                                                                      |
-| `cgb-acid2`     | ✅     | 0 pixels differ                                                                                                                                                                                                     |
-| `cgb-acid-hell` | ❌     | 2 of 23 040 pixels differ (`(80,68)` / `(80,69)` swapped — middle column of one 8×8 sprite). Author intentionally hides which quirk; deferred until a Pixel-FIFO PPU lets us re-investigate at sub-pixel precision. |
+| Test            | Status | Detail                                                                                                                                                                                                                                                        |
+| --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dmg-acid2`     | ✅     | 0 pixels differ from reference                                                                                                                                                                                                                                |
+| `cgb-acid2`     | ✅     | 0 pixels differ                                                                                                                                                                                                                                               |
+| `cgb-acid-hell` | ❌     | 2 of 23 040 pixels differ (`(80,68)` / `(80,69)` swapped — middle column of one 8×8 sprite). Author intentionally hides which quirk; survived the pixel-FIFO rewrite, suggesting it needs sub-T-cycle sprite-fetch timing rather than per-pixel mode-3 logic. |
 
-### GBMicrotest — 278 / 513 (54 %)
+### GBMicrotest — 293 / 513 (57 %)
 
-Per-quirk hardware catalogue. Failures cluster:
+Per-quirk hardware catalogue. The pixel-FIFO PPU rewrite (Phase 3-6, 2026-05-10) added +15 passes (all 8 `sprite4_*_a`, `ppu_sprite0_scx0_a`/`scx4_a`, `lcdon_to_stat0_a/c`, `line_153_lyc0_stat_timing_j`, `hblank_int_if_a`, `stat_write_glitch_l1_a`/`l143_a`) but cost 1 (`lcdon_to_oam_unlock_d`). Remaining failures cluster around:
 
-| Cluster                               | ~ count | Notes                            |
-| ------------------------------------- | ------: | -------------------------------- |
-| `line_153_lyc*_stat_timing`           |      10 | LY=153→LY=0 mid-VBlank quirk     |
-| OAM / VRAM read+write locking by mode |      12 | mode-3 access blocking precision |
-| `hblank_int_scx*_if`                  |     ~24 | mode-0 IRQ vs `(SCX & 7)`        |
-| VBlank/STAT IRQ edge cases            |     ~13 | LCD-on, line 144 OAM, etc.       |
-| Other (timer, OAM DMA, misc)          |    ~190 | scattered single-test fails      |
+| Cluster                               | ~ count | Notes                                          |
+| ------------------------------------- | ------: | ---------------------------------------------- |
+| `hblank_int_scx*_if`                  |     ~24 | mode-0 IRQ vs `(SCX & 7)` — sub-dot resolution |
+| `line_153_lyc*_stat_timing`           |       9 | LY=153→LY=0 mid-VBlank quirk (one fixed)       |
+| OAM / VRAM read+write locking by mode |      ~8 | mode-3 access blocking precision               |
+| VBlank/STAT IRQ edge cases            |     ~12 | LCD-on, line 144 OAM, etc.                     |
+| Other (timer, OAM DMA, misc)          |    ~167 | scattered single-test fails                    |
 
 ### Scribbltests / Strikethrough / Turtle Tests
 
-| Test                                          | Status | Detail                                                                                                        |
-| --------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------- |
-| `scribbltests/lycscx`                         | ✅     | 0 px                                                                                                          |
-| `scribbltests/lycscy`                         | ✅     | 0 px                                                                                                          |
-| `scribbltests/palettely`                      | ✅     | 0 px (CGB-compat palette)                                                                                     |
-| `scribbltests/scxly`                          | ✅     | 0 px (DMG-green palette)                                                                                      |
-| `scribbltests/statcount-auto`                 | ❌     | 1 565 px diff                                                                                                 |
-| `scribbltests/{fairylake, statcount, winpos}` | ⏳     | no reference PNG bundled                                                                                      |
-| `strikethrough`                               | ❌     | 7 px diff (was 22; per-bus DMA fix recovered the in-DMA HBlank but mid-scanline OAM re-read needs Pixel-FIFO) |
-| `turtle-tests/window_y_trigger`               | ❌     | 1 716 px diff                                                                                                 |
-| `turtle-tests/window_y_trigger_wx_offscreen`  | ✅     | 0 px                                                                                                          |
+| Test                                          | Status | Detail                                                                             |
+| --------------------------------------------- | ------ | ---------------------------------------------------------------------------------- |
+| `scribbltests/lycscx`                         | ✅     | 0 px                                                                               |
+| `scribbltests/lycscy`                         | ✅     | 0 px                                                                               |
+| `scribbltests/palettely`                      | ✅     | 0 px (CGB-compat palette)                                                          |
+| `scribbltests/scxly`                          | ✅     | 0 px (DMG-green palette)                                                           |
+| `scribbltests/statcount-auto`                 | ❌     | 1 473 px diff (was 1 565 pre-FIFO)                                                 |
+| `scribbltests/{fairylake, statcount, winpos}` | ⏳     | no reference PNG bundled                                                           |
+| `strikethrough`                               | ❌     | 13 px diff (regressed from 7 with the FIFO; mid-scanline OAM re-read still needed) |
+| `turtle-tests/window_y_trigger`               | ❌     | 1 710 px diff                                                                      |
+| `turtle-tests/window_y_trigger_wx_offscreen`  | ❌     | 862 px (regressed from pass — FIFO window-activation timing tradeoff)              |
+
+### Same-suite — 14 / 78 (DIV-edge FS + wave +6-T trigger)
+
+Same-suite mostly probes precise APU + DMA + interrupt timing. The session's APU work (DIV-edge frame sequencer, +6-T wave trigger delay, STOP-resets-DIV) brought it from 7 to 14. Breakdown:
+
+| Group                            | Pass | Fail | Notes                                                                                       |
+| -------------------------------- | ---: | ---: | ------------------------------------------------------------------------------------------- |
+| `apu/channel_1` (square + sweep) |    0 |   21 | square trigger / duty / freq-change / NRx2-glitch / sweep — needs per-test investigation    |
+| `apu/channel_2` (square)         |    0 |   15 | same patterns as channel_1 minus sweep                                                      |
+| `apu/channel_3` (wave)           |    6 |    9 | unblocked by +6-T wave trigger delay; remaining are first-sample / freq-change / and-glitch |
+| `apu/channel_4` (noise)          |    4 |    9 | unblocked by DIV-edge FS; remaining are align / delay / lfsr-7-15 / restart                 |
+| `apu/div_*`                      |    2 |    3 | non-`_10` variants pass; `_10` (double-speed) variants need STOP CPU-pause modelling        |
+| `dma/*`                          |    1 |    3 | `gbc_dma_cont` passes; HDMA/GDMA edge cases remain                                          |
+| `interrupt/ei_delay_halt`        |    0 |    1 | EI-delay vs HALT interaction                                                                |
+| `ppu/blocking_bgpi_increase`     |    1 |    0 | passes — covered by Phase 5 BCPI auto-increment-during-block                                |
+| `sgb/*`                          |    0 |    2 | SGB protocol not emulated                                                                   |
 
 ### Bully GB
 
@@ -120,10 +138,13 @@ Per-quirk hardware catalogue. Failures cluster:
 ## Triage candidates (fix before shipping)
 
 - [x] ~~Mooneye `ret_*` timeouts — three tests hang; likely a real RET timing bug~~ — fixed by per-bus-access DMA ticking + 2-cycle setup delay
-- [x] ~~cgb-acid-hell 2-pixel diff — find which pixels and why~~ — investigated 2026-05-10: 2 px at `(80,68)`/`(80,69)` are swapped within a single 8×8 sprite's middle column. Author hides the quirk catalogue; with our atomic-scanline PPU we can't probe further. Deferred to Pixel-FIFO.
+- [x] ~~cgb-acid-hell 2-pixel diff — find which pixels and why~~ — investigated 2026-05-10; survived the pixel-FIFO rewrite, suggesting it needs sub-T-cycle sprite-fetch timing rather than per-pixel mode-3 logic. Deferred until per-T-cycle CPU↔PPU sync lands.
 - [x] ~~Mooneye timer `*_div_trigger` (5 tests) — DIV→TIMA trigger edge case~~ — fixed 2026-05-10 by modeling the timer's input as `(TAC enable) AND (div_bit)` and bumping TIMA on its falling edge (covers DIV reset, TAC enable→disable, TAC mode change). Also fixed `tima_reload`/`tima_write_reloading`/`tma_write_reloading` via the 1-M-cycle reload window.
 - [x] ~~Mooneye `push_timing` / `rst_timing` / `call_*_timing2` — remaining cycle-accounting gaps~~ — fixed 2026-05-10 by reversing `stackPush` byte order (high before low) and dropping CPU writes to OAM while DMA is active
 - [ ] ~~Mooneye `rapid_toggle` — off-by-1 on IRQ servicing under rapid TAC toggling (BC=$FFD8 vs expected $FFD9)~~ — investigated 2026-05-10: traced 16 falling-edge bumps at iters 8-14 / 23-29 / 38-39, each one iteration later than real HW's 7-13 / 22-28 / 37-38. The shift is a ~2 M-cycle DIV alignment difference that pushes every bit-9 boundary across one iteration. Fixing requires sub-M-cycle bus-write timing in the CPU; deferred.
-- [x] ~~Strikethrough 22 px — close to passing; small fix likely~~ — partially fixed 2026-05-10 (22 → 7 px from per-bus DMA tick). Remaining 7 px need mid-scanline OAM re-read; deferred to Pixel-FIFO.
+- [ ] **Strikethrough — regressed 7 → 13 px with the pixel-FIFO** (window/sprite mid-scanline interaction). New work: figure out which scanlines diverge and whether it's BG-vs-window timing, sprite-priority during window, or a missing OAM re-read.
+- [ ] **Turtle Tests `window_y_trigger_wx_offscreen` — regressed pass → 862 px with the pixel-FIFO**. Almost certainly the WX > 166 / off-screen-window edge case; my Phase 5 gate (`wx <= 166`) likely activates window where it shouldn't, or vice versa. Should be a tight investigation.
 - [x] ~~Scribbltests `scxly` 100 % diff — investigate (palette? rendering path off?)~~ — fixed 2026-05-10: reference uses DMG green LCD shades (#98C00F / #0F380F), not gray. `palettely` had a similar mismatch (uses CGB-compat shades, not gray); both now pass with the right palette config in the test runner.
-- [ ] ~~GBMicrotest `hblank_int_scx*` cluster — 24 related fails on the same axis~~ — investigated 2026-05-10: requires sub-M-cycle PPU resolution (paired `_a` / `_b` variants probe ±1 dot of mode-3 boundary). Atomic-mode-3 PPU can pass either side but not both; deferred to the Pixel-FIFO rewrite that gates Mealybug too.
+- [ ] **GBMicrotest `hblank_int_scx*` cluster — ~24 related fails on the same axis**. Pixel-FIFO didn't unlock these because they need T-cycle-precise mode-0 IRQ timing relative to `(SCX & 7)`. Same root cause as Mealybug — needs per-T-cycle CPU↔PPU sync.
+- [ ] **Same-suite `div_*_10` (3 tests) — double-speed FS variants**. STOP-resets-DIV landed but didn't unlock these; they likely need the 0x20000 T-cycle CPU pause that real CGB performs during a speed switch.
+- [ ] **Mealybug parity (0/30)** — needs per-T-cycle CPU↔PPU sync + sprite-fetcher state machine + per-fetcher-step register snapshots. Diff counts are now small (most under 50 px) but the architectural lift is real.
