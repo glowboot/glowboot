@@ -3,8 +3,11 @@
  * against the in-tree emulator and reports pass / fail. Not part of the
  * regular `npm test` chain; invoke via `npm run test:roms`.
  *
- * Test ROMs themselves live under `test-roms/` (gitignored) — fetch from
- *   https://github.com/c-sp/game-boy-test-roms/releases (latest .zip)
+ * Test ROMs themselves live under `test-roms/` (gitignored). On first run,
+ * if that directory is empty, we fetch the latest c-sp Game Boy test-roms
+ * release zip from GitHub and unpack it in place. Set `GLOWBOOT_NO_FETCH=1`
+ * to disable the auto-fetch (e.g. when running offline) and fall back to
+ * the original "fetch it yourself" instructions.
  *
  * Detection covers three protocols:
  *   1. Blargg — ASCII via serial; success = collected text contains
@@ -21,10 +24,11 @@
  * install the matching shades via `setDmgCompatPalette` before running so
  * the framebuffer hashes line up.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import AdmZip from "adm-zip";
 import { PNG } from "pngjs";
 
 import { GameBoy } from "../src/gb/gameboy.js";
@@ -33,9 +37,47 @@ import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../src/gb/ppu/ppu.js";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const TEST_ROMS_DIR = resolve(ROOT, "test-roms");
+const RELEASE_API = "https://api.github.com/repos/c-sp/game-boy-test-roms/releases/latest";
 
 const MAX_FRAMES_SERIAL = 60 * 20; // 20s at 60fps. Slowest passing Blargg test takes ~600 frames; tests that haven't completed by then are either screen-only or hung.
 const FAIL_PREVIEW_LIMIT = 200;
+
+// ─── First-run fetch ────────────────────────────────────────────────────────
+// Bridges the gap between "clone the repo" and "run a test ROM". The c-sp
+// release ships a single zip with all the suite directories at the top
+// level (`blargg/`, `mooneye-test-suite/`, `gambatte/`, …) so a flat
+// extract into `test-roms/` lines up with the paths the runner expects.
+
+async function ensureTestRoms(): Promise<void> {
+  if (existsSync(TEST_ROMS_DIR) && readdirSync(TEST_ROMS_DIR).length > 0) return;
+  if (process.env.GLOWBOOT_NO_FETCH === "1") return;
+
+  console.log(`test-roms/ is empty — fetching latest c-sp Game Boy test-roms release…`);
+  const releaseRes = await fetch(RELEASE_API, { headers: { "User-Agent": "glowboot-test-runner" } });
+  if (!releaseRes.ok) {
+    throw new Error(
+      `GitHub API ${releaseRes.status} for ${RELEASE_API} — set GLOWBOOT_NO_FETCH=1 to skip and unpack manually`
+    );
+  }
+  const release = (await releaseRes.json()) as {
+    tag_name: string;
+    assets: { name: string; browser_download_url: string; size: number }[];
+  };
+  const asset = release.assets.find((a) => /^game-boy-test-roms-.*\.zip$/.test(a.name));
+  if (!asset) {
+    throw new Error(`Could not find game-boy-test-roms-*.zip in release ${release.tag_name}`);
+  }
+  console.log(`  → ${release.tag_name} / ${asset.name} (${(asset.size / 1024 / 1024).toFixed(1)} MiB)`);
+
+  const zipRes = await fetch(asset.browser_download_url);
+  if (!zipRes.ok) throw new Error(`Asset download failed: HTTP ${zipRes.status}`);
+  const zipBuf = Buffer.from(await zipRes.arrayBuffer());
+
+  console.log(`  → extracting to ${relative(ROOT, TEST_ROMS_DIR)}/`);
+  mkdirSync(TEST_ROMS_DIR, { recursive: true });
+  new AdmZip(zipBuf).extractAllTo(TEST_ROMS_DIR, /* overwrite */ true);
+  console.log(`  ✓ ready (${readdirSync(TEST_ROMS_DIR).length} top-level entries)`);
+}
 
 // ─── Palette overrides for screen-only tests ──────────────────────────────────
 // AABBGGRR layout — same as the framebuffer's u32 view. Colour 0 is the
@@ -132,7 +174,7 @@ function discoverMealybugTests(): ScreenTest[] {
   return tests;
 }
 
-const SCREEN_TESTS: ScreenTest[] = [
+const STATIC_SCREEN_TESTS: ScreenTest[] = [
   {
     romPath: "dmg-acid2/dmg-acid2.gb",
     refPng: "dmg-acid2/dmg-acid2-cgb.png",
@@ -263,13 +305,12 @@ const SCREEN_TESTS: ScreenTest[] = [
     refPng: "blargg/oam_bug/oam_bug-cgb.png",
     palette: { bg: DMG_GRAY_BG, obp0: DMG_GRAY_OBP, obp1: DMG_GRAY_OBP },
     frames: 240
-  },
-  ...discoverMealybugTests(),
-  ...discoverGambatteTests()
+  }
 ];
 
-const SCREEN_BY_ROM = new Map<string, ScreenTest>();
-for (const t of SCREEN_TESTS) SCREEN_BY_ROM.set(t.romPath, t);
+// Built in `main` after `ensureTestRoms` so the auto-discovered mealybug /
+// gambatte entries see the freshly extracted directories.
+let SCREEN_BY_ROM = new Map<string, ScreenTest>();
 
 type Outcome = {
   name: string;
@@ -307,7 +348,6 @@ function indexMealybugSkips(): void {
   };
   walk(root);
 }
-indexMealybugSkips();
 
 // Gambatte ROMs that don't have a CGB reference PNG use the hex-pattern
 // or audio-output protocol — we don't decode either, so skip them.
@@ -330,7 +370,6 @@ function indexGambatteSkips(): void {
   };
   walk(root);
 }
-indexGambatteSkips();
 
 function findRoms(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -466,7 +505,15 @@ function runOne(romPath: string): Outcome {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
+  await ensureTestRoms();
+  // Discovery + skip indexing happen here so they see the freshly
+  // extracted directories on first-run, not the empty placeholder.
+  const screenTests = [...STATIC_SCREEN_TESTS, ...discoverMealybugTests(), ...discoverGambatteTests()];
+  SCREEN_BY_ROM = new Map<string, ScreenTest>(screenTests.map((t) => [t.romPath, t]));
+  indexMealybugSkips();
+  indexGambatteSkips();
+
   const filter = process.argv[2];
   const all = findRoms(TEST_ROMS_DIR);
   if (all.length === 0) {
@@ -503,4 +550,7 @@ function main(): void {
   process.exit(fail.length + timeout.length > 0 ? 1 : 0);
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

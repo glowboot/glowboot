@@ -2,7 +2,7 @@
 
 Results from running the [c-sp Game Boy test-rom collection](https://github.com/c-sp/game-boy-test-roms) through `npm run test:roms`. Updated as suites are exercised; serves both as a regression baseline and as a triage list — entries marked "investigate" are concrete bugs we plan to address; entries marked "expected" are architectural or out-of-scope.
 
-**Test-rom binaries are not bundled.** Fetch the latest release zip from <https://github.com/c-sp/game-boy-test-roms/releases> and unpack into `test-roms/` (gitignored).
+**Test-rom binaries are not bundled.** On first run, `npm run test:roms` auto-fetches the latest [c-sp Game Boy test-roms release](https://github.com/c-sp/game-boy-test-roms/releases) into `test-roms/` (gitignored). Set `GLOWBOOT_NO_FETCH=1` to skip the auto-fetch and use a manually-prepared directory.
 
 ## Summary
 
