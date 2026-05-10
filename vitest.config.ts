@@ -6,6 +6,11 @@ import { defineConfig } from "vitest/config";
 // so the existing `src/**/*.test.ts` files are discovered.
 export default defineConfig({
   test: {
-    root: "."
+    root: ".",
+    // Default test discovery only looks at unit tests under src/. Anything
+    // in scripts/ (one-off harnesses like the test-ROM runner) stays out
+    // of the regular `npm test` run; invoke those by explicit path
+    // (e.g. `npm run test:roms`).
+    include: ["src/**/*.{test,spec}.ts"]
   }
 });
