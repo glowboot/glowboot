@@ -177,4 +177,67 @@ describe("CPU", () => {
       expect(cpu.regs.zf).toBe(false);
     });
   });
+
+  // Pins absolute T-cycle counts of well-known instructions so any future
+  // bus-access-timing rewrite (the T-cycle PPU sync work) is detected. Each
+  // M-cycle is 4 T-cycles single-speed; counts here match LR35902 spec.
+  describe("tStateCount — instruction timing baseline", () => {
+    it("NOP costs 4 T-cycles (1 M-cycle)", () => {
+      loadAt(mem, 0x0100, [0x00]);
+      const before = cpu.tStateCount;
+      cpu.step();
+      expect(cpu.tStateCount - before).toBe(4);
+    });
+
+    it("LD A, n costs 8 T-cycles (2 M-cycle)", () => {
+      loadAt(mem, 0x0100, [0x3e, 0x42]);
+      const before = cpu.tStateCount;
+      cpu.step();
+      expect(cpu.tStateCount - before).toBe(8);
+    });
+
+    it("LDH (n), A costs 12 T-cycles (3 M-cycle)", () => {
+      loadAt(mem, 0x0100, [0xe0, 0x80]);
+      const before = cpu.tStateCount;
+      cpu.step();
+      expect(cpu.tStateCount - before).toBe(12);
+    });
+
+    it("CALL nn costs 24 T-cycles (6 M-cycle)", () => {
+      cpu.regs.sp = 0xfffe;
+      loadAt(mem, 0x0100, [0xcd, 0x00, 0x20]);
+      const before = cpu.tStateCount;
+      cpu.step();
+      expect(cpu.tStateCount - before).toBe(24);
+    });
+
+    it("RET costs 16 T-cycles (4 M-cycle)", () => {
+      cpu.regs.sp = 0xfffc;
+      mem[0xfffc] = 0x00;
+      mem[0xfffd] = 0x02;
+      loadAt(mem, 0x0100, [0xc9]);
+      const before = cpu.tStateCount;
+      cpu.step();
+      expect(cpu.tStateCount - before).toBe(16);
+      expect(cpu.regs.pc).toBe(0x0200);
+    });
+
+    it("HALT (no IRQ pending) costs 4 T-cycles per halted step", () => {
+      loadAt(mem, 0x0100, [0x76]);
+      cpu.step();
+      expect(cpu.halted).toBe(true);
+      const before = cpu.tStateCount;
+      cpu.step();
+      expect(cpu.tStateCount - before).toBe(4);
+    });
+
+    it("EI; NOP — second step sees IME true and counts 4 T-cycles", () => {
+      loadAt(mem, 0x0100, [0xfb, 0x00]);
+      cpu.step(); // EI (1 M-cycle, but IME stays false until next step starts)
+      const before = cpu.tStateCount;
+      cpu.step(); // NOP — IME promoted at top of step
+      expect(cpu.tStateCount - before).toBe(4);
+      expect(cpu.ime).toBe(true);
+    });
+  });
 });

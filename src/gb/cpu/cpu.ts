@@ -49,6 +49,15 @@ export class CPU {
    */
   private ticksThisInstr = 0;
 
+  /**
+   * Absolute T-cycle counter since CPU construction (or last `resetTState`).
+   * Increments by 4 per single-speed M-cycle, 2 per double-speed M-cycle.
+   * Used by Phase A of the T-cycle PPU sync work for instrumentation and
+   * by future work for sub-M-cycle alignment. Zero-cost (single addition)
+   * per bus access, never resets during normal emulation.
+   */
+  private tStateCounter = 0;
+
   /** PC snapshot at the start of the current `execute` — used by the
    *  debugger call-stack tracker to record the address of the CALL/RST
    *  that pushed each frame. Zero overhead (single field write per step). */
@@ -105,6 +114,7 @@ export class CPU {
     // M-cycle = 2 dots).
     if (this.ppu) this.ppu.tickDots(this.doubleSpeed ? 1 : 3);
     this.ticksThisInstr++;
+    this.tStateCounter += this.doubleSpeed ? 2 : 4;
     const v = this.mmu.readByte(addr);
     this.timer.tick(1);
     if (apu) apu.tickTCycles(1);
@@ -121,6 +131,7 @@ export class CPU {
     // mid-mode-3 writes (BGP / SCX / LCDC / …).
     if (this.ppu) this.ppu.tickDots(this.doubleSpeed ? 1 : 3);
     this.ticksThisInstr++;
+    this.tStateCounter += this.doubleSpeed ? 2 : 4;
     this.mmu.writeByte(addr, value);
     this.timer.tick(1);
     if (apu) apu.tickTCycles(1);
@@ -133,6 +144,7 @@ export class CPU {
     if (this.apu) this.apu.tickTCycles(this.doubleSpeed ? 2 : 4);
     if (this.ppu) this.ppu.tickDots(this.doubleSpeed ? 2 : 4);
     this.ticksThisInstr++;
+    this.tStateCounter += this.doubleSpeed ? 2 : 4;
   }
 
   private finishTicks(total: number): void {
@@ -142,10 +154,18 @@ export class CPU {
       this.timer.tick(remainder);
       if (this.apu) this.apu.tickTCycles(remainder * (this.doubleSpeed ? 2 : 4));
       if (this.ppu) this.ppu.tickDots(remainder * (this.doubleSpeed ? 2 : 4));
+      this.tStateCounter += remainder * (this.doubleSpeed ? 2 : 4);
     }
   }
 
   // ─── CGB KEY1 (0xFF4D) ────────────────────────────────────────────────────
+
+  /** Absolute T-cycle count since CPU construction. Real-time clock-aligned:
+   *  increments by 4 per single-speed M-cycle, 2 per double-speed M-cycle.
+   *  Used for cycle-accurate test instrumentation. */
+  get tStateCount(): number {
+    return this.tStateCounter;
+  }
 
   readKey1(): number {
     return 0x7e | (this.doubleSpeed ? 0x80 : 0) | (this.key1Armed ? 0x01 : 0);

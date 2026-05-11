@@ -485,6 +485,12 @@ export class PPU {
           // scanline. The first scanline is effectively 4 T-cycles shorter
           // than normal (hence the initial `dots=4`), which matches the
           // oam_bug lcd_sync test's LY→1 transition at M-cycle 113.
+          //
+          // NOTE: this offset is calibrated for the CPU's 3-dots-before /
+          // 1-dot-after bus-access split. If the bus-access timing changes
+          // (e.g. moving to a 0+4 "pending cycles" model), this offset may
+          // need to change too — verified empirically against `oam_bug
+          // lcd_sync`, `hblank_int_scxN`, and Mealybug references.
           this.ly = 0;
           this.lyForCompare = 0;
           this.winLY = 0;
