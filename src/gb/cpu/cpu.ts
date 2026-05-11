@@ -117,12 +117,21 @@ export class CPU {
    *  swap visibly affects 2 more pixels than `ReadOld` would. Targets
    *  Mealybug `m3_bgp_change` (~3K px) and `m3_bgp_change_sprites`. */
   private readonly conflictPaletteCgb = 3;
+  /** STAT-write glitch on CGB: a write to STAT (0xFF41) goes through in two
+   *  phases. At T-1 from the M-cycle boundary an intermediate value lands
+   *  where the new IRQ-enable bits (3-6) are ORed with the OLD enable bits;
+   *  1 T-cycle later the final value lands. The 1-T glitch window causes
+   *  a spurious rising edge on the STAT line whenever a transition would
+   *  ungate a source that was previously gated (or vice-versa). Targets
+   *  Mealybug `stat_*` and a small cluster of mts STAT-IRQ timing tests. */
+  private readonly conflictStatCgb = 4;
 
   /** I/O conflict map for CGB single-speed (the only model we present as).
    *  Indexed by `addr & 0x7f`. Unset entries default to `ReadOld`. */
   private readonly cgbConflictMap = (() => {
     const m = new Uint8Array(128);
     m[0x0f] = this.conflictWriteCpu; // IF — CPU clear beats HW IRQ raise
+    m[0x41] = this.conflictStatCgb; // STAT — intermediate-write glitch
     m[0x45] = this.conflictWriteCpu; // LYC — CPU write beats STAT compare
     m[0x47] = this.conflictPaletteCgb; // BGP  — palette write shifts -2 T
     m[0x48] = this.conflictPaletteCgb; // OBP0 — palette write shifts -2 T
@@ -224,6 +233,26 @@ export class CPU {
       this.ticksThisInstr++;
       this.mmu.writeByte(addr, value);
       this.pendingPpuApuTCycles = 2 + tPerM;
+      this.pendingMCycles = 1;
+      return;
+    }
+    if (conflict === this.conflictStatCgb) {
+      // STAT write happens in two phases at -1 T and 0 T from the M-cycle
+      // boundary. Intermediate value = new bits | old IRQ-enable bits, so
+      // any source that *was* enabled remains briefly enabled alongside
+      // the new value's enables — a 1-T glitch window that can produce a
+      // spurious rising edge on the STAT line.
+      const oldStat = this.mmu.readByte(addr);
+      if (this.pendingPpuApuTCycles >= 1) {
+        this.pendingPpuApuTCycles -= 1;
+      }
+      this.flushPendingCycles();
+      this.ticksThisInstr++;
+      this.mmu.writeByte(addr, value | (oldStat & 0x78));
+      this.pendingPpuApuTCycles = 1;
+      this.flushPendingCycles();
+      this.mmu.writeByte(addr, value);
+      this.pendingPpuApuTCycles = tPerM;
       this.pendingMCycles = 1;
       return;
     }
