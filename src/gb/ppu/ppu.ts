@@ -77,6 +77,24 @@ export class PPU {
    *  resolves the winning sprite at each pixel during the BG-FIFO pop. */
   private readonly visibleSprites = new Uint8Array(10);
   private visibleSpriteCount = 0;
+  /** `visibleSprites` indices sorted by screen X (then OAM index for ties) —
+   *  walk order for the sprite-fetcher state machine. `visibleSprites`
+   *  itself stays in priority order for `resolveSpritePixel`. */
+  private readonly spriteFetchOrder = new Uint8Array(10);
+  /** Per-visible-sprite latch of LCDC.1 (OBJ enable) sampled the dot the
+   *  sprite-fetcher kicks in. -1 = not yet reached, 0 = was off, 1 = was
+   *  on. Indexed by `visibleSprites` position so `resolveSpritePixel` can
+   *  cheaply filter. Mealybug `m3_lcdc_obj_en_change` toggles LCDC.1
+   *  mid-mode-3 and the test catches per-sprite differences. */
+  private readonly spriteObjEnabled = new Int8Array(10);
+  /** Index into `spriteFetchOrder` of the next sprite waiting for fetch.
+   *  When BG fetcher's pixel-X reaches that sprite's screen X, the fetcher
+   *  state machine inserts a stall (see `mode3SpriteStallDots`). */
+  private mode3NextSpriteIdx = 0;
+  /** Dots remaining in the current sprite-fetcher stall. While > 0 the BG
+   *  fetcher is paused; tickDots keeps consuming dots so register writes
+   *  during the stall still take effect at the correct timing. */
+  private mode3SpriteStallDots = 0;
 
   // LCD control & status. Post-boot defaults reflect the state the
   // boot ROM leaves behind (LCD on, BGP=$FC, sprites visible). When a
@@ -105,13 +123,6 @@ export class PPU {
    */
   private mode3Length = DOTS_DRAW;
 
-  /** Sprite-fetcher stall pad for the current scanline (precomputed at
-   *  OAM-search exit). Mode 3 idles for this many dots after the BG FIFO
-   *  finishes emitting all 160 pixels — the per-pixel mixer doesn't model
-   *  fetcher stalls directly, so we honour the spec's `11 - min(5, (X +
-   *  SCX) & 7)` per-sprite penalty as a post-pump pad. */
-  private spriteStallPad = 0;
-  private spriteStallElapsed = 0;
   /** Set when pixel 159 hits the framebuffer; consumed by 1 dot of mode 3
    *  hold before sprite-stall / HBlank. The pump itself only takes 171
    *  dots end-to-end for an SCX=0 line; real hardware spends one more dot
@@ -593,31 +604,40 @@ export class PPU {
   }
 
   /**
-   * Per-sprite mode-3 stall, summed across the up-to-10 sprites visible on
-   * this scanline: `11 - min(5, (X + SCX) & 7)`. 11 dots when the sprite
-   * is tile-aligned (X = 0 or 8), down to 6 when it starts ≥5 pixels into
-   * a tile. The pump itself doesn't model fetcher stalls per pixel, so we
-   * apply this as a post-pump pad — mode 3 idles for these dots after the
-   * BG FIFO finishes pushing pixel 160. The base 172 dots and (SCX & 7)
-   * fine-X discard come from the FIFO pump itself; the +6 for window
-   * activation is also natural (the fetcher restart on window kick takes
-   * 6 dots to fill the FIFO with the window tile).
+   * Per-sprite mode-3 stall: `11 - min(5, (X + SCX) & 7)` dots applied at
+   * the moment the BG fetcher's pixel-X reaches each sprite's screen X.
+   * 11 dots when tile-aligned, down to 6 when the sprite starts ≥5 pixels
+   * into a tile. Inserted inline by the dot-loop in `Mode.Drawing` (see
+   * `mode3NextSpriteIdx` / `mode3SpriteStallDots`), so writes that land
+   * during a stall observe the correct mid-line dot for subsequent fetches.
    */
-  private computeSpriteStallPad(): void {
-    let pad = 0;
-    if ((this.lcdc & 0x02) !== 0) {
-      const spriteHeight = (this.lcdc & 0x04) !== 0 ? 16 : 8;
-      let count = 0;
-      for (let i = 0; i < 40 && count < 10; i++) {
-        const sprY = this.oam[i * 4]! - 16;
-        if (this.ly >= sprY && this.ly < sprY + spriteHeight) {
-          const x = this.oam[i * 4 + 1]!;
-          pad += 11 - Math.min(5, (x + this.scx) & 7);
-          count++;
-        }
+  private spriteStallDotsFor(oamIdx: number): number {
+    const x = this.oam[oamIdx * 4 + 1]!;
+    return 11 - Math.min(5, (x + this.scx) & 7);
+  }
+
+  /** Build `spriteFetchOrder` as `visibleSprites` indices sorted by screen
+   *  X (lowest first, OAM-index for ties). Walked left-to-right by the
+   *  fetcher state machine. */
+  private buildSpriteFetchOrder(): void {
+    const oam = this.oam;
+    const sprites = this.visibleSprites;
+    const order = this.spriteFetchOrder;
+    for (let i = 0; i < this.visibleSpriteCount; i++) order[i] = i;
+    // Insertion sort — N ≤ 10 so the overhead is in the noise.
+    for (let i = 1; i < this.visibleSpriteCount; i++) {
+      const cur = order[i]!;
+      const curX = oam[sprites[cur]! * 4 + 1]!;
+      let j = i - 1;
+      while (j >= 0) {
+        const prev = order[j]!;
+        const prevX = oam[sprites[prev]! * 4 + 1]!;
+        if (prevX < curX || (prevX === curX && sprites[prev]! < sprites[cur]!)) break;
+        order[j + 1] = order[j]!;
+        j--;
       }
+      order[j + 1] = cur;
     }
-    this.spriteStallPad = pad;
   }
 
   private refreshCgbPaletteEntry(lut: Uint32Array, ram: Uint8Array, colorIdx: number): void {
@@ -684,7 +704,6 @@ export class PPU {
         this.dots += consume;
         if (this.dots >= DOTS_OAM) {
           this.dots = 0;
-          this.computeSpriteStallPad();
           if (this.cgbGame) {
             // Freeze the palette state the upcoming mode-3 render will see.
             this.cgbBgPalettesActive.set(this.cgbBgPalettes);
@@ -697,14 +716,20 @@ export class PPU {
       }
 
       case Mode.Drawing: {
-        // Mode 3 ends when the BG FIFO has emitted all 160 pixels AND the
-        // sprite-fetcher stall pad has elapsed. The pump produces the line
-        // length naturally — base 172 dots (12-dot warmup + 160 emits),
-        // plus (SCX & 7) discards inside the pump, plus 6 dots if the
-        // window restart kicks in at WX. Sprites contribute via the
-        // post-pump idle pad (`spriteStallPad`) since the per-pixel mixer
-        // doesn't model fetcher stalls.
+        // Mode 3 ends when the BG FIFO has emitted all 160 pixels and any
+        // pending sprite fetch has completed. Base length 172 dots
+        // (12-dot warmup + 160 emits), plus (SCX & 7) fine-X discards in
+        // the pump, plus 6 dots on window restart, plus
+        // `11 - min(5, (x+SCX) & 7)` per visible sprite — applied inline
+        // at the BG-pixel-X reaches sprite-X dot. Inline stalls (rather
+        // than a post-pump pad) let register writes during the stall
+        // observe the right dot for subsequent sprite/BG fetches, which
+        // is what Mealybug `m3_lcdc_*` and the GBMicrotest hblank_scx
+        // cluster catch.
         let consumed = 0;
+        const oam = this.oam;
+        const sprites = this.visibleSprites;
+        const order = this.spriteFetchOrder;
         while (consumed < maxDots) {
           if (this.windowStallPending) {
             // 1-dot stall after window activation so the fetcher restart
@@ -713,23 +738,51 @@ export class PPU {
             this.windowStallPending = false;
             this.dots++;
             consumed++;
+          } else if (this.mode3SpriteStallDots > 0) {
+            // Sprite-fetcher stall — BG paused, sprite tile is being
+            // fetched. One dot per loop so LCDC.1 / register writes
+            // landing mid-stall update for the next sprite correctly.
+            this.mode3SpriteStallDots--;
+            this.dots++;
+            consumed++;
           } else if (this.currentPx < SCREEN_WIDTH) {
+            // Check whether the next pending sprite has been reached.
+            // Sprites at sprX < 0 (off-screen left) fire during warmup
+            // so they're processed at any dot. Sprites at sprX >= 0 wait
+            // until the (SCX & 7) fine-X discard has completed — real HW
+            // kicks the fetcher in when the BG fetcher's emit-X reaches
+            // the sprite's screen X, which is offset by `discardLeft`
+            // dots from our `currentPx` counter (currentPx only advances
+            // after discards finish).
+            const nextIdx = this.mode3NextSpriteIdx;
+            if (nextIdx < this.visibleSpriteCount) {
+              const visIdx = order[nextIdx]!;
+              const oamIdx = sprites[visIdx]!;
+              const sprX = oam[oamIdx * 4 + 1]! - 8;
+              const reachable = sprX < 0 ? this.bgFifoCount > 0 : this.discardLeft === 0 && sprX <= this.currentPx;
+              if (reachable) {
+                // Latch LCDC.1 at fetcher kick-in dot. If OBJ is off,
+                // the sprite still consumes its stall (real HW behavior)
+                // but won't appear in `resolveSpritePixel`.
+                this.spriteObjEnabled[visIdx] = (this.lcdc & 0x02) !== 0 ? 1 : 0;
+                this.mode3SpriteStallDots = this.spriteStallDotsFor(oamIdx);
+                this.mode3NextSpriteIdx++;
+                // Re-loop without consuming a dot so the stall starts on
+                // this iteration. mode3SpriteStallDots branch above will
+                // tick the first stall dot next.
+                continue;
+              }
+            }
             this.advanceBgFetcher();
             this.tryPushBgPixel();
             this.dots++;
             consumed++;
           } else if (this.lineHoldPending) {
-            // 1-dot hold between pixel 159 hitting the framebuffer and the
-            // sprite stall / mode 0 transition. Matches Pan Docs' "172 dot
-            // minimum" phrasing.
+            // 1-dot hold between pixel 159 hitting the framebuffer and
+            // mode 0 transition. Matches Pan Docs' "172 dot minimum".
             this.lineHoldPending = false;
             this.dots++;
             consumed++;
-          } else if (this.spriteStallElapsed < this.spriteStallPad) {
-            const pad = Math.min(maxDots - consumed, this.spriteStallPad - this.spriteStallElapsed);
-            this.dots += pad;
-            this.spriteStallElapsed += pad;
-            consumed += pad;
           } else {
             this.mode3Length = this.dots;
             this.dots = 0;
@@ -851,10 +904,13 @@ export class PPU {
     this.currentPx = 0;
     this.discardLeft = this.scx & 7;
     this.lineSpritesDrawn = false;
-    this.spriteStallElapsed = 0;
     this.lineHoldPending = false;
     this.windowStallPending = false;
+    this.mode3NextSpriteIdx = 0;
+    this.mode3SpriteStallDots = 0;
+    this.spriteObjEnabled.fill(-1);
     this.collectVisibleSprites();
+    this.buildSpriteFetchOrder();
   }
 
   /** Pre-collect the (up to 10) sprites that intersect the current scanline
@@ -865,10 +921,11 @@ export class PPU {
    *  The pixel-FIFO mixer iterates this list in order and takes the first
    *  non-transparent pixel at each X. */
   private collectVisibleSprites(): void {
-    if (!(this.lcdc & 0x02)) {
-      this.visibleSpriteCount = 0;
-      return;
-    }
+    // OAM scan runs regardless of LCDC.1 on real HW — the bit only gates
+    // whether each sprite ultimately renders. The per-sprite-fetcher
+    // state machine latches LCDC.1 at sprite kick-in (see the Drawing
+    // case of `advanceDots`), and `resolveSpritePixel` skips sprites
+    // whose latch is 0.
     const tallSprites = (this.lcdc & 0x04) !== 0;
     const spriteHeight = tallSprites ? 16 : 8;
     const oam = this.oam;
@@ -901,6 +958,7 @@ export class PPU {
     const tallSprites = (this.lcdc & 0x04) !== 0;
     const spriteHeight = tallSprites ? 16 : 8;
     for (let i = 0; i < this.visibleSpriteCount; i++) {
+      if (this.spriteObjEnabled[i] !== 1) continue;
       const idx = this.visibleSprites[i]!;
       const sprX = oam[idx * 4 + 1]! - 8;
       if (screenX < sprX || screenX >= sprX + 8) continue;
@@ -1078,8 +1136,9 @@ export class PPU {
     const effectiveBg = !this.cgbGame && !(this.lcdc & 0x01) ? 0 : bgColorIdx;
 
     // Resolve the winning sprite pixel for this column (if any).
-    if ((this.lcdc & 0x02) !== 0) this.resolveSpritePixel(this.currentPx);
-    else this.outSprColor = 0;
+    // LCDC.1 (OBJ enable) gate is per-sprite, latched at the
+    // fetcher kick-in dot (see Drawing case in `advanceDots`).
+    this.resolveSpritePixel(this.currentPx);
 
     // Decide if the sprite is on top. CGB has a master-priority gate via
     // LCDC.0; if cleared, sprites always win. Otherwise BG wins when its
