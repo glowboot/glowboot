@@ -930,11 +930,10 @@ timing edge cases.
 To everyone who has published an emulator as open source — for any
 console, in any language, at any level of completeness. The collective
 body of source code, write-ups, and commit histories you've put into
-the open is what makes a project like Glowboot possible for someone
-sitting down with a spec and a compiler. Every readable line of an
-opcode decoder, every commented PPU state machine, every honest
-"this still doesn't match hardware" TODO compounds into something
-much bigger than any single project. Thank you.
+the open is what makes a project like Glowboot possible at all. Every
+readable line of an opcode decoder, every commented PPU state machine,
+every honest "this still doesn't match hardware" TODO compounds into
+something much bigger than any single project. Thank you.
 
 ## License
 
