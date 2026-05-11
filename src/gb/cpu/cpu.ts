@@ -112,6 +112,11 @@ export class CPU {
   private readonly conflictReadOld = 0;
   private readonly conflictReadNew = 1;
   private readonly conflictWriteCpu = 2;
+  /** Palette-write quirk on CGB-D and later silicon: BGP/OBP0/OBP1 writes
+   *  land 2 T-cycles BEFORE the M-cycle boundary, so a mid-mode-3 palette
+   *  swap visibly affects 2 more pixels than `ReadOld` would. Targets
+   *  Mealybug `m3_bgp_change` (~3K px) and `m3_bgp_change_sprites`. */
+  private readonly conflictPaletteCgb = 3;
 
   /** I/O conflict map for CGB single-speed (the only model we present as).
    *  Indexed by `addr & 0x7f`. Unset entries default to `ReadOld`. */
@@ -119,6 +124,9 @@ export class CPU {
     const m = new Uint8Array(128);
     m[0x0f] = this.conflictWriteCpu; // IF — CPU clear beats HW IRQ raise
     m[0x45] = this.conflictWriteCpu; // LYC — CPU write beats STAT compare
+    m[0x47] = this.conflictPaletteCgb; // BGP  — palette write shifts -2 T
+    m[0x48] = this.conflictPaletteCgb; // OBP0 — palette write shifts -2 T
+    m[0x49] = this.conflictPaletteCgb; // OBP1 — palette write shifts -2 T
     m[0x4b] = this.conflictWriteCpu; // WX — CPU write beats window compare
     return m;
   })();
@@ -200,6 +208,22 @@ export class CPU {
       this.ticksThisInstr++;
       this.mmu.writeByte(addr, value);
       this.pendingPpuApuTCycles = 1 + tPerM;
+      this.pendingMCycles = 1;
+      return;
+    }
+    if (conflict === this.conflictPaletteCgb) {
+      // Write 2 T-cycles BEFORE the M-cycle boundary; leftover 2 T-cycles
+      // are added to the next access's queue (6 total). PPU/APU side sees
+      // the write 2 dots earlier; timer/DMA unaffected.
+      if (this.pendingPpuApuTCycles >= 2) {
+        this.pendingPpuApuTCycles -= 2;
+      } else {
+        this.pendingPpuApuTCycles = 0;
+      }
+      this.flushPendingCycles();
+      this.ticksThisInstr++;
+      this.mmu.writeByte(addr, value);
+      this.pendingPpuApuTCycles = 2 + tPerM;
       this.pendingMCycles = 1;
       return;
     }
