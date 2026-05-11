@@ -58,19 +58,6 @@ export class CPU {
    */
   private tStateCounter = 0;
 
-  /**
-   * T-cycles queued for subsystem advancement but not yet ticked. Each
-   * bus access sets this to 4 (single-speed) or 2 (double-speed) AFTER
-   * the access completes. The NEXT bus access (or the end-of-step flush)
-   * flushes the queue, advancing PPU / APU / timer / OAM-DMA by that
-   * many T-cycles before the next memory operation. This puts the bus
-   * access at the boundary between M-cycles (the canonical T=0/T=4 model
-   * used by SameBoy / mGBA / Gambatte), so an IRQ raised during a
-   * subsystem tick is visible at the next M-cycle's IF check — matching
-   * real-HW IRQ dispatch timing for `hblank_int_scxN` and friends.
-   */
-  private pendingCycles = 0;
-
   /** PC snapshot at the start of the current `execute` — used by the
    *  debugger call-stack tracker to record the address of the CALL/RST
    *  that pushed each frame. Zero overhead (single field write per step). */
@@ -102,6 +89,40 @@ export class CPU {
 
   // ─── Bus access with per-cycle timer ticking ──────────────────────────────
 
+  /**
+   * Bus-write timing variants for I/O registers (0xFF00–0xFF7F). Phase C
+   * of the T-cycle PPU sync work adds these to reflect HW behavior where
+   * a CPU write can land 1 T-cycle earlier or later than the default
+   * M-cycle boundary timing, depending on the specific register.
+   *
+   * Modeled here:
+   *   ReadOld  (default): write at M-cycle boundary. Old value visible to
+   *                       hardware reads in the same M-cycle.
+   *   ReadNew:            write 1 T-cycle EARLIER than boundary. New value
+   *                       visible to hardware reads in the same M-cycle.
+   *   WriteCpu:           write 1 T-cycle LATER than boundary. CPU's write
+   *                       wins over a hardware write in the same M-cycle.
+   *                       Most importantly: IF register (0xFF0F) uses this,
+   *                       so CPU clears of IF beat a hardware-asserted IRQ
+   *                       and the IRQ handler can ACK without re-fire.
+   *
+   * Complex per-register variants from reference emulators (palette glitch,
+   * STAT spurious-write, LCDC tile-select glitch) are NOT modeled here yet.
+   */
+  private readonly conflictReadOld = 0;
+  private readonly conflictReadNew = 1;
+  private readonly conflictWriteCpu = 2;
+
+  /** I/O conflict map for CGB single-speed (the only model we present as).
+   *  Indexed by `addr & 0x7f`. Unset entries default to `ReadOld`. */
+  private readonly cgbConflictMap = (() => {
+    const m = new Uint8Array(128);
+    m[0x0f] = this.conflictWriteCpu; // IF — CPU clear beats HW IRQ raise
+    m[0x45] = this.conflictWriteCpu; // LYC — CPU write beats STAT compare
+    m[0x4b] = this.conflictWriteCpu; // WX — CPU write beats window compare
+    return m;
+  })();
+
   /** Advance the timer by 1 M-cycle before each memory bus access, so reads
    *  and writes observe the timer state at the end of their own bus cycle.
    *
@@ -115,50 +136,88 @@ export class CPU {
    *  M-cycle is two real T-cycles, so we split 1 + 1 (close enough to
    *  the exact 1.5 + 0.5; double-speed isn't what the sound tests
    *  exercise). */
-  /**
-   * Advance every PPU/APU/timer/DMA subsystem by `pendingCycles` T-cycles
-   * and reset the queue. Called at the start of each bus access and at
-   * the end of `step()` so subsystems are caught up to the boundary of
-   * the M-cycle that is about to do the next memory operation.
-   */
+  /** Pending PPU+APU T-cycles, queued from the last bus/internal access.
+   *  Flushed at the next bus access (or end-of-step). Tracked separately
+   *  from `pendingMCycles` so conflict-map writes can shift the PPU/APU
+   *  side ±1 T-cycle without breaking M-cycle-granular timer alignment. */
+  private pendingPpuApuTCycles = 0;
+  /** Pending M-cycles for the timer + OAM-DMA subsystems. Always equals
+   *  `pendingPpuApuTCycles / tPerM` rounded down; the residual T-cycles
+   *  (from conflict-map ±1 shifts) sit in the PPU/APU side until the
+   *  next access naturally aligns to an M-cycle boundary. */
+  private pendingMCycles = 0;
+
+  /** Advance PPU+APU by their pending T-cycles AND timer+DMA by their
+   *  pending M-cycles, then reset both queues. */
   private flushPendingCycles(): void {
-    const tCycles = this.pendingCycles;
-    if (tCycles === 0) return;
-    this.pendingCycles = 0;
-    const mCycles = tCycles / (this.doubleSpeed ? 2 : 4);
-    this.mmu.tickDma(mCycles);
-    if (this.apu) this.apu.tickTCycles(tCycles);
-    if (this.ppu) this.ppu.tickDots(tCycles);
-    this.timer.tick(mCycles);
-    this.tStateCounter += tCycles;
+    const tCycles = this.pendingPpuApuTCycles;
+    const mCycles = this.pendingMCycles;
+    if (tCycles === 0 && mCycles === 0) return;
+    this.pendingPpuApuTCycles = 0;
+    this.pendingMCycles = 0;
+    if (tCycles > 0) {
+      if (this.apu) this.apu.tickTCycles(tCycles);
+      if (this.ppu) this.ppu.tickDots(tCycles);
+      this.tStateCounter += tCycles;
+    }
+    if (mCycles > 0) {
+      this.mmu.tickDma(mCycles);
+      this.timer.tick(mCycles);
+    }
   }
 
   private busRead(addr: number): number {
-    // Flush the previous M-cycle's queued T-cycles so the bus access
-    // lands at the M-cycle boundary (T=0). PPU/APU/timer see the full
-    // 4 T-cycles of the previous M-cycle before the read returns.
     this.flushPendingCycles();
     this.ticksThisInstr++;
     const v = this.mmu.readByte(addr);
-    this.pendingCycles = this.doubleSpeed ? 2 : 4;
+    this.pendingPpuApuTCycles = this.doubleSpeed ? 2 : 4;
+    this.pendingMCycles = 1;
     return v;
   }
 
   private busWrite(addr: number, value: number): void {
+    const tPerM = this.doubleSpeed ? 2 : 4;
+    const conflict = (addr & 0xff80) === 0xff00 ? this.cgbConflictMap[addr & 0x7f]! : this.conflictReadOld;
+    if (conflict === this.conflictWriteCpu) {
+      // Write 1 T-cycle PAST the M-cycle boundary. PPU/APU see one extra
+      // T-cycle of "old state" before the write lands. Net per-access
+      // T-cycle total is still 4 — only the WRITE event shifts +1.
+      this.pendingPpuApuTCycles += 1;
+      this.flushPendingCycles();
+      this.ticksThisInstr++;
+      this.mmu.writeByte(addr, value);
+      this.pendingPpuApuTCycles = tPerM - 1;
+      this.pendingMCycles = 1;
+      return;
+    }
+    if (conflict === this.conflictReadNew) {
+      // Write 1 T-cycle BEFORE the M-cycle boundary. The leftover dot is
+      // queued for the next access along with the standard 4.
+      if (this.pendingPpuApuTCycles >= 1) {
+        this.pendingPpuApuTCycles -= 1;
+      }
+      this.flushPendingCycles();
+      this.ticksThisInstr++;
+      this.mmu.writeByte(addr, value);
+      this.pendingPpuApuTCycles = 1 + tPerM;
+      this.pendingMCycles = 1;
+      return;
+    }
+    // ReadOld (default): flush queued, write at boundary, queue 4 + 1 M.
     this.flushPendingCycles();
     this.ticksThisInstr++;
     this.mmu.writeByte(addr, value);
-    this.pendingCycles = this.doubleSpeed ? 2 : 4;
+    this.pendingPpuApuTCycles = tPerM;
+    this.pendingMCycles = 1;
   }
 
   private internalCycle(): void {
-    this.pendingCycles += this.doubleSpeed ? 2 : 4;
+    this.pendingPpuApuTCycles += this.doubleSpeed ? 2 : 4;
+    this.pendingMCycles += 1;
     this.ticksThisInstr++;
   }
 
   private finishTicks(total: number): void {
-    // Flush queued cycles from the last bus access / internal cycle, then
-    // top up any remainder from the instruction's M-cycle budget.
     this.flushPendingCycles();
     const remainder = total - this.ticksThisInstr;
     if (remainder > 0) {
