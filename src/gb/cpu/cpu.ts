@@ -58,6 +58,19 @@ export class CPU {
    */
   private tStateCounter = 0;
 
+  /**
+   * T-cycles queued for subsystem advancement but not yet ticked. Each
+   * bus access sets this to 4 (single-speed) or 2 (double-speed) AFTER
+   * the access completes. The NEXT bus access (or the end-of-step flush)
+   * flushes the queue, advancing PPU / APU / timer / OAM-DMA by that
+   * many T-cycles before the next memory operation. This puts the bus
+   * access at the boundary between M-cycles (the canonical T=0/T=4 model
+   * used by SameBoy / mGBA / Gambatte), so an IRQ raised during a
+   * subsystem tick is visible at the next M-cycle's IF check — matching
+   * real-HW IRQ dispatch timing for `hblank_int_scxN` and friends.
+   */
+  private pendingCycles = 0;
+
   /** PC snapshot at the start of the current `execute` — used by the
    *  debugger call-stack tracker to record the address of the CALL/RST
    *  that pushed each frame. Zero overhead (single field write per step). */
@@ -102,59 +115,59 @@ export class CPU {
    *  M-cycle is two real T-cycles, so we split 1 + 1 (close enough to
    *  the exact 1.5 + 0.5; double-speed isn't what the sound tests
    *  exercise). */
+  /**
+   * Advance every PPU/APU/timer/DMA subsystem by `pendingCycles` T-cycles
+   * and reset the queue. Called at the start of each bus access and at
+   * the end of `step()` so subsystems are caught up to the boundary of
+   * the M-cycle that is about to do the next memory operation.
+   */
+  private flushPendingCycles(): void {
+    const tCycles = this.pendingCycles;
+    if (tCycles === 0) return;
+    this.pendingCycles = 0;
+    const mCycles = tCycles / (this.doubleSpeed ? 2 : 4);
+    this.mmu.tickDma(mCycles);
+    if (this.apu) this.apu.tickTCycles(tCycles);
+    if (this.ppu) this.ppu.tickDots(tCycles);
+    this.timer.tick(mCycles);
+    this.tStateCounter += tCycles;
+  }
+
   private busRead(addr: number): number {
-    this.mmu.tickDma(1);
-    const apu = this.apu;
-    if (apu) apu.tickTCycles(this.doubleSpeed ? 1 : 3);
-    // The LR35902 lands its read at T=3 of the 4-T M-cycle, so the PPU
-    // has advanced 3 dots before the read returns and 1 more on the way
-    // out. Mid-instruction reads of PPU registers (LY, STAT, BGP, …)
-    // therefore observe the dot-accurate state at the bus cycle. Same
-    // 3+1 split the APU uses above. Double-speed: 1+1 dots (1 CPU
-    // M-cycle = 2 dots).
-    if (this.ppu) this.ppu.tickDots(this.doubleSpeed ? 1 : 3);
+    // Flush the previous M-cycle's queued T-cycles so the bus access
+    // lands at the M-cycle boundary (T=0). PPU/APU/timer see the full
+    // 4 T-cycles of the previous M-cycle before the read returns.
+    this.flushPendingCycles();
     this.ticksThisInstr++;
-    this.tStateCounter += this.doubleSpeed ? 2 : 4;
     const v = this.mmu.readByte(addr);
-    this.timer.tick(1);
-    if (apu) apu.tickTCycles(1);
-    if (this.ppu) this.ppu.tickDots(1);
+    this.pendingCycles = this.doubleSpeed ? 2 : 4;
     return v;
   }
 
   private busWrite(addr: number, value: number): void {
-    this.mmu.tickDma(1);
-    const apu = this.apu;
-    if (apu) apu.tickTCycles(this.doubleSpeed ? 1 : 3);
-    // 3 dots advance with the OLD register state before the write lands
-    // at T=3, then 1 more dot with the NEW value — matches real HW for
-    // mid-mode-3 writes (BGP / SCX / LCDC / …).
-    if (this.ppu) this.ppu.tickDots(this.doubleSpeed ? 1 : 3);
+    this.flushPendingCycles();
     this.ticksThisInstr++;
-    this.tStateCounter += this.doubleSpeed ? 2 : 4;
     this.mmu.writeByte(addr, value);
-    this.timer.tick(1);
-    if (apu) apu.tickTCycles(1);
-    if (this.ppu) this.ppu.tickDots(1);
+    this.pendingCycles = this.doubleSpeed ? 2 : 4;
   }
 
   private internalCycle(): void {
-    this.mmu.tickDma(1);
-    this.timer.tick(1);
-    if (this.apu) this.apu.tickTCycles(this.doubleSpeed ? 2 : 4);
-    if (this.ppu) this.ppu.tickDots(this.doubleSpeed ? 2 : 4);
+    this.pendingCycles += this.doubleSpeed ? 2 : 4;
     this.ticksThisInstr++;
-    this.tStateCounter += this.doubleSpeed ? 2 : 4;
   }
 
   private finishTicks(total: number): void {
+    // Flush queued cycles from the last bus access / internal cycle, then
+    // top up any remainder from the instruction's M-cycle budget.
+    this.flushPendingCycles();
     const remainder = total - this.ticksThisInstr;
     if (remainder > 0) {
+      const tCycles = remainder * (this.doubleSpeed ? 2 : 4);
       this.mmu.tickDma(remainder);
       this.timer.tick(remainder);
-      if (this.apu) this.apu.tickTCycles(remainder * (this.doubleSpeed ? 2 : 4));
-      if (this.ppu) this.ppu.tickDots(remainder * (this.doubleSpeed ? 2 : 4));
-      this.tStateCounter += remainder * (this.doubleSpeed ? 2 : 4);
+      if (this.apu) this.apu.tickTCycles(tCycles);
+      if (this.ppu) this.ppu.tickDots(tCycles);
+      this.tStateCounter += tCycles;
     }
   }
 
@@ -211,12 +224,21 @@ export class CPU {
     // serviced until one full instruction has elapsed.
     const pendingMask = this.interrupts.ie & this.interrupts.if & 0x1f;
     if (pendingMask !== 0) {
+      if (this.halted) {
+        // HALT wake-up costs 1 M-cycle on real HW before the ISR dispatch
+        // (or the next instruction, if IME=0). GBMicrotest's
+        // `int_hblank_incs_scxN` / `int_hblank_nops_scxN` clusters all
+        // expect this wake latency; the IRQ dispatch then happens on the
+        // NEXT step() call.
+        this.halted = false;
+        this.finishTicks(1);
+        return 1;
+      }
       if (this.ime) {
         const c = this.serviceInterrupt(pendingMask & -pendingMask);
         this.finishTicks(c);
         return c;
       }
-      if (this.halted) this.halted = false;
     }
 
     // EI is documented as "interrupts are enabled after the instruction
