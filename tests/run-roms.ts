@@ -107,6 +107,7 @@ interface ScreenTest {
   refPng: string; // path under test-roms/
   palette?: { bg: number[]; obp0: number[]; obp1: number[] };
   frames: number;
+  useBootRom?: boolean; // run via `cgb_boot.bin` first — Mealybug needs the boot-ROM logo bitmap
 }
 
 // Discover Gambatte tests with CGB reference PNGs. Naming convention:
@@ -169,7 +170,8 @@ function discoverMealybugTests(): ScreenTest[] {
             romPath: join(dirRel, entry),
             refPng: ref,
             palette: { bg: ACID2_CGB_BG, obp0: ACID2_CGB_OBP, obp1: ACID2_CGB_OBP },
-            frames: 60
+            frames: 200, // CGB boot animation ~150 frames + ~50 to stabilise
+            useBootRom: true
           });
         }
       }
@@ -566,7 +568,12 @@ function diffPixels(a: Uint8Array | Uint8ClampedArray, b: Uint8Array | Uint8Clam
 
 function runFramebufferTest(romPath: string, cfg: ScreenTest, name: string): Outcome {
   const bytes = new Uint8Array(readFileSync(romPath));
-  const gb = new GameBoy(bytes);
+  // Mealybug tests rely on the Nintendo logo bitmap left in VRAM after the
+  // boot ROM runs (the test's "(r) logo as a sprite" comment). Reference
+  // screenshots were captured on real HW which always boots, so framebuffer
+  // tests need to boot through `cgb_boot.bin` when present.
+  const bootRom = cfg.useBootRom && CGB_BOOT_ROM ? CGB_BOOT_ROM : null;
+  const gb = new GameBoy(bytes, bootRom);
   if (cfg.palette) gb.ppu.setDmgCompatPalette(cfg.palette.bg, cfg.palette.obp0, cfg.palette.obp1);
   for (let f = 0; f < cfg.frames; f++) gb.runFrame();
   const ref = loadReferencePng(resolve(TEST_ROMS_DIR, cfg.refPng));
