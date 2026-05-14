@@ -4,7 +4,7 @@
   "type": "module",
   "license": "MIT",
   "author": "the Glowboot authors",
-  "description": "Play original Game Boy and Game Boy Color games in your browser.",
+  "description": "Play original Game Boy and Game Boy Color games in your browser. Built entirely with AI.",
   "homepage": "https://glowboot.pages.dev",
   "repository": {
     "type": "git",
