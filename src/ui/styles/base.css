@@ -1,0 +1,1108 @@
+/* ═════════ Design tokens ═════════
+   Semantic custom properties consumed across base.css, popovers.css,
+   canvas.css and touch.css. Three groups: the glass recipe used by
+   every popover surface, the accent / danger colour scales, and the
+   focus-ring values. Adding new surfaces? Reach for a token first;
+   only introduce a literal for genuinely one-off values (e.g. the
+   theme backgrounds in themes.css). */
+:root {
+  /* ── Glass recipe ── shared by every popover surface. */
+  --glass-bg: rgba(20, 20, 28, 0.92);
+  --glass-blur: blur(18px) saturate(140%);
+  --glass-border-color: rgba(255, 255, 255, 0.12);
+  --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  /* ── Subtle surface tint ── neutral fill for inactive buttons, default
+     card backgrounds, and idle hover targets across every popover. */
+  --surface-subtle: rgba(255, 255, 255, 0.04);
+
+  /* ── Primary accent (mint green) ── used for active/enabled states:
+     cheat badge, scanner "freeze", add button, range/checkbox accent,
+     focus ring. */
+  --accent: #9ef0d0;
+  --accent-soft: rgba(158, 240, 208, 0.14);
+  --accent-border: rgba(158, 240, 208, 0.4);
+  --accent-strong: rgba(158, 240, 208, 0.6);
+  --accent-dim: rgba(158, 240, 208, 0.7);
+  --accent-hover-bg: rgba(158, 240, 208, 0.22);
+
+  /* ── Secondary accent (amber) ── transient "listening / in-progress"
+     state: binding-chip capture, turbo speed indicator. */
+  --accent-warn: #ffe2a0;
+  --accent-warn-soft: rgba(255, 226, 160, 0.18);
+  --accent-warn-border: rgba(255, 226, 160, 0.55);
+
+  /* ── Gold ── persistent-label highlight: user-labelled save slots,
+     library patch badge. Visually distinct from --accent-warn so the
+     "pinned" state doesn't read as "transient". */
+  --gold: #ffd866;
+  --gold-border: rgba(255, 216, 102, 0.55);
+
+  /* ── Danger (desaturated red) ── destructive hover state + muted-
+     channel tint. Two intensities: subtle (chip/text hover) and strong
+     (primary destructive action). */
+  --danger-text: #ff8d99;
+  --danger-bg: rgba(255, 77, 97, 0.22);
+  --danger-border: rgba(255, 77, 97, 0.5);
+  --danger-bg-strong: rgba(255, 77, 97, 0.55);
+  --danger-border-strong: rgba(255, 77, 97, 0.9);
+
+  /* ── Focus ring ── consumed by the global :focus-visible rule below.
+     Keep width/offset here so accessibility-minded users can override
+     via a single block without hunting for every declaration. */
+  --focus-ring-color: var(--accent);
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* ── Muted text ── minimum alpha that still meets WCAG AA on the
+     glass-bg for functional body copy (empty-state messages, hints,
+     secondary meta). Previously most of these were 0.5 which scraped
+     AA-large only. Bumping to 0.65 keeps the hierarchy vs. #fff /
+     0.85 / 0.75 while making the copy legible for low-vision users. */
+  --text-muted: rgba(255, 255, 255, 0.65);
+}
+
+/* ═════════ Focus rings ═════════
+   Every custom button / card in the app uses `all: unset` to strip the
+   browser's default chrome, which also strips the default focus ring.
+   This block reinstates a visible focus indicator for keyboard users
+   across every interactive surface. Added once, centrally, rather than
+   per-component so the offset/colour stay consistent. Input elements
+   (search boxes, cheat-code fields) keep their existing `:focus`
+   border-colour treatment — those are already visible indicators. */
+.icon-btn:focus-visible,
+.np-info-btn:focus-visible,
+.theme-opt:focus-visible,
+.ctrl-shortcut-hint:focus-visible,
+.slots-import:focus-visible,
+.slot-card:focus-visible,
+.slot-action:focus-visible,
+.binding-chip:focus-visible,
+.bindings-reset:focus-visible,
+.settings-io-btn:focus-visible,
+.mute-btn:focus-visible,
+.cheat-delete:focus-visible,
+.cheats-add button:focus-visible,
+.cheats-import:focus-visible,
+.cheats-search-result:focus-visible,
+.cheats-scanner-btn:focus-visible,
+.cheats-scanner-reset:focus-visible,
+.cheats-scanner-add:focus-visible,
+.cheats-scanner-set:focus-visible,
+.library-card:focus-visible,
+.library-action:focus-visible,
+.settings-section h4:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Hover-hidden action buttons (Save/Rename/Export/Clear on slot cards,
+   × on library cards) default to opacity 0; reveal them when the card
+   or one of its actions takes keyboard focus so Tab reaches them. */
+.slot-card:focus-within .slot-actions,
+.library-card:focus-within .library-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ═════════ Screen-reader utility ═════════
+   Classic "visible to AT, invisible to sight" pattern. Used by the
+   aria-live announcement region set up in hud/announce.ts. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ═════════ Skip-link ═════════
+   Hidden off-screen until it takes focus, at which point it slides in
+   from the top. First focusable element in tab order, so keyboard / SR
+   users can jump straight to the emulator without tabbing through the
+   whole header icon row first. */
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 1000;
+  padding: 8px 14px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border-color);
+  border-radius: 8px;
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  text-decoration: none;
+  transform: translateY(calc(-100% - 16px));
+  transition: transform 150ms ease;
+}
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ═════════ Reset & page ═════════ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+/* Force the semantic `hidden` attribute to always win over author
+   rules that set `display: flex / grid / etc.` on the same element.
+   Several components (settings rows, bindings groups, popover
+   sections) combine `display: flex` with JS-driven `hidden` toggles
+   (settings search, palette CGB gating); without this rule those
+   elements stay visible because the UA `[hidden] { display: none }`
+   rule has lower specificity than the class-level `display: flex`. */
+[hidden] {
+  display: none !important;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+html {
+  background: #0a0912;
+  /* Reserve space for the vertical scrollbar regardless of whether
+     content is currently tall enough to need one. Without this, the
+     scrollbar pops in once content grows past the viewport during
+     load, the viewport width shrinks by the scrollbar gutter, and
+     every viewport-anchored element (notably the `.theme-bg` children
+     under `position: fixed; inset: 0`) resizes — Lighthouse scores
+     that as ~0.19 CLS attributed to `.t-conic`. */
+  scrollbar-gutter: stable;
+}
+body {
+  font-family: "Inter", system-ui, sans-serif;
+  color: #fff;
+  background: transparent;
+  overflow-x: hidden;
+  min-height: 100vh;
+  /* dvh follows mobile browser chrome so the body sizes to the actual
+     visible area, not the largest-possible viewport — without this the
+     body's `min-height: 100vh` overflows the visible area whenever the
+     URL bar is shown, triggering a vertical scroll the user didn't ask
+     for. Falls back to vh on browsers without dvh support. */
+  min-height: 100dvh;
+  position: relative;
+}
+/* Touch devices: lock the page-level scroll. The emulator UI fits in
+   one screen by design (canvas + touch overlay + headers); any
+   page-level scroll on a phone is accidental — a finger drift on the
+   D-pad bleeding onto the body, an overscroll bounce — and the
+   browser chrome show/hide that scroll triggers reads as jitter
+   during gameplay. Both `html` and `body` need the lock because iOS
+   Safari can scroll the documentElement even when body is locked.
+   Popovers keep their own internal `overflow-y: auto`, so settings /
+   library / etc. still scroll.
+   Driven off a media query rather than the JS-set `body.is-touch`
+   class so the rule applies at first paint — the JS path adds the
+   class only after main.ts loads, which produced a viewport-resize
+   layout shift on mobile (Lighthouse: ~0.19 CLS attributed to
+   `.t-conic`, intermittent depending on JS load timing). */
+@media (pointer: coarse) {
+  html,
+  body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+}
+
+/* ═════════ App layout ═════════ */
+/* .app is positioned (relative) but intentionally has no z-index so it
+   does NOT create a stacking context. That lets child popovers at
+   z-index 50 stack against the body-level .popover-backdrop (49)
+   directly; if .app had its own z-index, the modals would inherit
+   .app's stacking slot and end up behind the backdrop. */
+.app {
+  /* Base pad tokens — overridden in responsive rules below. env() adds
+     iOS notch / home-indicator insets on top. */
+  --pad-x: 28px;
+  --pad-y: 24px;
+  min-height: 100vh;
+  /* dvh follows mobile browser chrome (URL bar show/hide) so the layout
+     doesn't jump when it animates in/out. Falls back to vh elsewhere. */
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: calc(var(--pad-y) + env(safe-area-inset-top)) calc(var(--pad-x) + env(safe-area-inset-right))
+    calc(var(--pad-y) + env(safe-area-inset-bottom)) calc(var(--pad-x) + env(safe-area-inset-left));
+  gap: 18px;
+  position: relative;
+}
+
+header.top {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+/* flex-wrap so the action-icon row drops to a second line before the
+   rightmost buttons clip off-screen on narrow viewports. */
+.header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+.header-row .np-strip {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Hidden file input triggered by the Load ROM button. */
+#rom-input {
+  display: none;
+}
+
+/* ═════════ Controls footer ═════════ */
+.ctrl-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.ctrl-label {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.45);
+  margin-right: 4px;
+}
+.ctrl-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ctrl-sep {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.ctrl-group .key {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+.ctrl-lab {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* ═════════ Header icon buttons ═════════ */
+/* Wraps internally once the row gets pushed to a second line on narrow
+   viewports so every icon stays reachable. */
+.np-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+.icon-btn {
+  all: unset;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition:
+    background 200ms ease,
+    color 200ms ease,
+    border-color 200ms ease,
+    transform 120ms ease;
+}
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  transform: translateY(-1px);
+}
+.icon-btn:active {
+  transform: translateY(1px);
+}
+/* Slots / Cheats / Fullscreen stay disabled until a ROM is loaded so
+   the user can't open a popover against a non-existent engine. */
+.icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+.icon-btn:disabled:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+  transform: none;
+}
+.icon-btn.primary {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.1));
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+.icon-btn.primary:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.16));
+}
+
+/* ═════════ NOW PLAYING strip ═════════ */
+/* Always visible — displays default "zero" values until a ROM starts. */
+.np-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 2px 4px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  /* Clip horizontally (long titles) but allow vertical overflow so the
+     cart-info popover anchored to the info button can escape the strip. */
+  overflow-x: clip;
+  overflow-y: visible;
+  text-overflow: ellipsis;
+}
+.np-label {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.np-title {
+  font-family: "VT323", monospace;
+  font-size: 22px;
+  color: #fff;
+  letter-spacing: 1px;
+  line-height: 1;
+  /* The title stays at its natural width (flex-grow: 0 keeps metadata
+     sitting right next to it instead of being pushed against the action
+     buttons) but can shrink below its content (flex-shrink: 1 + min-
+     width: 0 + ellipsis) so a long ROM name doesn't push the action
+     row onto a second line. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* When the cart-info trigger is visible (ROM loaded), the title acts
+   as an extended click-target for the same popover — clicking the
+   title opens the cart-info the same way clicking the ℹ button does.
+   No keyboard-focus treatment because the ℹ button already covers
+   keyboard access via Tab. */
+.np-info-wrap:has(.np-info-btn:not([hidden])) .np-title {
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+.np-info-wrap:has(.np-info-btn:not([hidden])) .np-title:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+/* Metadata group — collapses each section (separator + value) into a
+   single flex child of .np-strip so media queries can hide it cleanly.
+   `flex-shrink: 0` keeps the fixed-width metadata pieces at their
+   intrinsic size; the title above takes all the shrinking. */
+.np-g {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.np-sep {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.15);
+}
+.np-meta {
+  color: rgba(255, 255, 255, 0.75);
+  font-weight: 500;
+}
+.np-meta b {
+  color: #fff;
+  font-weight: 600;
+}
+.np-dot {
+  display: inline-flex;
+  align-items: center;
+}
+.led-s {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3ad07a;
+  box-shadow: 0 0 6px #3ad07a;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+/* Cartridge-info trigger lives inside the NOW PLAYING strip, next to
+   the ROM title. Stays hidden until main.ts unhides it on ROM load. */
+.np-info-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  /* Lets the title inside shrink + ellipsize when the .np-strip runs
+     out of horizontal space (long ROM names on narrow viewports). */
+  min-width: 0;
+}
+.np-info-btn {
+  all: unset;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.55);
+  transition:
+    color 150ms ease,
+    background 150ms ease;
+}
+.np-info-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+.np-info-btn[hidden] {
+  display: none;
+}
+
+/* Speed badge — shown in the np-strip whenever the emulator isn't
+   running at 1×. Turbo uses the amber accent (#ffe2a0 + warm shadow);
+   slow-mo swaps to the mint accent so the user can distinguish slow
+   from fast without reading the multiplier. */
+#np-speed {
+  display: none;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  color: var(--accent-warn);
+  text-shadow: 0 0 6px rgba(255, 180, 100, 0.45);
+}
+#np-speed.is-on {
+  display: inline-block;
+}
+/* Hide the entire speed group (including its leading np-sep) when no
+   speed badge is showing — otherwise the separator hangs alone between
+   the CPU readout and the time, producing a visible empty divider. */
+.np-g-speed:not(:has(.is-on)) {
+  display: none;
+}
+#np-speed.slow {
+  color: var(--accent);
+  text-shadow: 0 0 6px rgba(158, 240, 208, 0.45);
+}
+
+/* ═════════ Popover trigger wrappers ═════════ */
+/* `.theme-menu` wraps every popover trigger (recents, slots, cheats,
+   settings) so its absolute popover can anchor relative to the icon. */
+.theme-menu {
+  position: relative;
+}
+/* Shared popover-entry animation, reused by every popover. */
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Inline theme picker in the Settings → Display row. Three round swatches
+   side-by-side; clicking activates the matching theme. */
+.theme-opts {
+  display: inline-flex;
+  gap: 6px;
+}
+.theme-opt {
+  all: unset;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-subtle);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition:
+    background 200ms ease,
+    border-color 200ms ease,
+    transform 120ms ease;
+  flex: 0 0 auto;
+}
+.theme-opt:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
+}
+.theme-opt.active {
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+.theme-opt .sw {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+.theme-opt[data-t="aurora-band"] .sw {
+  background: conic-gradient(from 0deg, #21d4a6, #6a3df2, #ff4d97, #21d4a6);
+}
+.theme-opt[data-t="light-caustics"] .sw {
+  background: radial-gradient(circle at 30% 30%, #fff, #1f5fb8 70%);
+}
+.theme-opt[data-t="sunset-drift"] .sw {
+  background: linear-gradient(180deg, #6e2d4a 0%, #c4512c 50%, #e0832f 100%);
+}
+.theme-opt[data-t="neon-grid"] .sw {
+  background:
+    radial-gradient(circle at 30% 40%, #ff3e8f 5%, transparent 12%),
+    radial-gradient(circle at 70% 70%, #00e5ff 5%, transparent 12%), #0a0218;
+}
+.theme-opt[data-t="forest-canopy"] .sw {
+  background: radial-gradient(circle at 40% 35%, #6ad86a 5%, #1f4523 70%);
+}
+
+/* ═════════ Responsive ladder ═════════
+   Progressive disclosure: less-essential NP metadata collapses first,
+   then icons shrink, then the footer legend drops out. The goal is for
+   every action icon to stay reachable at any viewport width. */
+@media (max-width: 1100px) {
+  /* Top-align the rig on narrow viewports — centering vertically pushes
+     the canvas off-screen once touch controls + footer make the column
+     taller than 1fr. */
+  .rig {
+    grid-template-columns: 1fr;
+    max-width: 600px;
+    align-self: start;
+  }
+}
+/* Shed metadata progressively so the strip fits alongside the icon
+   row without forcing header-row wrap. The action icons take ~300 px;
+   each shed metadata group reclaims 60–100 px for the title.
+   Time + Speed + FPS chips all hide at the same width — keeping FPS
+   visible alone for a 200 px window between 900 and 1100 was a
+   visual quirk without a layout payoff. */
+@media (max-width: 1100px) {
+  .np-g-time,
+  .np-g-speed,
+  .np-g-fps {
+    display: none;
+  }
+  .np-label {
+    display: none;
+  }
+}
+/* "More" overflow trigger — hidden at desktop widths where the action
+   row has space to inline every icon. Revealed inside the 720 px tier
+   below. Declared *before* the responsive blocks so the in-media-query
+   `display: block` override wins on source order at narrow widths. */
+#more-menu {
+  display: none;
+}
+
+/* Tablet — icons shrink + paddings tighten. The action row also sheds
+   its secondary icons (Library / Save slots / Cheats / Printer) into
+   the More overflow menu so the row stays one line at every width
+   below this point. */
+@media (max-width: 720px) {
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+  }
+  .icon-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+  .np-title {
+    font-size: 20px;
+  }
+  .app {
+    --pad-x: 16px;
+    --pad-y: 16px;
+    gap: 14px;
+  }
+  /* Reveal the More button and collapse its mirror targets out of the
+     inline action row. `:has()` targets each wrapper precisely so the
+     printer, when revealed via JS, also disappears from the row at
+     this width — its More-menu mirror picks up the slack. */
+  #more-menu {
+    display: block;
+  }
+  /* Library (#recents-trigger) and Save slots (#slots-trigger) stay
+     inline at every width — Library is the primary entry to a user's
+     saved games, Save slots is the most-used in-session action after
+     Pause. Both deserve one-tap access on phones. Cheats / Printer
+     fold into More.
+
+     Why `display: contents` instead of `display: none` on the wrapper:
+     the popovers (`.cheats-pop`, `.printer-pop`) live INSIDE these
+     wrappers. `display: none` on the wrapper would also hide the
+     popover, so a More-menu mirror-click that toggles the popover's
+     `.open` class would never make it visible. With
+     `display: contents`, the wrapper itself disappears from layout
+     (no flex slot, no `gap` reservation), but its descendants keep
+     their own display rules — the button stays hidden via its own
+     rule below, the popover stays toggleable via `.open`. */
+  .theme-menu:has(#cheats-trigger),
+  .theme-menu:has(#printer-trigger) {
+    display: contents;
+  }
+  .theme-menu:has(#cheats-trigger) > button,
+  .theme-menu:has(#printer-trigger) > button {
+    display: none;
+  }
+  /* Fullscreen also folds into More — rarely used on phones (the PWA
+     install path is the advertised mobile-fullscreen experience) and
+     freeing its ~36 px keeps the action row from wrapping at
+     intermediate widths. No `.theme-menu` wrapper here because the
+     fullscreen button has no popover, so a direct `display: none`
+     suffices. Same pattern for the About / GitHub link — the More
+     menu has its own About entry at narrow widths. */
+  #fullscreen-btn,
+  #github-link {
+    display: none;
+  }
+}
+/* Phone — sheds NP Status group so the action row stops wrapping,
+   shrinks icons further, and tightens the keyboard ctrl-strip.
+   Library/slots grid drops to 3 columns at the same width so card
+   sizing stays in step with the rest of the phone layout. */
+@media (max-width: 560px) {
+  .np-g-status {
+    display: none;
+  }
+  /* Drop the ROM title text — long names like "Pokémon Crystal (USA,
+     Europe)" otherwise dominate the row and force the action icons to
+     wrap. The cart-info button stays as a proper-sized icon-btn so a
+     tap still surfaces title + cartridge details + per-game overrides. */
+  .np-title {
+    display: none;
+  }
+  .np-strip {
+    gap: 10px;
+  }
+  .icon-btn {
+    width: 30px;
+    height: 30px;
+  }
+  /* Promote the cart-info button to icon-btn parity at this width:
+     same 30 px round target, same border / background / hover so it
+     reads as a real button alongside the rest of the action row. SVG
+     bumps to 16 px to match the resized icon-btn glyphs. */
+  .np-info-btn {
+    width: 30px;
+    height: 30px;
+    margin-left: 0;
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .np-info-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+  .canvas-frame {
+    padding: 8px;
+  }
+  .ctrl-strip {
+    gap: 8px 12px;
+    padding: 10px 14px;
+    font-size: 10px;
+  }
+  .ctrl-strip .key {
+    min-width: 20px;
+    height: 20px;
+    font-size: 10px;
+    padding: 0 5px;
+  }
+  .ctrl-label {
+    display: none;
+  }
+}
+@media (max-width: 420px) {
+  .app {
+    --pad-x: 10px;
+    --pad-y: 10px;
+    gap: 10px;
+  }
+  .icon-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+  }
+  .np-title {
+    font-size: 18px;
+  }
+  .canvas-frame {
+    padding: 6px;
+    border-radius: 10px;
+  }
+  /* Footer is a keyboard legend — hidden at phone widths to reclaim
+     vertical space. Touch devices reach the same actions via the
+     `.touch-actions` icon toolbar that sits below the canvas. */
+  .ctrl-strip {
+    display: none;
+  }
+}
+
+/* Desktop: the in-app `?` cheat sheet is the single source of truth
+   for hotkey bindings, so the footer hides the per-hotkey pills and
+   offers just a tappable "? Shortcuts" hint that opens the overlay.
+   Touch users never see the hint (no keyboard) — the `[data-hk-action]`
+   pills below stay visible and act as action buttons instead. */
+body:not(.is-touch) .ctrl-group[data-hk-action] {
+  display: none;
+}
+.ctrl-shortcut-hint {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  transition: background 120ms ease;
+}
+.ctrl-shortcut-hint:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* On touch devices the keyboard ctrl-strip is replaced wholesale by
+   the `.touch-actions` toolbar below — phones have no keyboard, so a
+   row of "Space → Pause" key pills was misleading even when wired to
+   tap. Hide the strip and show the toolbar instead. */
+body.is-touch .ctrl-strip {
+  display: none;
+}
+
+/* Suppress accidental text selection + the iOS long-press callout on
+   touch devices: a thumb that drifts off a button onto adjacent text
+   (Now Playing title, footer pills, popover headings) shouldn't leave
+   highlighted text behind mid-game. Form fields opt back in so the
+   room-code input and similar still behave normally. */
+body.is-touch {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+body.is-touch input,
+body.is-touch textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* ═════════ Touch action toolbar ═════════
+   Icon-only circular buttons under the canvas — reads as a game
+   overlay control rather than a desktop tool palette. Hidden on
+   non-touch (the keyboard ctrl-strip + ?-overlay stay authoritative).
+   Buttons are 40 px round, which matches the iOS HIG minimum tap
+   target while leaving enough breathing room between icons for thumb
+   accuracy. No card wrapper — the buttons float directly under the
+   canvas. */
+.touch-actions {
+  display: none;
+}
+/* On touch the toolbar is laid out unconditionally so the empty-state
+   placeholder doesn't reflow when a cart loads. Visibility is gated on
+   `body.has-cart` (set by rom-loader after a successful load): pre-load
+   the row is `visibility: hidden` + opacity 0 (out of the focus order
+   and the a11y tree, but reserving its space); post-load it fades in.
+   Driven off the `(pointer: coarse)` media query rather than the JS-set
+   `body.is-touch` class so the layout space is reserved at first paint
+   instead of jumping in once main.ts attaches the class — a delayed
+   class addition was producing an ~0.18 CLS shift attributed to
+   `.canvas-frame` on mobile reloads. */
+@media (pointer: coarse) {
+  .touch-actions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 14px;
+    padding: 12px 8px 4px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 180ms ease-out;
+  }
+  .has-cart .touch-actions {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+@media (pointer: coarse) and (prefers-reduced-motion: reduce) {
+  .touch-actions {
+    transition: none;
+  }
+}
+.touch-action {
+  all: unset;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Suppress the focus rectangle and iOS grey-flash overlay on tap;
+     same rationale as `.gb-btn` in touch.css — these are touch-only
+     icons, not keyboard-reachable, so no a11y regression. */
+  -webkit-tap-highlight-color: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--surface-subtle);
+  color: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 2px 6px rgba(0, 0, 0, 0.25);
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
+}
+/* Suppress the tap-driven focus rectangle but keep the keyboard one
+   — these are normal Tab-reachable buttons (no `tabindex="-1"`) so a
+   hybrid keyboard+touch user still gets a focus indicator when they
+   Tab to them. `:focus:not(:focus-visible)` is the touch-only state. */
+.touch-action:focus:not(:focus-visible) {
+  outline: none;
+}
+.touch-action:active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  transform: scale(0.94);
+}
+.touch-action svg {
+  flex: 0 0 auto;
+}
+/* Record's filled inner circle stays white in its resting state so the
+   button blends with its row neighbours, then flips to the warm accent
+   while a capture is live — `.rec-badge--on` is the source of truth
+   for "recording active" (toggled by session/actions.ts). */
+body:has(.rec-badge--on) .touch-action[data-touch-action="record"] svg circle:first-of-type {
+  color: #ff6266;
+}
+/* Speed cycle button accents when emulation is off 1× — mirrors the
+   `np-speed.is-on` / `.slow` badge states so the toolbar reflects the
+   live speed without needing to read the header strip. */
+body:has(#np-speed.is-on) .touch-action[data-touch-action="turbo"] {
+  color: var(--accent-warn);
+  border-color: color-mix(in srgb, var(--accent-warn) 50%, transparent);
+}
+body:has(#np-speed.slow) .touch-action[data-touch-action="turbo"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+/* Swap the FF icon for the live multiplier (×0.5 / ×2 / ×4) whenever
+   the emulator is off 1× — gives the touch player the same at-a-glance
+   speed read that desktop gets from the header `np-speed` badge. */
+.touch-action-speed {
+  display: none;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: -0.02em;
+}
+body:has(#np-speed.is-on) .touch-action[data-touch-action="turbo"] svg {
+  display: none;
+}
+body:has(#np-speed.is-on) .touch-action[data-touch-action="turbo"] .touch-action-speed {
+  display: inline;
+}
+/* Pause / Play icon swap — `body.is-paused` is mirrored from
+   `state.paused` (see `setPaused` in src/ui/state.ts), so the icon
+   shown is always the *next* action: pause bars while running, play
+   triangle while paused. */
+.touch-action[data-touch-action="pause"] .icon-play {
+  display: none;
+}
+body.is-paused .touch-action[data-touch-action="pause"] .icon-pause {
+  display: none;
+}
+body.is-paused .touch-action[data-touch-action="pause"] .icon-play {
+  display: inline;
+}
+/* Historical note: this block used to hide the fullscreen button on
+   touch devices because the old "fullscreen the canvas" path left the
+   on-screen D-pad unreachable. The button now fullscreens `.console`
+   (canvas + touch overlay), so touch users can play in fullscreen and
+   the rule is no longer needed. iOS Safari still can't fullscreen
+   arbitrary elements — the click falls through as a silent no-op
+   there; the PWA route remains the advertised mobile-fullscreen path. */
+
+/* ═════════ Toast ═════════ */
+/* Transient status messages, lower-right. `safe-area-inset-bottom`
+   keeps the pill clear of the iPhone landscape home-indicator bar;
+   on desktop the inset resolves to 0 and the toast sits at 24px as
+   before. Two elements share the same visual slot — `#toast` for
+   polite confirmations and `#toast-error` (red-tinted) for failures
+   — so screen readers can apply distinct `aria-live` urgencies. */
+#toast,
+#toast-error {
+  position: fixed;
+  right: calc(24px + env(safe-area-inset-right));
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(20, 18, 30, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+  z-index: 200;
+}
+#toast.active,
+#toast-error.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+#toast-error {
+  background: rgba(40, 10, 14, 0.94);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+
+/* ═════════ Reduced motion ═════════
+   Sledgehammer: neutralise every animation/transition for users who
+   have enabled the OS "reduce motion" preference. themes.css has its
+   own narrower rule for the theme-background layers (kept for clarity;
+   this rule would also cover them). Kept scroll-behavior explicit so
+   JS `scrollTo({ behavior: "smooth" })` calls respect the preference. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ═════════ Low-end / reduced-transparency fallback ═════════
+   `update: slow` flags devices whose display refresh can't keep up
+   with rapid compositing changes (low-end phones, e-ink, some old
+   Androids). On those, stacking the popover's own `blur(18px)` on
+   top of the theme-background's blurred layers produces visible
+   flicker on every scroll.
+
+   We also respect `prefers-reduced-transparency`, which users can
+   opt into when translucent UI is hard for them to parse.
+
+   Fix: drop the backdrop-filter entirely and bump the popover bg
+   opacity so the glass look degrades to flat frosted-plastic. Also
+   flattens the shortcut-hint / modal-overlay scrims to a plain dim
+   (no blur) so the same trade-off holds for every overlay surface. */
+@media (update: slow), (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-blur: none;
+    --glass-bg: rgba(16, 16, 22, 0.98);
+  }
+  .shortcut-hint,
+  .modal-overlay {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(8, 10, 18, 0.85);
+  }
+}
+
+/* ═════════ Rotate-to-portrait overlay ═════════
+   The Game Boy was a portrait-only device and the emulator's UI
+   reflects that. On a touch device in landscape we cover the screen
+   with this overlay so the user rotates rather than fighting a
+   landscape layout that was never going to feel right. Conditions:
+     * landscape orientation
+     * coarse pointer (phones / tablets — desktops with rotated
+       monitors aren't asked to rotate)
+   No JS — all conditions are media-query expressible. */
+.rotate-prompt {
+  display: none;
+}
+@media (orientation: landscape) and (pointer: coarse) {
+  .rotate-prompt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    padding: 24px;
+    background: rgba(10, 10, 14, 0.96);
+    color: rgba(255, 255, 255, 0.92);
+    text-align: center;
+  }
+  .rotate-prompt svg {
+    color: var(--accent, #9ef0d0);
+    /* Subtle sway hints at the rotation gesture. */
+    animation: rotateHint 2.4s ease-in-out infinite;
+  }
+  .rotate-prompt-title {
+    margin: 0;
+    font-family: "VT323", monospace;
+    font-size: 26px;
+    letter-spacing: 1px;
+  }
+  .rotate-prompt-sub {
+    margin: 0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.65);
+    max-width: 360px;
+    line-height: 1.4;
+  }
+  /* Game / chrome stays in the DOM but the overlay covers it; cheap,
+     and reflows once the user rotates. */
+}
+@keyframes rotateHint {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-90deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rotate-prompt svg {
+    animation: none;
+  }
+}

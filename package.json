@@ -1,0 +1,48 @@
+{
+  "name": "glowboot",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "MIT",
+  "author": "the Glowboot authors",
+  "description": "Play original Game Boy and Game Boy Color games in your browser.",
+  "homepage": "https://glowboot.pages.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glowboot/glowboot.git"
+  },
+  "private": true,
+  "sideEffects": [
+    "./src/main.ts",
+    "./src/ui/**",
+    "**/*.css"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.gb.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:roms": "tsx tests/run-roms.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "@types/pngjs": "^6.0.5",
+    "adm-zip": "^0.5.17",
+    "eslint": "^10.3.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-simple-import-sort": "^13.0.0",
+    "pngjs": "^7.0.0",
+    "prettier": "^3.8.3",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.2",
+    "vite": "^8.0.12",
+    "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^4.1.5"
+  }
+}

@@ -1,0 +1,43 @@
+name: Mark stale issues and PRs
+
+on:
+  schedule:
+    # Daily at 03:00 UTC.
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          days-before-issue-stale: 60
+          days-before-issue-close: 14
+          stale-issue-label: stale
+          stale-issue-message: >
+            This issue has been inactive for 60 days and is being marked as
+            stale. If it's still relevant, add a comment with new context (a
+            reproduction, the version you're seeing it on, etc.) and the
+            stale label will be removed. Otherwise it will be closed in 14
+            days. Closed issues can always be reopened.
+          close-issue-message: >
+            Closing as stale after 14 days of additional inactivity. Reopen
+            anytime if the issue still needs attention.
+          days-before-pr-stale: 30
+          days-before-pr-close: 14
+          stale-pr-label: stale
+          stale-pr-message: >
+            This pull request has been inactive for 30 days. If you're still
+            working on it, push a commit or leave a comment to remove the
+            stale label. Otherwise it will be closed in 14 days.
+          close-pr-message: >
+            Closing as stale. Reopen and push a new commit if you'd like to
+            continue.
+          exempt-issue-labels: pinned
+          exempt-pr-labels: pinned
+          operations-per-run: 100

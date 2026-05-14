@@ -1,0 +1,24 @@
+node_modules
+dist
+dist-dev
+
+# Claude Code local settings (per-developer preferences, not shared)
+.claude/
+
+# Test ROMs cloned locally for the `npm run test:roms` harness; not
+# bundled — `npm run test:roms` auto-fetches the c-sp release zip on
+# first run (set GLOWBOOT_NO_FETCH=1 to skip). The local accuracy
+# report at `tests/roms/REPORT.md` is also developer-internal and
+# stays out of the repo.
+tests/roms/
+
+# Vite env files — never commit any of them so secrets can't sneak in
+# through the back door. The repo ships `.env.example` as the only
+# documented contract; real values live in the deployment environment
+# (Cloudflare Pages → Settings → Environment variables) and in each
+# developer's local `.env.local`.
+.env
+.env.*
+!.env.example
+
+archive/

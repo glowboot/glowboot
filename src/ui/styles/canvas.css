@@ -1,0 +1,272 @@
+/* ═════════ Main rig + canvas ═════════ */
+
+.rig {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+  align-items: stretch;
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+  justify-items: center;
+  align-self: center;
+}
+.console {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 520px;
+}
+
+/* Canvas + glow + frame. The wrap tracks the Game Boy's native 10:9
+   aspect ratio so the glass frame hugs the screen instead of leaving
+   empty bands above and below it. */
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 10 / 9;
+  /* `manipulation` lets the user pan/zoom the page but disables the
+     iOS double-tap-to-zoom gesture over the game area, removing the
+     300 ms tap-response delay that would otherwise apply to every
+     tap on the canvas placeholder or rec badge. */
+  touch-action: manipulation;
+}
+/* Drop-target highlight: dashed accent outline around the game area
+   while a file is being dragged over the window. rom-loader.ts sets
+   `body.is-drop-target` on dragenter/dragleave so every part of the
+   page is a valid drop zone — the outline just points at where the
+   action will land. */
+body.is-drop-target .canvas-wrap {
+  outline: 2px dashed var(--accent);
+  outline-offset: 10px;
+  border-radius: 6px;
+}
+.canvas-wrap::before {
+  content: "";
+  position: absolute;
+  inset: -20px;
+  border-radius: 24px;
+  background: var(--glow, radial-gradient(closest-side, rgba(106, 61, 242, 0.5), transparent 70%));
+  filter: blur(20px);
+  z-index: -1;
+  transition: background 400ms ease;
+}
+body[data-theme="aurora-band"] {
+  --glow: radial-gradient(closest-side, rgba(255, 77, 151, 0.45) 0%, rgba(106, 61, 242, 0.35) 60%, transparent 75%);
+}
+body[data-theme="light-caustics"] {
+  --glow: radial-gradient(closest-side, rgba(170, 230, 255, 0.45), transparent 70%);
+}
+body[data-theme="sunset-drift"] {
+  --glow: radial-gradient(closest-side, rgba(255, 160, 100, 0.5) 0%, rgba(200, 70, 90, 0.3) 60%, transparent 75%);
+}
+body[data-theme="neon-grid"] {
+  --glow: radial-gradient(closest-side, rgba(255, 62, 143, 0.45) 0%, rgba(0, 229, 255, 0.3) 60%, transparent 75%);
+}
+body[data-theme="forest-canopy"] {
+  --glow: radial-gradient(closest-side, rgba(130, 210, 100, 0.45) 0%, rgba(60, 140, 80, 0.3) 60%, transparent 75%);
+}
+/* Click-to-load prompt shown over the canvas until a ROM has booted.
+   Positioned absolutely inside the .canvas-frame so it sits right on
+   top of the 160×144 canvas area — clicking opens the file picker.
+   Hidden via its `hidden` attribute once the first cart runs; never
+   shown again for the session. */
+.canvas-placeholder {
+  all: unset;
+  cursor: pointer;
+  position: absolute;
+  inset: 12px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 4px;
+  background: rgba(12, 14, 22, 0.82);
+  color: rgba(255, 255, 255, 0.75);
+  font-family: "VT323", monospace;
+  text-align: center;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+}
+.canvas-placeholder[hidden] {
+  display: none;
+}
+.canvas-placeholder:hover {
+  background: rgba(12, 14, 22, 0.9);
+  color: #fff;
+}
+.canvas-placeholder:focus-visible {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: -4px;
+}
+.canvas-placeholder-icon {
+  color: rgba(255, 255, 255, 0.85);
+}
+.canvas-placeholder-label {
+  font-size: 24px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+.canvas-placeholder-hint {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.canvas-frame {
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 40px 80px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#screen {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #000;
+  border-radius: 4px;
+  width: 100%;
+  aspect-ratio: 10 / 9;
+  max-height: 100%;
+  outline: 2px solid rgba(0, 0, 0, 0.5);
+  border: 4px solid rgba(255, 255, 255, 0.85);
+}
+/* Fullscreen target changed from #screen to .console so the on-screen
+   touch overlay stays reachable — see touch.css for the .console:fullscreen
+   rules. The per-canvas chrome (inset outline + white bezel) is stripped
+   in fullscreen via the .console:fullscreen #screen selector there. */
+/* Keyboard-focus ring — tabindex="0" on the canvas makes it reachable
+   via Tab once the ROM loader hides the placeholder. Without a visible
+   indicator the user can't tell whether the canvas is currently the
+   focused element (input still routes globally, but a11y requires the
+   focused element be identifiable). */
+#screen:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ═════════ Canvas overlays (rewind label, screenshot flash) ═════════ */
+.overlay {
+  position: absolute;
+  inset: 12px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  border-radius: 8px;
+  font-family: "VT323", monospace;
+  font-size: 44px;
+  letter-spacing: 3px;
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.7);
+  color: #fff;
+  z-index: 2;
+}
+.overlay.active {
+  display: flex;
+}
+.overlay-rewind {
+  background: linear-gradient(180deg, rgba(10, 10, 30, 0), rgba(10, 10, 30, 0.45));
+  /* Stack the REWIND label over a smaller delta line ("-5.2s") so the
+     user can gauge how far back they've scrubbed. `flex-direction`
+     lets the pseudo-elements stack naturally; the delta shows only
+     when `data-delta` is set by rewind.ts. */
+  flex-direction: column;
+  gap: 6px;
+}
+.overlay-rewind::after {
+  content: "REWIND";
+  animation: rewindPulse 0.8s ease-in-out infinite;
+}
+.overlay-rewind::before {
+  content: attr(data-delta);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+  order: 2;
+}
+@keyframes rewindPulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+.overlay-flash {
+  background: #fff;
+  animation: flashFade 120ms ease-out forwards;
+}
+@keyframes flashFade {
+  from {
+    opacity: 0.9;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ═════════ Recording indicator ═════════
+   Small "REC" pill pinned to the canvas top-right while MediaRecorder is
+   capturing. Hidden by default; recording.ts adds .rec-badge--on. A
+   leading red dot pulses so the state is obvious at a glance. */
+.rec-badge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  background: rgba(10, 10, 20, 0.7);
+  color: #fff;
+  font:
+    600 12px/1 system-ui,
+    sans-serif;
+  letter-spacing: 0.1em;
+  border-radius: 999px;
+  z-index: 3;
+  pointer-events: none;
+}
+.rec-badge::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff3b30;
+  animation: recPulse 1.2s ease-in-out infinite;
+}
+.rec-badge--on {
+  display: inline-flex;
+}
+@keyframes recPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

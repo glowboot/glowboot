@@ -1,0 +1,45 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 5
+    groups:
+      vite:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+      eslint:
+        patterns:
+          - "eslint"
+          - "eslint-*"
+          - "@typescript-eslint/*"
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      types:
+        patterns:
+          - "@types/*"
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "chore(ci)"

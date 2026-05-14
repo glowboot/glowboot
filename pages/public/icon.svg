@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Glowboot app icon">
+  <title>Glowboot</title>
+  <defs>
+    <!-- Brand backplate gradient — same purple range as the landing
+         page so the icon reads as part of the same product. -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a0b3d"/>
+      <stop offset="100%" stop-color="#110527"/>
+    </linearGradient>
+    <!-- Subtle accent glow behind the mark. -->
+    <radialGradient id="glow" cx="50%" cy="46%" r="55%">
+      <stop offset="0%" stop-color="#9ef0d0" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#9ef0d0" stop-opacity="0"/>
+    </radialGradient>
+    <!-- "Live" mint screen fill — same gradient the og-preview uses, so
+         the favicon / PWA icon reads as a Game Boy that's actually on. -->
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9ef0d0" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#7ad4b3" stop-opacity="0.40"/>
+    </linearGradient>
+    <!-- Scanline overlay. Pattern stripes are tiny (~6 px on the 1024
+         canvas) so they're only visible at large renders (PWA install
+         tile, apple-touch-icon); favicon sizes flatten them into a
+         uniform fill, which keeps the mark legible at 16/32 px. -->
+    <pattern id="scan" x="0" y="0" width="6" height="6" patternUnits="userSpaceOnUse">
+      <rect width="6" height="3" fill="#000000" opacity="0.12"/>
+    </pattern>
+  </defs>
+  <!-- Full-bleed background so adaptive masks (iOS rounded square,
+       Android circle / squircle / teardrop) crop cleanly. -->
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <ellipse cx="512" cy="470" rx="380" ry="300" fill="url(#glow)"/>
+  <!-- Outer body — same geometry the og-preview SVG draws (one source
+       of truth for the Game Boy silhouette across favicon + social
+       card). Scaled to ~51% of canvas width with a heavy stroke so
+       the silhouette reads at small sizes (down to ~64 px). -->
+  <rect x="252" y="220" width="520" height="585" rx="80" fill="none" stroke="#9ef0d0" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Screen window. Three layers: mint gradient fill, scanline
+       overlay, mint outline on top so the border stays crisp. -->
+  <rect x="350" y="318" width="325" height="228" rx="32" fill="url(#screen)"/>
+  <rect x="350" y="318" width="325" height="228" rx="32" fill="url(#scan)"/>
+  <rect x="350" y="318" width="325" height="228" rx="32" fill="none" stroke="#9ef0d0" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Buttons. -->
+  <circle cx="398" cy="691" r="36" fill="none" stroke="#9ef0d0" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="626" cy="691" r="36" fill="none" stroke="#9ef0d0" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

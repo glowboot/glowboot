@@ -1,0 +1,1500 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a0b3d" />
+    <meta name="description" content="Glowboot — a Game Boy / Game Boy Color emulator written in TypeScript." />
+    <link rel="canonical" href="https://glowboot.pages.dev/" />
+
+    <meta property="og:title" content="Glowboot" />
+    <meta
+      property="og:description"
+      content="Glowboot — a Game Boy / Game Boy Color emulator that runs in your browser."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://glowboot.pages.dev/" />
+    <meta property="og:site_name" content="Glowboot" />
+    <meta property="og:locale" content="en_US" />
+    <!-- 1200×630 social preview (rendered from og-preview.svg). Required
+         for WhatsApp / Slack / iMessage / Discord link-unfurling. -->
+    <meta property="og:image" content="https://glowboot.pages.dev/og-preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Glowboot — play Game Boy in your browser" />
+
+    <!-- summary_large_image so Twitter / X renders the wide preview
+         instead of cropping to a square thumbnail. -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Glowboot" />
+    <meta
+      name="twitter:description"
+      content="Glowboot — a Game Boy / Game Boy Color emulator that runs in your browser."
+    />
+    <meta name="twitter:image" content="https://glowboot.pages.dev/og-preview.png" />
+
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Glowboot" />
+    <title>Glowboot</title>
+
+    <!-- Preload all three webfonts so they're available by first paint
+         instead of swapping in afterwards. `font-display: swap` renders
+         the system fallback first, then re-paints with the webfont —
+         that swap reflows every text node and Lighthouse scores it as
+         CLS. Preload races the fetch in parallel with HTML parsing so
+         the webfonts usually win. `crossorigin` is required for font
+         preloads even on same-origin per spec. Inter and JetBrains Mono
+         are variable fonts — one file each covers every weight
+         referenced in the CSS. -->
+    <link rel="preload" href="/fonts/inter-variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/jetbrains-mono-variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/vt323-400.woff2" as="font" type="font/woff2" crossorigin />
+
+    <!-- @font-face rules inlined (rather than loaded from /fonts/fonts.css)
+         so the browser doesn't need a render-blocking round-trip for
+         <1 KiB of CSS. Files released under the SIL Open Font License
+         1.1 — see /fonts/OFL.txt. Inter and JetBrains Mono are variable
+         fonts: a single woff2 per family covers the whole 100–900 (Inter)
+         / 100–800 (JBM) weight axis, so every `font-weight` declaration
+         in the project renders with real glyphs instead of synthesised
+         bold. Subsetted to the same Latin range the project's UI strings
+         need; non-Latin runs fall back to the system stack declared in
+         base.css. -->
+    <style>
+      @font-face {
+        font-family: "Inter";
+        font-style: normal;
+        font-weight: 100 900;
+        font-display: swap;
+        src: url("/fonts/inter-variable.woff2") format("woff2");
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+          U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: "JetBrains Mono";
+        font-style: normal;
+        font-weight: 100 800;
+        font-display: swap;
+        src: url("/fonts/jetbrains-mono-variable.woff2") format("woff2");
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+          U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: "VT323";
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url("/fonts/vt323-400.woff2") format("woff2");
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+          U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+    </style>
+  </head>
+  <body data-theme="aurora-band">
+    <script>
+      // Apply the saved theme synchronously *before* the `.theme-bg`
+      // markup below is parsed. Each theme styles `.t-conic` and its
+      // siblings differently (different `inset`, different children
+      // visible) — running this after first paint produced a ~0.19 CLS
+      // shift attributed to `.t-conic` on every reload that had a saved
+      // non-default theme. Picker wiring lives in main.ts.
+      (() => {
+        try {
+          const saved = localStorage.getItem("gb-theme");
+          if (saved) document.body.dataset.theme = saved;
+        } catch {
+          /* localStorage may be blocked */
+        }
+      })();
+    </script>
+    <!-- Skip-link: first focusable on the page, slides in from off-screen
+         on focus so sighted keyboard users see it too. Tabbing past the
+         header row is tedious for SR users who just want to play. -->
+    <a href="#screen" class="skip-link">Skip to game</a>
+    <!-- Theme background (fixed, behind everything) -->
+    <div class="theme-bg" aria-hidden="true">
+      <div class="t-conic"></div>
+      <div class="t-caustic1"></div>
+      <div class="t-caustic2"></div>
+      <div class="t-blob t-b1"></div>
+      <div class="t-blob t-b2"></div>
+      <div class="t-blob t-b3"></div>
+      <div class="t-stars1"></div>
+      <div class="t-stars2"></div>
+      <div class="t-vignette"></div>
+    </div>
+
+    <div class="app">
+      <header class="top">
+        <div class="header-row">
+          <!-- Now-playing strip: shown at all times with zero-value
+             defaults; main.ts overwrites them once a ROM is running. -->
+          <div class="np-strip">
+            <span class="np-label">Now Playing</span>
+            <span class="np-info-wrap">
+              <span class="np-title" id="np-title">—</span>
+              <button
+                id="cart-info-trigger"
+                class="np-info-btn"
+                aria-label="Cartridge info"
+                title="Cartridge info"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                hidden
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="13"
+                  height="13"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M12 16v-4"></path>
+                  <path d="M12 8h.01"></path>
+                </svg>
+              </button>
+              <div
+                class="cart-info-pop"
+                id="cart-info-pop"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Cartridge info"
+                tabindex="-1"
+              ></div>
+            </span>
+            <span class="np-g np-g-status">
+              <span class="np-sep"></span>
+              <span class="np-dot"><span class="led-s"></span></span>
+              <span class="np-meta" id="np-status">Idle</span>
+            </span>
+            <span class="np-g np-g-fps">
+              <span class="np-sep"></span>
+              <span class="np-meta" id="np-fps">0.0 fps</span>
+            </span>
+            <span class="np-g np-g-speed">
+              <span class="np-sep"></span>
+              <span class="np-meta" id="np-speed">×4</span>
+            </span>
+            <span class="np-g np-g-time">
+              <span class="np-sep"></span>
+              <span class="np-meta" id="np-time">00:00</span>
+            </span>
+          </div>
+
+          <div class="np-actions">
+            <button id="load-btn" class="icon-btn primary" aria-label="Load ROM" title="Load ROM">
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 3v12"></path>
+                <path d="m7 8 5-5 5 5"></path>
+                <path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"></path>
+              </svg>
+            </button>
+            <div class="theme-menu">
+              <button
+                id="settings-trigger"
+                class="icon-btn"
+                aria-label="Settings"
+                title="Settings"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path
+                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+                  ></path>
+                </svg>
+              </button>
+              <div
+                class="settings-pop"
+                id="settings-pop"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Settings"
+                tabindex="-1"
+              >
+                <!-- Transient "Saved" flash, pinned to the popover's
+                     top-right corner. Fades in on any control change
+                     and back out 1.2 s later. aria-hidden because the
+                     informational toast (role=status) already announces
+                     session-level changes; this pip is a visual affordance. -->
+                <div class="settings-saved" id="settings-saved" aria-hidden="true">Saved</div>
+                <!-- Inner scroll container: scrolls under the SAVED pip
+                     so the pip stays anchored to the popover chrome
+                     instead of scrolling out of view alongside the
+                     section list. -->
+                <div class="settings-scroll">
+                  <!-- Filter — live-filters every settings row by label.
+                       Also temporarily uncollapses matching sections so
+                       typed hits show without a click; original collapsed
+                       state restores when the field is cleared. -->
+                  <input
+                    type="search"
+                    class="settings-search"
+                    id="settings-search"
+                    placeholder="Filter settings…"
+                    autocomplete="off"
+                    spellcheck="false"
+                    aria-label="Filter settings"
+                  />
+                  <div class="settings-section" data-section="display">
+                    <h4>
+                      Display
+                      <button
+                        class="bindings-reset section-reset"
+                        id="display-reset"
+                        type="button"
+                        aria-label="Reset display section to defaults"
+                        title="Reset display section to defaults"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="12"
+                          height="12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                          <path d="M3 4v5h5"></path>
+                        </svg>
+                      </button>
+                    </h4>
+                    <div class="settings-row">
+                      <span>Theme</span>
+                      <div class="theme-opts" id="theme-opts" role="group" aria-label="Theme">
+                        <button
+                          data-t="aurora-band"
+                          class="theme-opt active"
+                          aria-label="Aurora Band"
+                          title="Aurora Band"
+                        >
+                          <span class="sw"></span>
+                        </button>
+                        <button
+                          data-t="light-caustics"
+                          class="theme-opt"
+                          aria-label="Light Caustics"
+                          title="Light Caustics"
+                        >
+                          <span class="sw"></span>
+                        </button>
+                        <button data-t="sunset-drift" class="theme-opt" aria-label="Sunset Drift" title="Sunset Drift">
+                          <span class="sw"></span>
+                        </button>
+                        <button data-t="neon-grid" class="theme-opt" aria-label="Neon Grid" title="Neon Grid">
+                          <span class="sw"></span>
+                        </button>
+                        <button
+                          data-t="forest-canopy"
+                          class="theme-opt"
+                          aria-label="Forest Canopy"
+                          title="Forest Canopy"
+                        >
+                          <span class="sw"></span>
+                        </button>
+                      </div>
+                    </div>
+                    <label
+                      class="settings-row"
+                      title="Canvas 2D is the plain CPU renderer. The WebGL modes each apply a distinct fragment shader on the GPU — Bilinear, CRT, HQ2x, LCD, MMPX (default), or Super-xBR. Changes apply immediately."
+                    >
+                      <span>Rendering</span>
+                      <select id="render-mode">
+                        <option value="webgl-bilinear">Bilinear</option>
+                        <option value="canvas">Canvas 2D</option>
+                        <option value="webgl-crt">CRT</option>
+                        <option value="webgl-hq2x">HQ2x</option>
+                        <option value="webgl-lcd">LCD</option>
+                        <option value="webgl-mmpx">MMPX</option>
+                        <option value="webgl-sxbr">Super-xBR</option>
+                      </select>
+                    </label>
+                    <!-- Palette picker (DMG only). Sits with the other
+                       selects at the top of Display. CGB carts carry
+                       their own palette in ROM so the select disables
+                       on CGB with an inline note explaining why. -->
+                    <label
+                      class="settings-row"
+                      title="Named 4-colour scheme for DMG games (Game Boy, not Game Boy Color)."
+                    >
+                      <span>Palette</span>
+                      <select id="palette-select"></select>
+                    </label>
+                    <div id="palette-note" class="palette-note" hidden>CGB cart — uses game's own palette</div>
+                    <label
+                      class="settings-row"
+                      title="Emulate the real CGB LCD's muted warm colour response. Only affects Game Boy Color games."
+                    >
+                      <span>CGB colour correction</span>
+                      <input type="checkbox" id="color-correction-toggle" />
+                    </label>
+                    <label
+                      class="settings-row"
+                      title="Size the canvas to a whole-number multiple of 160×144 so every pixel is perfectly square. Recommended for sharp retro output."
+                    >
+                      <span>Integer scaling</span>
+                      <input type="checkbox" id="integer-scale-toggle" />
+                    </label>
+                    <label
+                      class="settings-row"
+                      title="Exponential blend between each frame and the previous one, simulating the real Game Boy LCD's slow pixel response. 0 = off, higher = slower fade (makes 30 Hz sprite flicker look like proper half-brightness)."
+                    >
+                      <span>Pixel response</span>
+                      <input type="range" id="pixel-response" min="0" max="0.85" step="0.01" value="0" />
+                    </label>
+                    <!-- Colour grading sliders. The `bindings-group`
+                       wrapper lets the settings search hide the five
+                       sliders as a unit. -->
+                    <div class="bindings-group">
+                      <label
+                        class="settings-row"
+                        title="Additive offset applied to every channel. Positive values brighten the whole image."
+                      >
+                        <span>Brightness</span>
+                        <input type="range" id="grade-brightness" min="-0.25" max="0.25" step="0.01" value="0" />
+                      </label>
+                      <label
+                        class="settings-row"
+                        title="Scales each channel around 0.5 — stretches dark/light separation."
+                      >
+                        <span>Contrast</span>
+                        <input type="range" id="grade-contrast" min="0.7" max="1.3" step="0.01" value="1" />
+                      </label>
+                      <label
+                        class="settings-row"
+                        title="Midtone curve. Lower gamma darkens midtones, higher brightens them."
+                      >
+                        <span>Gamma</span>
+                        <input type="range" id="grade-gamma" min="0.6" max="1.6" step="0.01" value="1" />
+                      </label>
+                      <label
+                        class="settings-row"
+                        title="0 = black and white, 1 = original, higher values push toward oversaturated."
+                      >
+                        <span>Saturation</span>
+                        <input type="range" id="grade-saturation" min="0" max="1.5" step="0.01" value="1" />
+                      </label>
+                      <label class="settings-row" title="Negative cools toward blue, positive warms toward red.">
+                        <span>Temperature</span>
+                        <input type="range" id="grade-temperature" min="-0.15" max="0.15" step="0.01" value="0" />
+                      </label>
+                    </div>
+                  </div>
+                  <div class="settings-section" data-section="keyboard">
+                    <h4>
+                      Keyboard
+                      <!-- Capture-mode hint, shared by all three input
+                         binding sections (keyboard / hotkeys / gamepad).
+                         Initial home is the Keyboard <h4>; bindings.ts
+                         re-parents it into whichever section's <h4> is
+                         currently capturing so the "Press a key…" prompt
+                         always sits next to the active section. -->
+                      <span class="settings-hint" id="bindings-hint" role="status" aria-live="polite" hidden
+                        >Press a key… (Esc to cancel)</span
+                      >
+                      <button
+                        class="bindings-reset section-reset"
+                        id="bindings-reset-keyboard"
+                        type="button"
+                        aria-label="Reset keyboard bindings to defaults"
+                        title="Reset keyboard bindings to defaults"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="12"
+                          height="12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                          <path d="M3 4v5h5"></path>
+                        </svg>
+                      </button>
+                    </h4>
+                    <div class="bindings-group">
+                      <div class="bindings-grid" id="bindings-keyboard"></div>
+                    </div>
+                  </div>
+                  <div class="settings-section" data-section="hotkeys">
+                    <h4>
+                      Hotkeys
+                      <button
+                        class="bindings-reset section-reset"
+                        id="bindings-reset-hotkeys"
+                        type="button"
+                        aria-label="Reset hotkeys to defaults"
+                        title="Reset hotkeys to defaults"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="12"
+                          height="12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                          <path d="M3 4v5h5"></path>
+                        </svg>
+                      </button>
+                    </h4>
+                    <div class="bindings-group">
+                      <div class="bindings-grid" id="bindings-hotkeys"></div>
+                    </div>
+                  </div>
+                  <div class="settings-section" data-section="gamepad">
+                    <h4>
+                      Gamepad
+                      <button
+                        class="bindings-reset section-reset"
+                        id="bindings-reset-gamepad"
+                        type="button"
+                        aria-label="Reset gamepad bindings to defaults"
+                        title="Reset gamepad bindings to defaults"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="12"
+                          height="12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                          <path d="M3 4v5h5"></path>
+                        </svg>
+                      </button>
+                    </h4>
+                    <div class="bindings-group">
+                      <!-- Connection-state pill. Populated by panels.ts via
+                         gamepadconnected / gamepaddisconnected events.
+                         Browsers withhold `getGamepads()` results until
+                         the user presses a button on the pad, so the
+                         initial state is "Press any button" even when
+                         one is plugged in — it flips to the pad name as
+                         soon as the user wakes it up. -->
+                      <div class="gamepad-status-row">
+                        <span
+                          class="gamepad-status"
+                          id="gamepad-detected"
+                          data-status="idle"
+                          role="status"
+                          aria-live="polite"
+                          title="Press a button on your gamepad to wake it up — browsers don't expose the pad until then."
+                          >Press any button</span
+                        >
+                      </div>
+                      <div class="bindings-grid" id="bindings-gamepad"></div>
+                    </div>
+                  </div>
+                  <div class="settings-section" data-section="touch">
+                    <h4>
+                      Touch
+                      <button
+                        class="bindings-reset section-reset"
+                        id="touch-reset"
+                        type="button"
+                        aria-label="Reset touch section to defaults"
+                        title="Reset touch section to defaults"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="12"
+                          height="12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                          <path d="M3 4v5h5"></path>
+                        </svg>
+                      </button>
+                    </h4>
+                    <label class="settings-row">
+                      <span>On-screen controls</span>
+                      <select id="touch-mode">
+                        <option value="auto">Auto</option>
+                        <option value="on">Always</option>
+                        <option value="off">Never</option>
+                      </select>
+                    </label>
+                    <label
+                      class="settings-row"
+                      title="Short device vibration (Android only — iOS Safari ignores `navigator.vibrate`) on every fresh button press from the on-screen overlay. Gives virtual buttons the click-confirm feel that physical hardware has for free. Independent of the Rumble settings, which control cart / audio-driven vibration."
+                    >
+                      <span>Press feedback</span>
+                      <input type="checkbox" id="touch-haptic-toggle" checked />
+                    </label>
+                    <div class="bindings-group touch-layout-group">
+                      <label
+                        class="settings-row"
+                        title="Swap the D-pad and A/B columns for left-handed play. Start/Select stay centred."
+                      >
+                        <span>Mirror (left-handed)</span>
+                        <input type="checkbox" id="touch-mirror-toggle" />
+                      </label>
+                      <label
+                        class="settings-row"
+                        title="Scale every on-screen control. Useful for larger fingers or smaller fingers (kids)."
+                      >
+                        <span>Size</span>
+                        <input type="range" id="touch-scale-slider" min="0.7" max="1.4" step="0.05" value="1" />
+                      </label>
+                      <label
+                        class="settings-row"
+                        title="Horizontal gap between the D-pad and the A/B cluster. Wider = thumbs further apart, narrower = closer together."
+                      >
+                        <span>Spacing</span>
+                        <input type="range" id="touch-spacing-slider" min="0" max="60" step="2" value="20" />
+                      </label>
+                    </div>
+                  </div>
+                  <!-- Rumble sits after Gamepad + Touch because it
+                     spans both input surfaces: gamepads route through
+                     the pad's `vibrationActuator`, touch devices
+                     through `navigator.vibrate`. -->
+                  <div class="settings-section" data-section="rumble">
+                    <h4>
+                      Rumble
+                      <button
+                        class="bindings-reset section-reset"
+                        id="rumble-reset"
+                        type="button"
+                        aria-label="Reset rumble section to defaults"
+                        title="Reset rumble section to defaults"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="12"
+                          height="12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                          <path d="M3 4v5h5"></path>
+                        </svg>
+                      </button>
+                    </h4>
+                    <div class="bindings-group">
+                      <label
+                        class="settings-row"
+                        title="Overall intensity of audio-reactive rumble. 0 = silent, 100 = maximum. Default 50 is a gentle pulse; push higher if you want more punch."
+                      >
+                        <span>Strength</span>
+                        <input type="range" id="rumble-strength-slider" min="0" max="100" step="5" value="50" />
+                      </label>
+                      <label
+                        class="settings-row"
+                        title="Named mix of the four APU channels that drive rumble. Different games spread melody / bass / SFX across channels differently — pick whichever preset feels right in the games you play."
+                      >
+                        <span>Preset</span>
+                        <select id="rumble-preset-select"></select>
+                      </label>
+                      <label
+                        class="settings-row"
+                        title="Drive the vibration motor from the game's audio. Works for every ROM, independent of MBC5 cart rumble. Tune strength + preset above."
+                      >
+                        <span>Audio-reactive</span>
+                        <input type="checkbox" id="audio-rumble-toggle" />
+                      </label>
+                    </div>
+                  </div>
+                  <div class="settings-section" data-section="audio">
+                    <h4>
+                      Audio
+                      <button
+                        class="bindings-reset section-reset"
+                        id="audio-reset"
+                        type="button"
+                        aria-label="Reset audio section to defaults"
+                        title="Reset audio section to defaults"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="12"
+                          height="12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                          <path d="M3 4v5h5"></path>
+                        </svg>
+                      </button>
+                    </h4>
+                    <label class="settings-row">
+                      <span>Volume</span>
+                      <input type="range" id="volume-slider" min="0" max="100" value="80" />
+                    </label>
+                    <label
+                      class="settings-row"
+                      title="Filter / EQ / reverb applied to the audio output. Studio is the clean default; other presets emulate listening contexts like the original handheld speaker, warm headphones, a boombox, cassette tape, or a small hall."
+                    >
+                      <span>Audio mode</span>
+                      <select id="audio-mode"></select>
+                    </label>
+                    <div class="settings-row">
+                      <span>Channels</span>
+                      <div class="mute-toggles">
+                        <button class="mute-btn" data-ch="0" aria-label="Mute Pulse 1 channel" title="Pulse 1">
+                          P1
+                        </button>
+                        <button class="mute-btn" data-ch="1" aria-label="Mute Pulse 2 channel" title="Pulse 2">
+                          P2
+                        </button>
+                        <button class="mute-btn" data-ch="2" aria-label="Mute Wave channel" title="Wave">W</button>
+                        <button class="mute-btn" data-ch="3" aria-label="Mute Noise channel" title="Noise">N</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="settings-section" data-section="behavior">
+                    <h4>
+                      Session
+                      <button
+                        class="bindings-reset section-reset"
+                        id="session-reset"
+                        type="button"
+                        aria-label="Reset session section to defaults"
+                        title="Reset session section to defaults"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="12"
+                          height="12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                          <path d="M3 4v5h5"></path>
+                        </svg>
+                      </button>
+                    </h4>
+                    <label
+                      class="settings-row"
+                      title="Automatically pause the emulator when the browser tab or window loses focus. Resumes when focus returns."
+                    >
+                      <span>Auto-pause on focus loss</span>
+                      <input type="checkbox" id="auto-pause-toggle" />
+                    </label>
+                    <label
+                      class="settings-row"
+                      title="How far back you can rewind by holding Backspace. Longer windows use more memory (~80 KB per second of rewind)."
+                    >
+                      <span>Rewind buffer</span>
+                      <select id="rewind-capacity-select">
+                        <option value="30">30 seconds</option>
+                        <option value="60">1 minute</option>
+                        <option value="120">2 minutes</option>
+                        <option value="300">5 minutes</option>
+                        <option value="600">10 minutes</option>
+                      </select>
+                    </label>
+                    <label
+                      class="settings-row"
+                      title="What's plugged into the Game Boy's serial port. 2-player pairs with another tab or device for link-cable games. Printer turns the port into a virtual Game Boy Printer — print Pokémon Pokédex pages, Game Boy Camera shots, etc."
+                    >
+                      <span>Link cable</span>
+                      <span class="link-cable-right">
+                        <!-- Connection-state pill. Populated by panels.ts via
+                           the gb-link-status CustomEvent fired from the
+                           link-cable / webrtc-link modules. -->
+                        <span class="link-status" id="link-status" data-status="off" role="status" aria-live="polite"
+                          >Off</span
+                        >
+                        <select id="link-cable-mode">
+                          <option value="off">Off</option>
+                          <option value="2p">2-player</option>
+                          <option value="printer">Printer</option>
+                        </select>
+                      </span>
+                    </label>
+                    <label
+                      class="settings-row link-cable-sub"
+                      title="Shared code that pairs you with another player. Both sides type the SAME code to land in the same room. Leave empty to pair only with other tabs on this machine."
+                    >
+                      <span>Room code</span>
+                      <input type="text" id="link-room-code" placeholder="(empty = same-machine)" maxlength="32" />
+                    </label>
+                  </div>
+                  <div class="settings-section" data-section="backup">
+                    <h4>Backup</h4>
+                    <div
+                      class="settings-row"
+                      title="Download your preferences (controls, palette, display options) as a JSON file. Save games and library are NOT included — they live in IndexedDB and have their own backup."
+                    >
+                      <span>Preferences</span>
+                      <div class="settings-io-buttons">
+                        <button
+                          type="button"
+                          class="settings-io-btn"
+                          id="settings-export"
+                          aria-label="Export preferences"
+                        >
+                          Export…
+                        </button>
+                        <button
+                          type="button"
+                          class="settings-io-btn"
+                          id="settings-import"
+                          aria-label="Import preferences"
+                        >
+                          Import…
+                        </button>
+                        <input type="file" id="settings-import-input" accept="application/json,.json" hidden />
+                      </div>
+                    </div>
+                    <div
+                      class="settings-row"
+                      title="Download your full library: every ROM in the Library, its save RAM, save states and cheats. Large file (MBs). Import upserts — existing rows with the same cart id are overwritten, rows not in the file are left alone."
+                    >
+                      <span>Library &amp; saves</span>
+                      <div class="settings-io-buttons">
+                        <button
+                          type="button"
+                          class="settings-io-btn"
+                          id="library-export"
+                          aria-label="Export library and saves"
+                        >
+                          Export…
+                        </button>
+                        <button
+                          type="button"
+                          class="settings-io-btn"
+                          id="library-import"
+                          aria-label="Import library and saves"
+                        >
+                          Import…
+                        </button>
+                        <input type="file" id="library-import-input" accept="application/json,.json" hidden />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="theme-menu">
+              <button
+                id="recents-trigger"
+                class="icon-btn"
+                aria-label="Library"
+                title="Library — load a ROM to add it here"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                disabled
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                  <path d="M3 4v5h5"></path>
+                  <path d="M12 7v5l3 2"></path>
+                </svg>
+              </button>
+              <div
+                class="recents-pop"
+                id="recents-pop"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Library"
+                tabindex="-1"
+              ></div>
+            </div>
+            <div class="theme-menu">
+              <button
+                id="slots-trigger"
+                class="icon-btn"
+                aria-label="Save slots"
+                title="Save slots — load a ROM to use"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                disabled
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                  <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                  <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+              </button>
+              <div
+                class="slots-pop"
+                id="slots-pop"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Save slots"
+                tabindex="-1"
+              ></div>
+            </div>
+            <div class="theme-menu">
+              <button
+                id="cheats-trigger"
+                class="icon-btn"
+                aria-label="Cheats"
+                title="Cheats — load a ROM to use"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                disabled
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m3 21 9-9"></path>
+                  <path d="M15 4V2"></path>
+                  <path d="M15 16v-2"></path>
+                  <path d="M8 9h2"></path>
+                  <path d="M20 9h2"></path>
+                  <path d="M17.8 11.8 19 13"></path>
+                  <path d="M17.8 6.2 19 5"></path>
+                  <path d="M12.2 6.2 11 5"></path>
+                </svg>
+              </button>
+              <div
+                class="cheats-pop"
+                id="cheats-pop"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Cheats"
+                tabindex="-1"
+              ></div>
+            </div>
+            <div class="theme-menu">
+              <button
+                id="debugger-trigger"
+                class="icon-btn"
+                aria-label="Debugger"
+                title="Debugger — load a ROM to use"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                disabled
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M8 2l1.88 1.88"></path>
+                  <path d="M14.12 3.88L16 2"></path>
+                  <path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"></path>
+                  <path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6z"></path>
+                  <path d="M12 20v-9"></path>
+                  <path d="M6.53 9C4.6 8.8 3 7.1 3 5"></path>
+                  <path d="M6 13H2"></path>
+                  <path d="M3 21c0-2.1 1.7-3.9 3.8-4"></path>
+                  <path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"></path>
+                  <path d="M22 13h-4"></path>
+                  <path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"></path>
+                </svg>
+              </button>
+              <div
+                class="debugger-pop"
+                id="debugger-pop"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Debugger"
+                tabindex="-1"
+              ></div>
+            </div>
+            <button
+              id="fullscreen-btn"
+              class="icon-btn"
+              aria-label="Fullscreen"
+              title="Fullscreen — load a ROM to use"
+              disabled
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M4 9V5a1 1 0 0 1 1-1h4"></path>
+                <path d="M20 9V5a1 1 0 0 0-1-1h-4"></path>
+                <path d="M4 15v4a1 1 0 0 0 1 1h4"></path>
+                <path d="M20 15v4a1 1 0 0 1-1 1h-4"></path>
+              </svg>
+            </button>
+            <!-- Printer trigger sits at the end of the action row because
+                 its enable rule differs from every other button: the
+                 others are gated on "a ROM has been loaded", but the
+                 Printer is enabled whenever IDB has any saved prints OR
+                 the link-cable mode is set to "printer". Grouping it
+                 last makes the "ROM-gated cluster vs. independent" split
+                 visually obvious. Wrapper has its own `.theme-menu` so
+                 the popover anchors only to the printer icon. */ -->
+            <div class="theme-menu" id="printer-menu">
+              <button
+                id="printer-trigger"
+                class="icon-btn"
+                aria-label="Printer"
+                title="Printer — set Link cable to Printer in Settings"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                disabled
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M6 9V2h12v7"></path>
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                  <rect x="6" y="14" width="12" height="8" rx="1"></rect>
+                </svg>
+              </button>
+              <div
+                class="printer-pop"
+                id="printer-pop"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Printer"
+                tabindex="-1"
+              ></div>
+            </div>
+            <!-- About link — opens the GitHub repo in a new tab
+                 (readme / source / issues for feedback). No popover,
+                 just an external <a> styled as an icon-btn. Folds into
+                 the More menu at narrow viewports as the last entry. -->
+            <a
+              id="github-link"
+              class="icon-btn"
+              href="https://github.com/glowboot/glowboot"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="About"
+              title="About"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <path
+                  d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.4 3-.405 1.02.005 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
+                ></path>
+              </svg>
+            </a>
+            <!-- "More" overflow menu — surfaces the secondary action
+                 buttons (Library, Save slots, Cheats, Printer) at narrow
+                 viewports where the inline icons would otherwise wrap
+                 onto a second row. Hidden at desktop widths; the
+                 responsive rule in base.css reveals it below ~720 px
+                 and hides the inlined siblings. The menu items are
+                 mirror-clicks on the original triggers so all the
+                 existing wiring (popover mutex, focus management, ROM-
+                 loaded enable/disable state) continues to work —
+                 see src/ui/popovers/more.ts. Lives at the very end of
+                 the action row so it's always the right-most icon. -->
+            <div class="theme-menu" id="more-menu">
+              <button
+                id="more-trigger"
+                class="icon-btn"
+                aria-label="More actions"
+                title="More"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" stroke="none" aria-hidden="true">
+                  <circle cx="12" cy="6" r="1.6"></circle>
+                  <circle cx="12" cy="12" r="1.6"></circle>
+                  <circle cx="12" cy="18" r="1.6"></circle>
+                </svg>
+              </button>
+              <div
+                class="more-pop"
+                id="more-pop"
+                role="dialog"
+                aria-modal="true"
+                aria-label="More actions"
+                tabindex="-1"
+              >
+                <button type="button" class="more-item" data-mirrors="cheats-trigger">
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m3 21 9-9"></path>
+                    <path d="M15 4V2"></path>
+                    <path d="M15 16v-2"></path>
+                    <path d="M8 9h2"></path>
+                    <path d="M20 9h2"></path>
+                    <path d="M17.8 11.8 19 13"></path>
+                    <path d="M17.8 6.2 19 5"></path>
+                    <path d="M12.2 6.2 11 5"></path>
+                  </svg>
+                  <span>Cheats</span>
+                </button>
+                <button type="button" class="more-item" data-mirrors="debugger-trigger">
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M8 2l1.88 1.88"></path>
+                    <path d="M14.12 3.88L16 2"></path>
+                    <path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"></path>
+                    <path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6z"></path>
+                    <path d="M12 20v-9"></path>
+                    <path d="M6.53 9C4.6 8.8 3 7.1 3 5"></path>
+                    <path d="M6 13H2"></path>
+                    <path d="M3 21c0-2.1 1.7-3.9 3.8-4"></path>
+                    <path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"></path>
+                    <path d="M22 13h-4"></path>
+                    <path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"></path>
+                  </svg>
+                  <span>Debugger</span>
+                </button>
+                <button type="button" class="more-item" data-mirrors="fullscreen-btn">
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M4 9V5a1 1 0 0 1 1-1h4"></path>
+                    <path d="M20 9V5a1 1 0 0 0-1-1h-4"></path>
+                    <path d="M4 15v4a1 1 0 0 0 1 1h4"></path>
+                    <path d="M20 15v4a1 1 0 0 1-1 1h-4"></path>
+                  </svg>
+                  <span>Fullscreen</span>
+                </button>
+                <button type="button" class="more-item" data-mirrors="printer-trigger">
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M6 9V2h12v7"></path>
+                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                    <rect x="6" y="14" width="12" height="8" rx="1"></rect>
+                  </svg>
+                  <span>Printer</span>
+                </button>
+                <a
+                  class="more-item"
+                  href="https://github.com/glowboot/glowboot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                    <path
+                      d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.4 3-.405 1.02.005 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
+                    ></path>
+                  </svg>
+                  <span>About</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="rig">
+        <section class="console">
+          <div class="canvas-wrap">
+            <div class="canvas-frame">
+              <canvas id="screen" width="160" height="144" tabindex="0" aria-label="Game Boy screen"></canvas>
+            </div>
+            <button class="canvas-placeholder" id="canvas-placeholder" type="button">
+              <span class="canvas-placeholder-icon" aria-hidden="true">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="32"
+                  height="32"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M12 3v12"></path>
+                  <path d="m7 8 5-5 5 5"></path>
+                  <path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"></path>
+                </svg>
+              </span>
+              <span class="canvas-placeholder-label">Load ROM</span>
+              <span class="canvas-placeholder-hint">or drop a .gb / .gbc file here</span>
+            </button>
+            <div class="overlay overlay-rewind" id="overlay-rewind" aria-hidden="true"></div>
+            <div class="overlay overlay-flash" id="overlay-flash" aria-hidden="true"></div>
+            <div class="rec-badge" id="rec-badge" aria-hidden="true">REC</div>
+          </div>
+
+          <!-- On-screen controls for touch devices. Pointer events are wired
+             by src/ui/input/touch.ts; visibility is driven by the "Touch
+             controls" setting (Auto / Always / Never). -->
+          <div class="gb-touch" aria-hidden="true">
+            <div class="gb-dpad" role="group" aria-label="Directional pad">
+              <span class="gb-dpad-hint gb-dpad-up"></span>
+              <span class="gb-dpad-hint gb-dpad-right"></span>
+              <span class="gb-dpad-hint gb-dpad-down"></span>
+              <span class="gb-dpad-hint gb-dpad-left"></span>
+            </div>
+            <div class="gb-ab">
+              <button class="gb-btn gb-btn-b" aria-label="B button" tabindex="-1" type="button">B</button>
+              <button class="gb-btn gb-btn-a" aria-label="A button" tabindex="-1" type="button">A</button>
+            </div>
+            <div class="gb-sys">
+              <button class="gb-btn gb-btn-select" aria-label="Select button" tabindex="-1" type="button">
+                SELECT
+              </button>
+              <button class="gb-btn gb-btn-start" aria-label="Start button" tabindex="-1" type="button">START</button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="ctrl-strip">
+        <span class="ctrl-label">Controls</span>
+        <span class="ctrl-group" data-gb-group="dpad"
+          ><span class="key">↑↓←→</span><span class="ctrl-lab">D-Pad</span></span
+        >
+        <span class="ctrl-group" data-gb-btn="a"><span class="key">Z</span><span class="ctrl-lab">A</span></span>
+        <span class="ctrl-group" data-gb-btn="b"><span class="key">X</span><span class="ctrl-lab">B</span></span>
+        <span class="ctrl-group" data-gb-btn="start"
+          ><span class="key">↵</span><span class="ctrl-lab">Start</span></span
+        >
+        <span class="ctrl-group" data-gb-btn="select"
+          ><span class="key">⇧</span><span class="ctrl-lab">Select</span></span
+        >
+        <span class="ctrl-sep" aria-hidden="true"></span>
+        <!-- Hotkey pills: desktop users get the single "?" hint (below);
+             touch users see these as tappable action buttons because
+             they have no keyboard. CSS toggles which set is visible. -->
+        <span class="ctrl-group" data-hk-action="pause"
+          ><span class="key">Space</span><span class="ctrl-lab">Pause</span></span
+        >
+        <span class="ctrl-group" data-hk-action="turbo"
+          ><span class="key">M</span><span class="ctrl-lab">Speed</span></span
+        >
+        <span class="ctrl-group" data-hk-action="rewind"
+          ><span class="key">⌫</span><span class="ctrl-lab">Rewind</span></span
+        >
+        <span class="ctrl-group" data-hk-action="frameAdvance"
+          ><span class="key">F</span><span class="ctrl-lab">Frame step</span></span
+        >
+        <span class="ctrl-group" data-hk-action="screenshot"
+          ><span class="key">P</span><span class="ctrl-lab">Screenshot</span></span
+        >
+        <span class="ctrl-group" data-hk-action="record"
+          ><span class="key">V</span><span class="ctrl-lab">Record</span></span
+        >
+        <span class="ctrl-group" data-hk-action="reset"
+          ><span class="key">R</span><span class="ctrl-lab">Reset</span></span
+        >
+        <button
+          type="button"
+          class="ctrl-group ctrl-shortcut-hint"
+          id="ctrl-shortcut-hint"
+          title="Show all keyboard shortcuts"
+        >
+          <span class="key">?</span><span class="ctrl-lab">Shortcuts</span>
+        </button>
+      </footer>
+
+      <!-- Touch action toolbar — replaces the keyboard-pill ctrl-strip
+           on touch devices (body.is-touch). Round icon-only buttons
+           that read as a game-overlay control, not a desktop tool
+           palette. Tooltips + aria-labels carry the meaning since
+           phones have no hover affordance. Wired in
+           src/ui/input/touch-actions.ts. -->
+      <footer class="touch-actions" aria-label="Game controls">
+        <button
+          type="button"
+          class="touch-action"
+          data-touch-action="pause"
+          aria-label="Pause / Resume"
+          title="Pause / Resume"
+        >
+          <svg
+            class="icon-pause"
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="6" y="5" width="4" height="14"></rect>
+            <rect x="14" y="5" width="4" height="14"></rect>
+          </svg>
+          <svg
+            class="icon-play"
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <polygon points="7 4 7 20 20 12"></polygon>
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="touch-action"
+          data-touch-action="turbo"
+          aria-label="Cycle speed"
+          title="Cycle speed"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <polygon points="13 19 22 12 13 5 13 19" fill="currentColor"></polygon>
+            <polygon points="2 19 11 12 2 5 2 19" fill="currentColor"></polygon>
+          </svg>
+          <span class="touch-action-speed" id="touch-speed-label" aria-hidden="true"></span>
+        </button>
+        <button
+          type="button"
+          class="touch-action"
+          data-touch-action="rewind"
+          aria-label="Hold to rewind"
+          title="Hold to rewind"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <polygon points="11 19 2 12 11 5 11 19" fill="currentColor"></polygon>
+            <polygon points="22 19 13 12 22 5 22 19" fill="currentColor"></polygon>
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="touch-action"
+          data-touch-action="screenshot"
+          aria-label="Screenshot"
+          title="Screenshot"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+        </button>
+        <button type="button" class="touch-action" data-touch-action="record" aria-label="Record" title="Record">
+          <svg
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="6" fill="currentColor"></circle>
+            <circle cx="12" cy="12" r="9"></circle>
+          </svg>
+        </button>
+        <button type="button" class="touch-action" data-touch-action="reset" aria-label="Reset" title="Reset">
+          <svg
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+            <path d="M3 4v5h5"></path>
+          </svg>
+        </button>
+      </footer>
+    </div>
+
+    <input type="file" id="rom-input" accept=".gb,.gbc,.ips,.bps" multiple />
+    <div id="toast" role="status" aria-live="polite"></div>
+    <!-- Error toast — separate element so screen readers get `role="alert"`
+         / `aria-live="assertive"` for failures (vs. the polite confirmation
+         toast above). Positioned in the same spot; only one is active at
+         a time. -->
+    <div id="toast-error" role="alert" aria-live="assertive"></div>
+    <!-- Modal backdrop — only shown at narrow widths when any popover is
+       open. Sits below the popover (z-index 49 vs 50) and above the rest
+       of the UI. Click bubbles to document, which closes any open popover. -->
+    <div class="popover-backdrop" aria-hidden="true"></div>
+
+    <!-- "Rotate to portrait" overlay — shown only on touch devices in
+         landscape. The Game Boy was a portrait-only device and the
+         emulator's UI is built around that orientation, so the overlay
+         hides the game and asks the user to rotate. CSS-driven; no JS
+         needed because all the conditions are media-query expressible. -->
+    <div class="rotate-prompt" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        width="56"
+        height="56"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+        <line x1="12" y1="18" x2="12" y2="18.01"></line>
+        <path d="M8 6l-3 3 3 3"></path>
+        <path d="M16 18l3-3-3-3"></path>
+      </svg>
+      <p class="rotate-prompt-title">Rotate to portrait</p>
+      <p class="rotate-prompt-sub">The Game Boy was a portrait device — the UI works best that way.</p>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
