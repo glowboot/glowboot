@@ -6,6 +6,8 @@ desktop and phones.
 
 **Play at** [glowboot.pages.dev](https://glowboot.pages.dev/).
 
+[![CI](https://github.com/glowboot/glowboot/actions/workflows/ci.yml/badge.svg)](https://github.com/glowboot/glowboot/actions/workflows/ci.yml)
+
 > **Built entirely by AI.** Every artifact in this repository —
 > TypeScript, CSS, HTML, configs, tests, documentation, images and
 > screenshots, even the product name _Glowboot_ — was created or
