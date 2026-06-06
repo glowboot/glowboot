@@ -7,8 +7,12 @@ import { registerSW } from "virtual:pwa-register";
 // body of this file is just the service-worker handshake plus the import
 // order — roughly "styles first, state, then UI glue, then entry points".
 //
-// The hardware emulator itself lives under `src/gb/` and is consumed
-// from `ui/rom-loader.ts` via `new GameBoy(romBytes)`.
+// The hardware emulators live under `src/gb/` (Game Boy + Game Boy
+// Color) and `src/gba/` (Game Boy Advance) and are consumed from
+// `ui/rom-loader.ts` — `new GameBoy(romBytes)` for `.gb` / `.gbc`,
+// `new Gba(romBytes)` for `.gba`. The two engines are independent;
+// only one runs at a time, and the UI swaps which one it talks to
+// based on the loaded cart's extension.
 
 registerSW({ immediate: true });
 

@@ -1,5 +1,7 @@
-import type { Button, Joypad } from "../../gb";
+import type { Button } from "../../gb";
 import { KEYS, lsGet, lsSet } from "../persistence/local-storage.js";
+import type { ShoulderButton } from "./bindings.js";
+import type { JoypadHost, ShoulderHost } from "./gamepad.js";
 import { safeVibrate } from "./haptic.js";
 
 /** Short pulse fired on every fresh GB-button press from the touch
@@ -21,14 +23,18 @@ function pressHaptic(): void {
 }
 
 /**
- * On-screen touch controls for phones / tablets. Authors an overlay that
- * sits below the canvas in normal view and is re-pinned to the bottom of
- * the viewport when the browser enters fullscreen.
+ * On-screen touch controls for phones / tablets. Authors an overlay
+ * that sits below the canvas in normal view and is re-pinned to the
+ * bottom of the viewport when the browser enters fullscreen. Serves
+ * both engines: the eight shared buttons are always wired, plus
+ * `.gb-btn-l` / `.gb-btn-r` for Game Boy Advance shoulders (hidden by
+ * CSS until `body.is-gba` is set by the GBA runtime).
  *
  * The overlay element (and its children `.gb-dpad`, `.gb-btn-a`,
- * `.gb-btn-b`, `.gb-btn-start`, `.gb-btn-select`) must already be in the
- * DOM — this module only wires pointer events and applies / removes
- * `.gb-touch--on` based on the user's mode preference.
+ * `.gb-btn-b`, `.gb-btn-start`, `.gb-btn-select`, plus the GBA-only
+ * `.gb-btn-l` / `.gb-btn-r`) must already be in the DOM — this module
+ * only wires pointer events and applies / removes `.gb-touch--on`
+ * based on the user's mode preference.
  *
  * Three visibility modes: `auto` (shown when a coarse pointer is the
  * primary input), `on` (always shown), `off` (never shown).
@@ -63,6 +69,71 @@ export function saveTouchMode(m: TouchMode): void {
   lsSet(KEYS.TOUCH_MODE, m);
 }
 
+/** Landscape behaviour on touch devices. `portrait` is the historical
+ *  behaviour (rotate-prompt overlay covers the screen until the user
+ *  rotates); the other three are the new in-landscape layouts. CSS in
+ *  `touch.css` keys off `body[data-landscape-layout="..."]` to switch
+ *  between them. */
+export type TouchLandscapeLayout = "portrait" | "flank" | "overlay" | "reveal";
+
+const LANDSCAPE_LAYOUTS: readonly TouchLandscapeLayout[] = ["portrait", "flank", "overlay", "reveal"];
+
+/** `flank` is the default because rotating the device should make
+ *  landscape just work, not pop a "rotate to portrait" overlay. Side-
+ *  gutter controls + native-aspect canvas is the layout that reads as
+ *  "real handheld" of the three. Users who want the historical portrait
+ *  behaviour can pick "Force portrait" in Settings → Controls → Touch
+ *  → Landscape layout. */
+export const DEFAULT_TOUCH_LANDSCAPE_LAYOUT: TouchLandscapeLayout = "flank";
+
+export function loadTouchLandscapeLayout(): TouchLandscapeLayout {
+  const v = lsGet(KEYS.TOUCH_LANDSCAPE_LAYOUT);
+  if (v && (LANDSCAPE_LAYOUTS as readonly string[]).includes(v)) return v as TouchLandscapeLayout;
+  return DEFAULT_TOUCH_LANDSCAPE_LAYOUT;
+}
+
+export function saveTouchLandscapeLayout(layout: TouchLandscapeLayout): void {
+  lsSet(KEYS.TOUCH_LANDSCAPE_LAYOUT, layout);
+}
+
+/** Apply the chosen layout to `<body>` so CSS can pick it up. Read by
+ *  the `body[data-landscape-layout="..."]` selectors in `touch.css` and
+ *  `base.css` (the rotate-prompt overlay is gated on `portrait`). */
+export function applyTouchLandscapeLayout(layout: TouchLandscapeLayout): void {
+  document.body.dataset.landscapeLayout = layout;
+}
+
+/** Tap-to-reveal listener. When the canvas is tapped in landscape +
+ *  `data-landscape-layout=reveal`, add `body.touch-reveal-show` for
+ *  `REVEAL_MS` so the controls fade in. Idempotent — installs once on
+ *  first call. CSS gates the actual visibility; the listener fires
+ *  unconditionally and the class is a no-op in other layouts.
+ *
+ *  Listens on both `.canvas-wrap` AND `.gb-touch` so the timer resets
+ *  whenever the user is actively interacting — without that, holding a
+ *  d-pad direction past REVEAL_MS would fade the controls out under
+ *  the user's finger. */
+const REVEAL_MS = 2400;
+let revealInstalled = false;
+let revealTimer: number | null = null;
+export function installTouchRevealListener(): void {
+  if (revealInstalled) return;
+  const canvasWrap = document.querySelector<HTMLElement>(".canvas-wrap");
+  const touchOverlay = document.querySelector<HTMLElement>(".gb-touch");
+  if (!canvasWrap) return;
+  const show = (): void => {
+    document.body.classList.add("touch-reveal-show");
+    if (revealTimer !== null) clearTimeout(revealTimer);
+    revealTimer = window.setTimeout(() => {
+      document.body.classList.remove("touch-reveal-show");
+      revealTimer = null;
+    }, REVEAL_MS);
+  };
+  canvasWrap.addEventListener("pointerdown", show, { passive: true });
+  touchOverlay?.addEventListener("pointerdown", show, { passive: true });
+  revealInstalled = true;
+}
+
 export interface TouchControls {
   setMode(m: TouchMode): void;
   destroy(): void;
@@ -82,12 +153,18 @@ const DIR_BUTTONS: readonly (readonly Button[])[] = [
 ];
 const DIR_CLASSES: readonly ("up" | "down" | "left" | "right")[] = ["up", "down", "left", "right"];
 
-export function initTouchControls(getJoypad: () => Joypad | null, root: HTMLElement): TouchControls {
+export function initTouchControls(
+  getJoypad: () => JoypadHost | null,
+  getShoulderHost: () => ShoulderHost | null,
+  root: HTMLElement
+): TouchControls {
   const dpad = root.querySelector<HTMLElement>(".gb-dpad");
   const btnA = root.querySelector<HTMLElement>(".gb-btn-a");
   const btnB = root.querySelector<HTMLElement>(".gb-btn-b");
   const btnStart = root.querySelector<HTMLElement>(".gb-btn-start");
   const btnSelect = root.querySelector<HTMLElement>(".gb-btn-select");
+  const btnL = root.querySelector<HTMLElement>(".gb-btn-l");
+  const btnR = root.querySelector<HTMLElement>(".gb-btn-r");
 
   // ─── D-pad: continuous vector → 8-way direction ──────────────────────────
   // A single pointer controls the D-pad at a time. `setPointerCapture` keeps
@@ -348,6 +425,46 @@ export function initTouchControls(getJoypad: () => Joypad | null, root: HTMLElem
   };
   wireButton(btnStart, "start");
   wireButton(btnSelect, "select");
+
+  // GBA shoulder buttons. Wired against the shoulder host (which the
+  // rom-loader binds to a running GBA cart's joypad). Hidden via CSS
+  // unless `body.is-gba` is present, so taps from a stale layout when
+  // no GBA cart is loaded both fall on a hidden element and silently
+  // no-op if a pointer manages to land on them.
+  const wireShoulder = (el: HTMLElement | null, btn: ShoulderButton): void => {
+    if (!el) return;
+    let pid: number | null = null;
+    const down = (e: PointerEvent): void => {
+      if (pid !== null) return;
+      pid = e.pointerId;
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      el.classList.add("is-pressed");
+      e.preventDefault();
+      getShoulderHost()?.press(btn);
+      pressHaptic();
+    };
+    const up = (e: PointerEvent): void => {
+      if (pid !== e.pointerId) return;
+      pid = null;
+      el.classList.remove("is-pressed");
+      getShoulderHost()?.release(btn);
+      try {
+        el.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    };
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+    wires.push({ el, handles: { down, up } });
+  };
+  wireShoulder(btnL, "l");
+  wireShoulder(btnR, "r");
 
   // ─── Visibility ─────────────────────────────────────────────────────────
   const mq = window.matchMedia(AUTO_QUERY);

@@ -1,5 +1,3 @@
-import type { GameBoy } from "../../gb";
-
 /**
  * Rolling save-state buffer for the rewind feature. Captures the full
  * emulator state at a fixed wall-clock cadence; `step()` pops the most
@@ -10,17 +8,40 @@ import type { GameBoy } from "../../gb";
  * non-engine state like the frame counter and elapsed-time clock so they
  * also track backwards.
  *
- * Memory footprint is bounded by `capacity × avg-state-size`. At the
- * defaults (60 entries × ~80 KB) that's ~4.8 MB — a reasonable cap for
- * ~60 s of rewind history.
+ * Engine-polymorphic: the constructor takes any object exposing
+ * `saveState()` / `loadState(bytes)`. Both `GameBoy` and `Gba` satisfy
+ * that shape, so a single buffer class serves both engines.
+ *
+ * Memory footprint is bounded by `capacity × avg-state-size`. At
+ * {@link REWIND_CAPACITY_SECONDS} (120 entries) × ~80 KB for GB / ~600 KB
+ * for GBA, that's ~10–72 MB — the upper end is a notable RAM hit on
+ * mobile, so the cap was tuned to keep typical desktops comfortable
+ * while still covering the "I just lost a tricky boss" case. Was
+ * previously user-tunable via a Settings dropdown; almost nobody
+ * changed it, and the 10-minute setting on GBA (360 MB) OOMed
+ * low-end devices, so the control was removed in favour of a single
+ * constant.
  */
-export class RewindBuffer<M = undefined> {
+
+/** Capacity of the rolling rewind buffer, in 1-second snapshots.
+ *  120 = 2 minutes; see the class doc for memory accounting. */
+export const REWIND_CAPACITY_SECONDS = 120;
+
+/** Minimal duck-typed shape the rewinder needs. Both `GameBoy` and
+ *  `Gba` satisfy it. Kept structural (not nominal) so `src/ui/` doesn't
+ *  have to import the engine classes here. */
+interface RewindableEngine {
+  saveState(): Uint8Array;
+  loadState(bytes: Uint8Array): void;
+}
+
+export class RewindBuffer<M = undefined, E extends RewindableEngine = RewindableEngine> {
   private readonly items: { bytes: Uint8Array; meta: M }[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private capacity: number;
 
   constructor(
-    private readonly gb: GameBoy,
+    private readonly engine: E,
     private readonly getMeta: () => M,
     private readonly intervalMs = 1000,
     capacity = 60
@@ -59,7 +80,7 @@ export class RewindBuffer<M = undefined> {
    *  swallows errors so a failed snapshot never crashes the emulator. */
   capture(): void {
     try {
-      const bytes = this.gb.saveState();
+      const bytes = this.engine.saveState();
       this.items.push({ bytes, meta: this.getMeta() });
       if (this.items.length > this.capacity) this.items.shift();
     } catch (err) {
@@ -75,7 +96,7 @@ export class RewindBuffer<M = undefined> {
     const entry = this.items.pop();
     if (!entry) return null;
     try {
-      this.gb.loadState(entry.bytes);
+      this.engine.loadState(entry.bytes);
       return { meta: entry.meta };
     } catch (err) {
       console.warn("[Rewind] restore failed:", err);

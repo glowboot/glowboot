@@ -126,8 +126,12 @@ async function deliver(blob: Blob | null, filename: string): Promise<void> {
     return;
   }
   const handled = await saveBlobNative(blob, filename);
-  if (handled) {
+  if (handled === "shared") {
     toast("Recording ready to share");
+    return;
+  }
+  if (handled === "cancelled") {
+    toast("Recording cancelled");
     return;
   }
   const url = URL.createObjectURL(blob);

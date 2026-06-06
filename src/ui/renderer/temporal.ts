@@ -4,7 +4,12 @@
  * look: bright pixels linger slightly as they fade, and 30 Hz flicker
  * (used by many GB games to fake sub-2-bit intensities — Pokémon's
  * transparency, Link's Awakening rain) reads as smooth intermediate
- * shades instead of a strobe.
+ * shades instead of a strobe. Engine-agnostic — the buffer is sized to
+ * whatever framebuffer the caller passes in, so Game Boy Advance carts
+ * route through the same blender with their 240×160 frame (the
+ * flicker-cancellation use case is GB-specific but the persistence
+ * effect still reads as authentic on GBA carts that lean on the LCD's
+ * slow response, e.g. F-Zero's mode-7 racers).
  *
  * The output is fed back into the accumulator each frame, so the weight
  * of any given past frame falls off geometrically:

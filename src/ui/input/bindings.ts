@@ -2,14 +2,23 @@ import type { Button } from "../../gb";
 import { KEYS, lsGet, lsSet } from "../persistence/local-storage.js";
 
 /**
- * User-configurable bindings for the eight Game Boy buttons. Two parallel
- * mappings: one for keyboard (`KeyboardEvent.code` strings) and one for
- * gamepads (button index, or axis index + sign for D-Pad-on-stick layouts).
+ * User-configurable input bindings.
+ *
+ * The eight `GB_BUTTONS` (D-pad + A / B / Start / Select) are shared
+ * across both engines — the Game Boy Advance joypad has the same
+ * eight plus two shoulders. The GBA-only shoulders L / R have their
+ * own `ShoulderKeyBindings` / `ShoulderGamepadBindings` records below
+ * so existing GB users' saved bindings aren't perturbed by the GBA
+ * addition. Two parallel mapping styles for both groups: keyboard
+ * (`KeyboardEvent.code` strings) and gamepad (button index, or axis
+ * index + sign for D-Pad-on-stick layouts).
  *
  * Defaults match the historical hard-coded bindings:
- *  - keyboard: arrow keys + Z/X + Enter/Right-Shift
+ *  - keyboard: arrow keys + Z/X + Enter/Right-Shift, with shoulders
+ *    on Q/W (GBA carts only).
  *  - gamepad: the W3C "standard" mapping (face buttons 0/1, Back 8, Start 9,
- *    D-Pad 12-15) which Chrome/Edge apply to most modern controllers.
+ *    D-Pad 12-15) which Chrome/Edge apply to most modern controllers,
+ *    with shoulders on the standard L1/R1 indices 4/5.
  *
  * Persisted to localStorage. Missing keys fall back to defaults so adding a
  * new binding in a future version doesn't break existing users' overrides.
@@ -93,6 +102,32 @@ export const DEFAULT_TILT_BINDINGS: TiltBindings = {
   tiltRight: "KeyL"
 };
 
+/** GBA shoulder buttons. The GB hardware has no L/R, so these only
+ *  fire on the GBA engine — the keyboard / gamepad routers gate
+ *  shoulder dispatch on `state.gba`. Kept in their own bindings record
+ *  rather than widening the Game Boy `KeyBindings` so introducing
+ *  shoulder support doesn't perturb existing GB users' saved bindings
+ *  (the localStorage payload stays the same shape). */
+export type ShoulderButton = "l" | "r";
+export const SHOULDER_BUTTONS: readonly ShoulderButton[] = ["l", "r"];
+export type ShoulderKeyBindings = Record<ShoulderButton, string>;
+export type ShoulderGamepadBindings = Record<ShoulderButton, GamepadBinding | null>;
+
+/** Defaults sit one row above the A/B cluster on QWERTY so the four
+ *  primary buttons (A/B/L/R) form a small block under the right hand. */
+export const DEFAULT_SHOULDER_KEY_BINDINGS: ShoulderKeyBindings = {
+  l: "KeyQ",
+  r: "KeyE"
+};
+
+/** W3C "standard" mapping reserves buttons 4 / 5 for L1 / R1; modern
+ *  Xbox / DualShock / Switch Pro all expose shoulders there when the
+ *  browser applies the standard mapping. */
+export const DEFAULT_SHOULDER_GAMEPAD_BINDINGS: ShoulderGamepadBindings = {
+  l: { type: "button", index: 4 },
+  r: { type: "button", index: 5 }
+};
+
 export function loadKeyBindings(): KeyBindings {
   const raw = lsGet(KEYS.KEY_BINDINGS);
   if (!raw) return { ...DEFAULT_KEY_BINDINGS };
@@ -147,6 +182,34 @@ export function loadTiltBindings(): TiltBindings {
 
 export function saveTiltBindings(b: TiltBindings): void {
   lsSet(KEYS.TILT_BINDINGS, JSON.stringify(b));
+}
+
+export function loadShoulderKeyBindings(): ShoulderKeyBindings {
+  const raw = lsGet(KEYS.SHOULDER_KEY_BINDINGS);
+  if (!raw) return { ...DEFAULT_SHOULDER_KEY_BINDINGS };
+  try {
+    return { ...DEFAULT_SHOULDER_KEY_BINDINGS, ...JSON.parse(raw) };
+  } catch {
+    return { ...DEFAULT_SHOULDER_KEY_BINDINGS };
+  }
+}
+
+export function saveShoulderKeyBindings(b: ShoulderKeyBindings): void {
+  lsSet(KEYS.SHOULDER_KEY_BINDINGS, JSON.stringify(b));
+}
+
+export function loadShoulderGamepadBindings(): ShoulderGamepadBindings {
+  const raw = lsGet(KEYS.SHOULDER_GAMEPAD_BINDINGS);
+  if (!raw) return { ...DEFAULT_SHOULDER_GAMEPAD_BINDINGS };
+  try {
+    return { ...DEFAULT_SHOULDER_GAMEPAD_BINDINGS, ...JSON.parse(raw) };
+  } catch {
+    return { ...DEFAULT_SHOULDER_GAMEPAD_BINDINGS };
+  }
+}
+
+export function saveShoulderGamepadBindings(b: ShoulderGamepadBindings): void {
+  lsSet(KEYS.SHOULDER_GAMEPAD_BINDINGS, JSON.stringify(b));
 }
 
 /** Friendly label for a tilt direction, shown in the Controls editor
@@ -251,6 +314,11 @@ export function describeGamepad(b: GamepadBinding | null): string {
   if (b.type === "button") return `Btn ${b.index}`;
   if (b.value !== undefined) return `Hat ${b.index}`;
   return `Axis ${b.index}${b.sign > 0 ? "+" : "−"}`;
+}
+
+/** Friendly GBA shoulder-button label. */
+export function describeShoulder(s: ShoulderButton): string {
+  return s === "l" ? "L" : "R";
 }
 
 /** Friendly Game Boy button label for the bindings UI. */

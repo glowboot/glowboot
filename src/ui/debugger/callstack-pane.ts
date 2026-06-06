@@ -1,18 +1,26 @@
 import { frameList, symbolFor } from "../../gb";
 import { state } from "../state.js";
-import { hex4 } from "./format.js";
+import { escapeHtml, hex4 } from "./format.js";
 import type { Pane } from "./pane.js";
 
+/** Symbol-name or hex fallback. Returns the raw string so callers can
+ *  pick safe-vs-unsafe contexts: `textContent` consumers (e.g. the PC
+ *  marker) want the unescaped value; `innerHTML` splices must wrap
+ *  with `escapeHtml` because symbol names come from user-uploaded
+ *  `.sym` files and could contain markup. */
 function labelFor(addr: number, bank: number): string {
   const name = symbolFor(addr, bank);
   return name ?? hex4(addr);
 }
 
 /**
- * Call-stack pane — top-down view of the synthesized frames from
- * `gb/debug/call-stack.ts`. Top of the list is the innermost
- * (most-recent) frame; the current PC is shown separately at the top
- * as a "here" marker.
+ * Call-stack pane for the Game Boy / Game Boy Color engine —
+ * top-down view of the synthesized frames from
+ * `gb/debug/call-stack.ts` (CALL / RST / IRQ pushes and RET pops).
+ * The Game Boy Advance equivalent (`./callstack-pane-gba.ts`)
+ * synthesises frames from BL / BX / LDM-with-PC / POP-with-PC + IRQ
+ * entry. Top of the list is the innermost (most-recent) frame; the
+ * current PC is shown separately at the top as a "here" marker.
  *
  * Refresh avoids rebuilding `innerHTML` on every rAF tick — the previous
  * implementation allocated a string of HTML and reassigned `innerHTML`
@@ -109,9 +117,9 @@ export const callStackPane: Pane = {
       lines.push(
         `<div class="cs-row">` +
           `<span class="cs-kind ${kindClass}">${kindLabel}</span>` +
-          `<span class="cs-addr">${labelFor(f.callSite, bank)}</span>` +
+          `<span class="cs-addr">${escapeHtml(labelFor(f.callSite, bank))}</span>` +
           `<span class="cs-arrow">→ ret</span>` +
-          `<span class="cs-addr">${labelFor(f.returnAddr, bank)}</span>` +
+          `<span class="cs-addr">${escapeHtml(labelFor(f.returnAddr, bank))}</span>` +
           `</div>`
       );
     }

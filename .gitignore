@@ -12,6 +12,11 @@ dist-dev
 # stays out of the repo.
 tests/roms/
 
+# GBA test ROMs — `npm run test:gba-roms` auto-fetches the cadfan
+# accuracy-test corpus (jsmolka + armwrestler + fuzzarm + mgba-suite +
+# ags-aging) into this directory on first run.
+tests/gba-roms/
+
 # Vite env files — never commit any of them so secrets can't sneak in
 # through the back door. The repo ships `.env.example` as the only
 # documented contract; real values live in the deployment environment

@@ -4,16 +4,21 @@ import { hex2, hex4 } from "./format.js";
 import type { Pane } from "./pane.js";
 
 /**
- * Live disassembly pane — decodes the instructions around the current
- * program counter and renders them as a scrolling list with lazy
- * extension at both edges. The row at PC is highlighted, clicking the
- * gutter or right-clicking a row toggles a breakpoint.
+ * Live disassembly pane for the Game Boy / Game Boy Color engine —
+ * decodes the instructions around the current program counter and
+ * renders them as a scrolling list with lazy extension at both
+ * edges. The row at PC is highlighted, clicking the gutter or
+ * right-clicking a row toggles a breakpoint. The Game Boy Advance
+ * equivalent (`./disasm-pane-gba.ts`) is simpler because ARM (4
+ * bytes) and Thumb (2 bytes) have fixed instruction widths — no
+ * backward-walk heuristic needed there.
  *
- * Walking backwards from PC is impossible in general (variable-length
- * instructions + no back-references), so the backward-extend path uses
- * the same walk-forward-from-earlier-bytes heuristic as the initial
- * seed: reach back ~EXTEND_LINES × 3 bytes, decode forward, and keep
- * the tail that leads up to the current window's first address.
+ * Walking backwards from PC is impossible in general for the LR35902
+ * (variable-length instructions + no back-references), so the
+ * backward-extend path uses the same walk-forward-from-earlier-bytes
+ * heuristic as the initial seed: reach back ~EXTEND_LINES × 3 bytes,
+ * decode forward, and keep the tail that leads up to the current
+ * window's first address.
  *
  * Refresh never re-seeds — it only repaints the current-PC highlight
  * and breakpoint markers on the rows already in the window. If PC

@@ -12,7 +12,13 @@ import { TemporalBlender } from "./temporal.js";
 
 /**
  * WebGL renderer. Takes the PPU framebuffer through a configurable
- * single- or multi-pass fragment shader chain defined in `./shaders.ts`:
+ * single- or multi-pass fragment shader chain defined in `./shaders.ts`.
+ *
+ * Resolution-parameterised (like `./canvas.ts`): the constructor takes
+ * an explicit `inputWidth` / `inputHeight` defaulting to the Game
+ * Boy's 160×144, so the same renderer serves Game Boy carts and Game
+ * Boy Advance carts (240×160). FBO and source-size uniforms scale
+ * accordingly.
  *
  *   - Single-pass modes (LCD, xBR, CRT, …) render straight to the
  *     canvas.
@@ -42,18 +48,20 @@ interface PassState {
   inputHeight: number;
 }
 
-/** Intermediate resolution for multi-pass upscalers. 2× native produces
- *  a 320×288 working texture that the final pass samples and outputs to
- *  the 6×-native canvas with linear filtering. */
+/** Intermediate resolution multiplier for multi-pass upscalers. 2× the
+ *  input resolution produces a working texture that the final pass
+ *  samples and outputs to the 6×-input canvas with linear filtering. */
 const INTERMEDIATE_SCALE = 2;
-const INTERMEDIATE_WIDTH = SCREEN_WIDTH * INTERMEDIATE_SCALE;
-const INTERMEDIATE_HEIGHT = SCREEN_HEIGHT * INTERMEDIATE_SCALE;
 
 export class WebGLRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly gl: WebGLRenderingContext;
   private readonly passes: PassState[];
   private readonly texture: WebGLTexture;
+  private readonly inputWidth: number;
+  private readonly inputHeight: number;
+  private readonly intermediateWidth: number;
+  private readonly intermediateHeight: number;
 
   /** FBO + backing texture for multi-pass rendering. Null for single-
    *  pass shaders. */
@@ -68,7 +76,7 @@ export class WebGLRenderer {
   };
   private _integerScale = false;
   private resizeObserver: ResizeObserver | null = null;
-  private readonly blender = new TemporalBlender(SCREEN_WIDTH * SCREEN_HEIGHT * 4);
+  private readonly blender: TemporalBlender;
   private blendAlpha = 1;
 
   /** Which shader this renderer is running. Used by the cart-overrides
@@ -76,14 +84,24 @@ export class WebGLRenderer {
    *  (which destroys the canvas) or is already a match. */
   readonly shaderName: ShaderName;
 
-  constructor(canvas: HTMLCanvasElement, shader: ShaderName = "lcd") {
+  constructor(
+    canvas: HTMLCanvasElement,
+    shader: ShaderName = "lcd",
+    inputWidth: number = SCREEN_WIDTH,
+    inputHeight: number = SCREEN_HEIGHT
+  ) {
     this.canvas = canvas;
     this.shaderName = shader;
+    this.inputWidth = inputWidth;
+    this.inputHeight = inputHeight;
+    this.intermediateWidth = inputWidth * INTERMEDIATE_SCALE;
+    this.intermediateHeight = inputHeight * INTERMEDIATE_SCALE;
+    this.blender = new TemporalBlender(inputWidth * inputHeight * 4);
     // Pick a backing-store size high enough that the shader has detail
     // to render its LCD cell grid, even when the container CSS-scales
-    // the canvas down. 6× native gives 960×864 — plenty of headroom.
-    canvas.width = SCREEN_WIDTH * 6;
-    canvas.height = SCREEN_HEIGHT * 6;
+    // the canvas down. 6× input gives plenty of headroom.
+    canvas.width = inputWidth * 6;
+    canvas.height = inputHeight * 6;
 
     const gl = canvas.getContext("webgl", {
       antialias: false,
@@ -134,13 +152,13 @@ export class WebGLRenderer {
       gl.enableVertexAttribArray(aPos);
       gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
       gl.uniform1i(gl.getUniformLocation(program, "uFrame"), 0);
-      const inputWidth = i === 0 ? SCREEN_WIDTH : INTERMEDIATE_WIDTH;
-      const inputHeight = i === 0 ? SCREEN_HEIGHT : INTERMEDIATE_HEIGHT;
+      const passInputWidth = i === 0 ? this.inputWidth : this.intermediateWidth;
+      const passInputHeight = i === 0 ? this.inputHeight : this.intermediateHeight;
       return {
         program,
         uSourceSize: gl.getUniformLocation(program, "uSourceSize"),
-        inputWidth,
-        inputHeight
+        inputWidth: passInputWidth,
+        inputHeight: passInputHeight
       };
     });
 
@@ -177,8 +195,8 @@ export class WebGLRenderer {
         gl.TEXTURE_2D,
         0,
         gl.RGBA,
-        INTERMEDIATE_WIDTH,
-        INTERMEDIATE_HEIGHT,
+        this.intermediateWidth,
+        this.intermediateHeight,
         0,
         gl.RGBA,
         gl.UNSIGNED_BYTE,
@@ -211,7 +229,7 @@ export class WebGLRenderer {
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, SCREEN_WIDTH, SCREEN_HEIGHT, 0, gl.RGBA, gl.UNSIGNED_BYTE, src);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.inputWidth, this.inputHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, src);
 
     for (let i = 0; i < this.passes.length; i++) {
       const pass = this.passes[i]!;
@@ -228,7 +246,7 @@ export class WebGLRenderer {
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
       } else {
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.intermediateFbo);
-        gl.viewport(0, 0, INTERMEDIATE_WIDTH, INTERMEDIATE_HEIGHT);
+        gl.viewport(0, 0, this.intermediateWidth, this.intermediateHeight);
       }
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -269,9 +287,9 @@ export class WebGLRenderer {
     if (!parent) return;
     const availW = parent.clientWidth;
     const availH = parent.clientHeight;
-    const scale = Math.max(1, Math.min(Math.floor(availW / SCREEN_WIDTH), Math.floor(availH / SCREEN_HEIGHT)));
-    this.canvas.style.width = `${scale * SCREEN_WIDTH}px`;
-    this.canvas.style.height = `${scale * SCREEN_HEIGHT}px`;
+    const scale = Math.max(1, Math.min(Math.floor(availW / this.inputWidth), Math.floor(availH / this.inputHeight)));
+    this.canvas.style.width = `${scale * this.inputWidth}px`;
+    this.canvas.style.height = `${scale * this.inputHeight}px`;
   }
 
   /** Match CanvasRenderer's temporal-blend contract so the host can

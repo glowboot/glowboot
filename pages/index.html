@@ -4,13 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#1a0b3d" />
-    <meta name="description" content="Glowboot — a Game Boy / Game Boy Color emulator written in TypeScript." />
+    <meta
+      name="description"
+      content="Glowboot — a Game Boy, Game Boy Color, and Game Boy Advance emulator written in TypeScript."
+    />
     <link rel="canonical" href="https://glowboot.pages.dev/" />
 
     <meta property="og:title" content="Glowboot" />
     <meta
       property="og:description"
-      content="Glowboot — a Game Boy / Game Boy Color emulator that runs in your browser."
+      content="Glowboot — a Game Boy, Game Boy Color, and Game Boy Advance emulator that runs in your browser."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://glowboot.pages.dev/" />
@@ -21,7 +24,10 @@
     <meta property="og:image" content="https://glowboot.pages.dev/og-preview.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Glowboot — play Game Boy in your browser" />
+    <meta
+      property="og:image:alt"
+      content="Glowboot — play Game Boy, Game Boy Color, and Game Boy Advance in your browser"
+    />
 
     <!-- summary_large_image so Twitter / X renders the wide preview
          instead of cropping to a square thumbnail. -->
@@ -29,7 +35,7 @@
     <meta name="twitter:title" content="Glowboot" />
     <meta
       name="twitter:description"
-      content="Glowboot — a Game Boy / Game Boy Color emulator that runs in your browser."
+      content="Glowboot — a Game Boy, Game Boy Color, and Game Boy Advance emulator that runs in your browser."
     />
     <meta name="twitter:image" content="https://glowboot.pages.dev/og-preview.png" />
 
@@ -331,12 +337,12 @@
                     </div>
                     <label
                       class="settings-row"
-                      title="Canvas 2D is the plain CPU renderer. The WebGL modes each apply a distinct fragment shader on the GPU — Bilinear, CRT, HQ2x, LCD, MMPX (default), or Super-xBR. Changes apply immediately."
+                      title="Original (default) shows the raw pixels with no post-processing. The other modes each apply a distinct fragment shader on the GPU — Bilinear, CRT, HQ2x, LCD, MMPX, or Super-xBR. Changes apply immediately."
                     >
                       <span>Rendering</span>
                       <select id="render-mode">
+                        <option value="canvas">Original</option>
                         <option value="webgl-bilinear">Bilinear</option>
-                        <option value="canvas">Canvas 2D</option>
                         <option value="webgl-crt">CRT</option>
                         <option value="webgl-hq2x">HQ2x</option>
                         <option value="webgl-lcd">LCD</option>
@@ -365,7 +371,7 @@
                     </label>
                     <label
                       class="settings-row"
-                      title="Size the canvas to a whole-number multiple of 160×144 so every pixel is perfectly square. Recommended for sharp retro output."
+                      title="Size the canvas to a whole-number multiple of the native resolution so every pixel is perfectly square. Recommended ON for Game Boy (160×144 grids cleanly into most displays); on GBA (240×160) the integer multiple often leaves wide empty borders, so turning it off lets the image fill the viewport at the cost of slightly fuzzier scaling."
                     >
                       <span>Integer scaling</span>
                       <input type="checkbox" id="integer-scale-toggle" />
@@ -568,6 +574,18 @@
                     </label>
                     <label
                       class="settings-row"
+                      title="How the on-screen controls behave when the device is held in landscape. Portrait keeps the rotate prompt (default). Flank puts the controls in side gutters next to the screen. Overlay floats them dimmed over a screen-filling canvas. Tap-to-reveal hides them until you tap the screen."
+                    >
+                      <span>Landscape layout</span>
+                      <select id="touch-landscape-mode">
+                        <option value="portrait">Force portrait</option>
+                        <option value="flank">Flank (side gutters)</option>
+                        <option value="overlay">Overlay (dimmed)</option>
+                        <option value="reveal">Tap to reveal</option>
+                      </select>
+                    </label>
+                    <label
+                      class="settings-row"
                       title="Short device vibration (Android only — iOS Safari ignores `navigator.vibrate`) on every fresh button press from the on-screen overlay. Gives virtual buttons the click-confirm feel that physical hardware has for free. Independent of the Rumble settings, which control cart / audio-driven vibration."
                     >
                       <span>Press feedback</span>
@@ -630,24 +648,24 @@
                     <div class="bindings-group">
                       <label
                         class="settings-row"
-                        title="Overall intensity of audio-reactive rumble. 0 = silent, 100 = maximum. Default 50 is a gentle pulse; push higher if you want more punch."
+                        title="Audio-reactive rumble intensity / sensitivity. 0 = silent, 100 = maximum. Always editable so you can dial in your preferred response before turning Audio-reactive on. (MBC5 cart rumble is independent of this slider — it always fires at full strength on gamepads that support it.)"
                       >
                         <span>Strength</span>
                         <input type="range" id="rumble-strength-slider" min="0" max="100" step="5" value="50" />
                       </label>
                       <label
                         class="settings-row"
-                        title="Named mix of the four APU channels that drive rumble. Different games spread melody / bass / SFX across channels differently — pick whichever preset feels right in the games you play."
-                      >
-                        <span>Preset</span>
-                        <select id="rumble-preset-select"></select>
-                      </label>
-                      <label
-                        class="settings-row"
-                        title="Drive the vibration motor from the game's audio. Works for every ROM, independent of MBC5 cart rumble. Tune strength + preset above."
+                        title="Drive the vibration motor from the game's audio. Works for every ROM, independent of MBC5 cart rumble. Tune the channel mix in Preset below."
                       >
                         <span>Audio-reactive</span>
                         <input type="checkbox" id="audio-rumble-toggle" />
+                      </label>
+                      <label
+                        class="settings-row"
+                        title="Named mix of the four APU channels that drive audio-reactive rumble. Different games spread melody / bass / SFX across channels differently — pick whichever preset feels right in the games you play."
+                      >
+                        <span>Preset</span>
+                        <select id="rumble-preset-select"></select>
                       </label>
                     </div>
                   </div>
@@ -683,7 +701,7 @@
                     </label>
                     <label
                       class="settings-row"
-                      title="Filter / EQ / reverb applied to the audio output. Studio is the clean default; other presets emulate listening contexts like the original handheld speaker, warm headphones, a boombox, cassette tape, or a small hall."
+                      title="Filter / EQ / reverb applied to the audio output. Original (default) is a clean pass-through; the presets emulate listening contexts like the original handheld speaker, warm headphones, a boombox, cassette tape, or a small hall."
                     >
                       <span>Audio mode</span>
                       <select id="audio-mode"></select>
@@ -699,6 +717,22 @@
                         </button>
                         <button class="mute-btn" data-ch="2" aria-label="Mute Wave channel" title="Wave">W</button>
                         <button class="mute-btn" data-ch="3" aria-label="Mute Noise channel" title="Noise">N</button>
+                        <button
+                          class="mute-btn mute-btn-ds"
+                          data-ch="4"
+                          aria-label="Mute Direct Sound A channel"
+                          title="Direct Sound A (GBA streamed audio — most game music plays here)"
+                        >
+                          DSA
+                        </button>
+                        <button
+                          class="mute-btn mute-btn-ds"
+                          data-ch="5"
+                          aria-label="Mute Direct Sound B channel"
+                          title="Direct Sound B (GBA streamed audio — sound effects often play here)"
+                        >
+                          DSB
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -737,19 +771,6 @@
                     </label>
                     <label
                       class="settings-row"
-                      title="How far back you can rewind by holding Backspace. Longer windows use more memory (~80 KB per second of rewind)."
-                    >
-                      <span>Rewind buffer</span>
-                      <select id="rewind-capacity-select">
-                        <option value="30">30 seconds</option>
-                        <option value="60">1 minute</option>
-                        <option value="120">2 minutes</option>
-                        <option value="300">5 minutes</option>
-                        <option value="600">10 minutes</option>
-                      </select>
-                    </label>
-                    <label
-                      class="settings-row"
                       title="What's plugged into the Game Boy's serial port. 2-player pairs with another tab or device for link-cable games. Printer turns the port into a virtual Game Boy Printer — print Pokémon Pokédex pages, Game Boy Camera shots, etc."
                     >
                       <span>Link cable</span>
@@ -773,6 +794,13 @@
                     >
                       <span>Room code</span>
                       <input type="text" id="link-room-code" placeholder="(empty = same-machine)" maxlength="32" />
+                    </label>
+                    <label
+                      class="settings-row solar-brightness-row"
+                      title="Ambient light fed to the Boktai trilogy's cart-side solar sensor. 0 % = pitch black (cover the sensor in the cart's calibration menu), 100 % = direct sunlight (Solar Gun fully charged). 10 steps match the in-game sun gauge — Boktai 2 / 3 have 10 bars; Boktai 1's 8-bar gauge skips occasional bars but the cart still sees the raw level. The slider only affects Boktai 1, 2, and 3 — other carts ignore it."
+                    >
+                      <span>Solar brightness</span>
+                      <input type="range" id="solar-brightness" min="0" max="1" step="0.1" value="0.7" />
                     </label>
                   </div>
                   <div class="settings-section" data-section="backup">
@@ -1213,7 +1241,7 @@
         <section class="console">
           <div class="canvas-wrap">
             <div class="canvas-frame">
-              <canvas id="screen" width="160" height="144" tabindex="0" aria-label="Game Boy screen"></canvas>
+              <canvas id="screen" width="160" height="144" tabindex="0" aria-label="Emulator screen"></canvas>
             </div>
             <button class="canvas-placeholder" id="canvas-placeholder" type="button">
               <span class="canvas-placeholder-icon" aria-hidden="true">
@@ -1233,7 +1261,7 @@
                 </svg>
               </span>
               <span class="canvas-placeholder-label">Load ROM</span>
-              <span class="canvas-placeholder-hint">or drop a .gb / .gbc file here</span>
+              <span class="canvas-placeholder-hint">or drop a .gb / .gbc / .gba file here</span>
             </button>
             <div class="overlay overlay-rewind" id="overlay-rewind" aria-hidden="true"></div>
             <div class="overlay overlay-flash" id="overlay-flash" aria-hidden="true"></div>
@@ -1244,6 +1272,10 @@
              by src/ui/input/touch.ts; visibility is driven by the "Touch
              controls" setting (Auto / Always / Never). -->
           <div class="gb-touch" aria-hidden="true">
+            <div class="gba-shoulders" role="group" aria-label="Shoulder buttons">
+              <button class="gb-btn gb-btn-l" aria-label="L shoulder" tabindex="-1" type="button">L</button>
+              <button class="gb-btn gb-btn-r" aria-label="R shoulder" tabindex="-1" type="button">R</button>
+            </div>
             <div class="gb-dpad" role="group" aria-label="Directional pad">
               <span class="gb-dpad-hint gb-dpad-up"></span>
               <span class="gb-dpad-hint gb-dpad-right"></span>
@@ -1271,6 +1303,14 @@
         >
         <span class="ctrl-group" data-gb-btn="a"><span class="key">Z</span><span class="ctrl-lab">A</span></span>
         <span class="ctrl-group" data-gb-btn="b"><span class="key">X</span><span class="ctrl-lab">B</span></span>
+        <!-- GBA shoulder buttons. Hidden via .ctrl-gba's CSS until
+             body.is-gba is set on cart load. -->
+        <span class="ctrl-group ctrl-gba" data-gba-btn="l"
+          ><span class="key">Q</span><span class="ctrl-lab">L</span></span
+        >
+        <span class="ctrl-group ctrl-gba" data-gba-btn="r"
+          ><span class="key">E</span><span class="ctrl-lab">R</span></span
+        >
         <span class="ctrl-group" data-gb-btn="start"
           ><span class="key">↵</span><span class="ctrl-lab">Start</span></span
         >
@@ -1457,7 +1497,7 @@
       </footer>
     </div>
 
-    <input type="file" id="rom-input" accept=".gb,.gbc,.ips,.bps" multiple />
+    <input type="file" id="rom-input" accept=".gb,.gbc,.gba,.ips,.bps" multiple />
     <div id="toast" role="status" aria-live="polite"></div>
     <!-- Error toast — separate element so screen readers get `role="alert"`
          / `aria-live="assertive"` for failures (vs. the polite confirmation
@@ -1470,10 +1510,13 @@
     <div class="popover-backdrop" aria-hidden="true"></div>
 
     <!-- "Rotate to portrait" overlay — shown only on touch devices in
-         landscape. The Game Boy was a portrait-only device and the
-         emulator's UI is built around that orientation, so the overlay
-         hides the game and asks the user to rotate. CSS-driven; no JS
-         needed because all the conditions are media-query expressible. -->
+         landscape AND the user has explicitly picked "Force portrait"
+         in Settings → Controls → Touch → Landscape layout. (The default
+         is `flank`, which keeps the canvas + controls usable in
+         landscape — the GBA shipped as a landscape device, so a blanket
+         "rotate" prompt would mis-state the hardware history.) CSS-
+         driven; no JS needed because all conditions are media-query
+         expressible. -->
     <div class="rotate-prompt" aria-hidden="true">
       <svg
         viewBox="0 0 24 24"
@@ -1492,7 +1535,6 @@
         <path d="M16 18l3-3-3-3"></path>
       </svg>
       <p class="rotate-prompt-title">Rotate to portrait</p>
-      <p class="rotate-prompt-sub">The Game Boy was a portrait device — the UI works best that way.</p>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

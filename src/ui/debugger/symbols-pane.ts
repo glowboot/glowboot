@@ -2,11 +2,15 @@ import { allSymbols, clearSymbols, hasSymbols, loadSymbols, sourceLabel, symbolC
 import { toast } from "../hud/toast.js";
 import { lsGet, lsRemove, lsSet, SYMBOLS_KEY_PREFIX, SYMBOLS_META_SUFFIX } from "../persistence/local-storage.js";
 import { state } from "../state.js";
-import { hex4 } from "./format.js";
+import { escapeHtml, hex4 } from "./format.js";
 import type { Pane } from "./pane.js";
 
 /**
- * Symbols pane — load / display a parsed `.sym` file.
+ * Symbols pane for the Game Boy / Game Boy Color engine — load /
+ * display a parsed RGBDS `.sym` file (`bank:addr name` lines). The
+ * Game Boy Advance equivalent (`./symbols-pane-gba.ts`) accepts the
+ * flat 32-bit address format (`AAAAAAAA NAME`, also `0x…` / `$…` /
+ * `:` separators), which suits `nm` output and linker maps.
  *
  * UI: file picker → count + source label → search box → filtered list.
  *
@@ -16,7 +20,7 @@ import type { Pane } from "./pane.js";
  * entry for the current cart.
  */
 
-export interface SymbolStorageMeta {
+interface SymbolStorageMeta {
   label: string;
 }
 
@@ -31,7 +35,7 @@ function storageKeyForCart(): string | null {
  * Persist the raw `.sym` text + label for the current cart so future
  * sessions with the same ROM auto-load it.
  */
-export function persistSymbols(text: string, label: string): void {
+function persistSymbols(text: string, label: string): void {
   const key = storageKeyForCart();
   if (!key) return;
   lsSet(key, text);
@@ -186,20 +190,3 @@ export const symbolsPane: Pane = {
     }
   }
 };
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => {
-    switch (c) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
-}

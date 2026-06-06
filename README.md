@@ -1,8 +1,8 @@
 # Glowboot
 
-Play original Game Boy and Game Boy Color games in your browser. No
-installation required, your game data stays on your device, works on
-desktop and phones.
+Play original Game Boy, Game Boy Color, and Game Boy Advance games in
+your browser. No installation required, your game data stays on your
+device, works on desktop and phones.
 
 **Play at** [glowboot.pages.dev](https://glowboot.pages.dev/).
 
@@ -30,43 +30,46 @@ desktop and phones.
 
 ## What you can do
 
-- **Play any Game Boy or Game Boy Color game** — just load a `.gb` or
-  `.gbc` file and go.
+- **Play Game Boy, Game Boy Color, and Game Boy Advance games** —
+  just load a `.gb`, `.gbc`, or `.gba` file and go.
 - **Save anywhere, anytime** — 12 save slots per game, each with a
   thumbnail so you can see what's saved where. Or just close the tab —
   the emulator picks up exactly where you left off.
-- **Rewind time** — hold a key to scrub backwards through recent play
-  (30 seconds to 10 minutes, configurable; one minute by default).
-  Great for tricky jumps and boss fights.
+- **Rewind time** — hold a key to scrub backwards through the last
+  two minutes of play. Great for tricky jumps and boss fights.
 - **Speed it up or slow it down** — cycle between slow-motion, normal,
   2×, and 4× speed.
 - **Record gameplay** — save a screenshot (PNG) or a video of what's on
   screen.
-- **Cheats** — paste Game Genie or Game Shark codes, or search an
+- **Cheats** — paste Game Genie or Game Shark codes on Game Boy,
+  GameShark or CodeBreaker codes on Game Boy Advance, or search an
   online database by game title.
 - **Apply romhacks** — drag an `.ips` or `.bps` patch onto the page
   together with a ROM to play translations, randomizers, or fan hacks.
-- **Customise the look** — choose between a clean pixel display, a
+- **Customise the look** — unfiltered pixels by default, or pick a
   handheld LCD simulation, CRT scanlines, Bilinear / HQ2x / MMPX /
   Super-xBR smoothing, and more.
-- **Customise the sound** — pick an audio mode: clean studio output,
-  the original Game Boy speaker, warm headphones, a boombox, cassette
-  tape, a small hall, and others. Per-channel mutes too.
+- **Customise the sound** — clean unprocessed output by default, or
+  pick an audio mode: the original Game Boy speaker, warm headphones,
+  a boombox, cassette tape, a small hall, and others. Per-channel
+  mutes too.
 - **Rebind almost anything** — every Game Boy button, gamepad mapping,
   and shell hotkey (pause, turbo, rewind, screenshot, record, reset) is
   customisable in Settings. The save-slot digits `0`–`9` stay fixed
   since the digit IS the slot number.
 - **Touch-friendly** — on phones and tablets you get an on-screen D-pad
-  and action buttons automatically. The Game Boy was a portrait device,
-  so landscape on touch is blocked with a "rotate to portrait" prompt
-  rather than fighting a layout that never felt right. Fullscreen keeps
-  the overlay visible so you can actually play.
+  and action buttons automatically. Landscape on touch offers three
+  in-game layouts (side-gutter flank, dimmed overlay, tap-to-reveal) or
+  a "force portrait" prompt for users who prefer the historical
+  portrait-only feel — pick yours in Settings → Controls → Touch.
+  Fullscreen keeps the overlay visible so you can actually play.
 - **Rumble** — if your gamepad has a vibration motor, the emulator can
-  rumble along with the game. The MBC5 rumble carts (Pokémon Pinball,
-  Perfect Dark, Shantae, …) drive it directly. There's also an optional
-  audio-reactive mode that pulses the motor from the game's bass
-  energy, so every ROM gets tactile feedback on drums and explosions.
-  On Android phones the same signals drive the device's vibration motor
+  rumble along with the game. The Game Boy MBC5 rumble carts
+  (Pokémon Pinball, Perfect Dark, Shantae, …) and the GBA's Drill
+  Dozer family drive it directly. There's also an optional audio-
+  reactive mode that pulses the motor from the game's bass energy,
+  so every ROM gets tactile feedback on drums and explosions. On
+  Android phones the same signals drive the device's vibration motor
   via the Web Vibration API. iOS Safari ignores the API by browser
   policy; rumble there is silent.
 - **Accessible** — works end-to-end with a keyboard: visible focus
@@ -77,7 +80,11 @@ desktop and phones.
   `prefers-reduced-motion` and `prefers-reduced-transparency`.
 - **Link cable** — pair two tabs (or two devices anywhere in the world,
   via an optional relay) and play 2-player Tetris, trade Pokémon, or
-  whatever else your cart supports.
+  whatever else your cart supports. Game Boy Advance link-cable
+  support is experimental — slower trade protocols (Pokémon Ruby /
+  Sapphire / FireRed / Emerald) tend to work; faster cable-detect
+  protocols (Mario Kart Super Circuit, Tetris Worlds VS) are
+  intermittent.
 - **Game Boy Camera** — load the Camera cart and your webcam becomes
   the in-game sensor. The viewfinder shows live video, you can take
   photos, save them to the cart's photo album, and play the built-in
@@ -86,12 +93,27 @@ desktop and phones.
   any printer-aware ROM (Game Boy Camera prints, Pokémon Yellow's
   Pokédex, Mario's Picross, …) drops its output into a popover,
   ready to save as PNG.
-- **Tilt controls** — Kirby Tilt 'n' Tumble and other MBC7
-  accelerometer carts work end-to-end. On phones the device's motion
-  sensor maps directly to the cart's tilt input; on desktop, **`I` /
-  `K` / `J` / `L`** (rebindable in Settings → Controls) stand in for
-  forward / back / left / right. iOS asks for motion permission the
-  first time you tap the canvas.
+- **Tilt and motion controls** — Kirby Tilt 'n' Tumble (Game Boy
+  MBC7), Yoshi Topsy-Turvy and Koro Koro Puzzle (Game Boy Advance
+  ADXL202E accelerometer carts), and WarioWare: Twisted! (Game Boy
+  Advance ADXRS300 gyroscope) all work end-to-end. On phones the
+  device's motion sensor maps directly to the cart's sensor; on
+  desktop, **`I` / `K` / `J` / `L`** (rebindable in Settings →
+  Controls) stand in for forward / back / left / right tilt, with
+  **`J` / `L`** also covering counter-clockwise / clockwise
+  rotation for the Wario gyroscope. iOS asks for motion permission
+  the first time you tap the canvas.
+- **Real-time clock** — both engines tick a real clock so games
+  whose mechanics depend on wall time keep moving. Pokémon Gold /
+  Silver / Crystal (Game Boy MBC3 RTC) plus Pokémon Ruby / Sapphire /
+  Emerald / FireRed / LeafGreen and the Boktai trilogy (GBA Seiko
+  S-3511A on the cart GPIO) all see real time, so day-night
+  cycles, berry growth, the daily Lottery Corner, and Boktai's
+  solar-time progression advance naturally — including while the
+  emulator is paused or the tab is backgrounded. Setting the clock
+  in-game (Boktai's setup screen) sticks: the chip state is
+  battery-backed alongside the cart's save, so the set time keeps
+  running across power-offs just like the real cartridge.
 - **Per-game overrides** — pin a palette, CGB colour correction
   preference, or render mode for a specific cart via the cartridge-info
   popover — the next time you load that ROM it launches with exactly
@@ -108,10 +130,11 @@ desktop and phones.
 
 ## Getting started
 
-### Step 1 — get a Game Boy ROM
+### Step 1 — get a ROM
 
-You'll need a `.gb` (original Game Boy) or `.gbc` (Game Boy Color) file.
-The emulator needs the game file to play.
+You'll need a `.gb` (original Game Boy), `.gbc` (Game Boy Color), or
+`.gba` (Game Boy Advance) file. The emulator needs the game file to
+play.
 
 Where to get one legally:
 
@@ -145,7 +168,7 @@ There are three ways to load a game:
 
 1. **Click the "Load ROM" box** in the middle of the screen and pick a
    file.
-2. **Drag a `.gb` / `.gbc` file** onto the page from your desktop.
+2. **Drag a `.gb` / `.gbc` / `.gba` file** onto the page from your desktop.
 3. **Double-click the file** in your OS file manager — works once
    you've installed the app (see [Install as an app](#install-as-an-app)).
 
@@ -201,11 +224,14 @@ session when you've forgotten where you started.
 
 Gear icon in the header → **Display**:
 
-- **Rendering** — several GPU shaders to pick from (alphabetical):
-  Bilinear, Canvas 2D, CRT, HQ2x, LCD, **MMPX** _(default — style-
-  preserving 2× pixel-art magnification, McGuire & Mara 2020)_, and
-  Super-xBR.
-- **Integer scaling** — default ON; keeps every pixel perfectly square.
+- **Rendering** — **Original** _(default — raw pixels, no
+  post-processing)_ plus several GPU shaders (alphabetical): Bilinear,
+  CRT, HQ2x, LCD, MMPX _(style-preserving 2× pixel-art magnification,
+  McGuire & Mara 2020)_, and Super-xBR.
+- **Integer scaling** — default OFF so the GBA's 240×160 frame
+  fills more of the viewport; toggle ON to keep every pixel
+  perfectly square (best for Game Boy and Game Boy Color, whose
+  160×144 frame grids evenly on most displays).
 - **CGB colour correction** — default ON; emulates the real CGB LCD's
   warm, muted response so Game Boy Color titles don't look neon on an
   sRGB monitor.
@@ -224,17 +250,17 @@ Gear icon in the header → **Audio**:
 
 - **Volume** — master volume slider.
 - **Audio mode** — picks a filter / EQ / reverb chain applied to the
-  emulator's output. Choices (alphabetical):
+  emulator's output:
+  - **Original** _(default)_ — clean pass-through, no colouration.
   - **Boombox** — boosted lows and highs, V-shape EQ.
   - **Bright & crisp** — high-shelf lift for sparkle on muffled speakers.
   - **Cassette tape** — saturation + slight wow/flutter and tape hiss.
   - **Game Boy speaker** — band-pass + speaker resonance, the way the
     original handheld sounded through its tiny piezo.
   - **Hall reverb** — short room reverb for spatial depth.
-  - **Studio** _(default)_ — clean pass-through, no colouration.
   - **Warm headphones** — gentle low-end lift and rolled-off treble.
 
-  Modes are loudness-calibrated against Studio at boot so switching
+  Modes are loudness-calibrated against Original at boot so switching
   between them doesn't make the music suddenly louder or quieter.
 
 - **Channels** — four toggles to mute the individual APU channels
@@ -299,10 +325,8 @@ manual save slots, so it never overwrites a deliberate save.
 Hold `Backspace` and the game runs backwards. The overlay shows how
 far back you've scrubbed (e.g. "-5.2s") so you can let go at the right
 moment. Release to resume from wherever you are. Perfect for retrying
-a tricky boss pattern or recovering from a mistake. The default window
-is one minute; you can change it to anywhere between 30 seconds and 10
-minutes under Settings → Session → Rewind buffer (longer windows use
-more memory).
+a tricky boss pattern or recovering from a mistake. The buffer holds
+the last 2 minutes of play.
 
 ### Speed and slow motion
 
@@ -316,8 +340,10 @@ other than 1× (audio doesn't survive pitch-shift gracefully).
 
 Click the wand icon in the header. You can:
 
-- **Paste a code** — Game Genie (`004-BCE-E66`) or Game Shark
-  (`010F27D0`).
+- **Paste a code** — on Game Boy / Color: Game Genie
+  (`004-BCE-E66`) or Game Shark (`010F27D0`). On Game Boy Advance:
+  GameShark (`AAAAAAAA:VV`, e.g. `02000A5E:63`) or CodeBreaker
+  (`AAAAAAAA+VVVV`, e.g. `83001D08+03E7`).
 - **Search online by game title** — pulls cheat lists from a
   community-maintained database.
 - **Import a `.cht` file** you downloaded.
@@ -325,9 +351,9 @@ Click the wand icon in the header. You can:
 Cheats start disabled after bulk import so nothing changes unexpectedly
 mid-game — tick the box next to each one to turn it on. There's an
 **Enable all / Disable all** toggle at the top of the list if you
-imported a pack and want to flip them en masse. Hover a GG / GS badge
-to see what each format actually does (ROM-read patch vs per-frame
-RAM write).
+imported a pack and want to flip them en masse. Hover a code badge to
+see what each format actually does (ROM-read patch vs per-frame RAM
+write).
 
 ### Romhacks and translations
 
@@ -374,6 +400,31 @@ DataChannel. It stores nothing, requires no accounts, and never
 parses payloads — JSON envelopes are echoed verbatim between the
 two paired sockets.
 
+**GBA link cable — experimental.** The transport that makes Game
+Boy Pokémon trade and 2-player Tetris solid doesn't scale to
+GBA's faster cable protocols. Pokémon trade (Ruby / Sapphire /
+FireRed / LeafGreen / Emerald) uses the same slow Normal-32 SIO
+mode the GB carts use and works reasonably; Multi-Pak protocols
+(Tetris Worlds VS, Mario Kart Super Circuit, Bomberman Tournament)
+require ~360 µs per cable-side transfer round-trip, which
+cross-tab `BroadcastChannel` IPC (~ms per message) can't match —
+cable detection is intermittent. Two browser tabs on the same
+machine pair via `BroadcastChannel`; fps stays at 60 in menus and
+single-player but drops to ~30-45 during heavy cable-detect
+bursts because the runtime spends real-time budget yielding so
+peer messages can drain mid-frame.
+
+Cross-device GBA link cable (with a room code) goes through
+WebRTC like the GB cable, but cable-detect handshakes are even
+more latency-sensitive over the internet. By default room codes
+are ignored on the GBA path and the link falls back to
+same-machine; protocol-tolerant uses (Pokémon trade over the
+Normal-32 mode, slow-paced menu chat) can opt in by setting
+`localStorage["gb-gba-link-cross-device-experimental"] = "1"` in
+the dev tools and reloading. Mileage may vary; this is
+intentionally hidden until a cached-state migration of the WebRTC
+link lands.
+
 ### Game Boy Camera
 
 The Camera cart (a.k.a. Pocket Camera, MBC type `0xFC`) plugs your
@@ -415,11 +466,23 @@ be. Hover any thumbnail for **download** (PNG) and **delete**
 buttons, or use **Clear all** at the bottom of the popover to wipe
 the queue. Both destructive actions confirm first.
 
-### Tilt controls (Kirby Tilt 'n' Tumble & MBC7 carts)
+### Tilt and motion controls (sensor carts)
 
-Kirby Tilt 'n' Tumble shipped with an accelerometer in the cartridge
-itself (Nintendo's MBC7 mapper) — the player tilts the whole Game Boy
-to roll Kirby through the maze. Glowboot emulates that sensor end-to-end:
+A handful of carts shipped with a motion sensor soldered into the
+cartridge itself — the player tilts or twists the whole console to
+play. Glowboot emulates the sensor end-to-end on:
+
+- **Kirby Tilt 'n' Tumble** (Game Boy, Nintendo's MBC7 mapper —
+  two-axis accelerometer).
+- **Yoshi Topsy-Turvy** and **Koro Koro Puzzle: Happy Panechu!**
+  (Game Boy Advance, Analog Devices ADXL202E — two-axis
+  accelerometer).
+- **WarioWare: Twisted!** (Game Boy Advance, Analog Devices
+  ADXRS300 — single-axis gyroscope measuring rotation rate around
+  the screen-normal axis; the player twists the console rather
+  than tilting it).
+
+How tilt input reaches the cart:
 
 - **On phones and tablets**, tilt the device. The OS motion sensor
   maps onto the cart's two-axis accelerometer in real time, so the
@@ -428,14 +491,26 @@ to roll Kirby through the maze. Glowboot emulates that sensor end-to-end:
   time you tap the canvas after loading the ROM.
 - **On desktop**, **`I` / `K` / `J` / `L`** stand in for tilt
   forward / back / left / right. Hold a key for sustained tilt;
-  release to let the simulated ball settle back to centre. The four
-  keys appear in the keyboard cheat sheet (`?`) and are rebindable
-  via Settings → Controls → Keyboard alongside the D-pad and face
-  buttons.
+  release to let the simulated ball settle back to centre. For
+  WarioWare: Twisted! the same **`J` / `L`** keys double as
+  counter-clockwise / clockwise rotation (the cart only cares about
+  the Z-axis rate, so the X-axis keys `I` / `K` do nothing there).
+  The four keys appear in the keyboard cheat sheet (`?`) and are
+  rebindable via Settings → Controls → Keyboard alongside the
+  D-pad and face buttons.
 
-Save data is battery-backed via the cart's onboard EEPROM, so your
-Tilt 'n' Tumble progress persists between sessions just like the
-original hardware.
+**Yoshi Topsy-Turvy calibration** — the cart starts with a
+multi-screen tilt calibration that samples each axis when you
+press A. Keyboard players need to **hold the matching tilt key
+while pressing A** on each calibration screen; otherwise the cart
+saves a zeroed neutral point and tilting in-game does nothing. The
+in-game pause menu has a "Calibrate Tilt Sensor" entry if you want
+to redo it later.
+
+Save data is battery-backed via each cart's onboard EEPROM (Kirby
+Tilt 'n' Tumble), Flash (Yoshi Topsy-Turvy / Koro Koro Puzzle), or
+SRAM (WarioWare: Twisted!), so your progress persists between
+sessions just like the original hardware.
 
 ### Debugger
 
@@ -446,43 +521,76 @@ line on phones. Opening the debugger auto-pauses the emulator so
 live state isn't a blur — press Space or the ▶ button to resume.
 
 Nine panes, switchable via the tab strip across the top (arrow keys
-work inside it):
+work inside it). Both engines have the full set; the contents
+naturally differ between Game Boy (Sharp LR35902) and Game Boy
+Advance (ARM7TDMI):
 
-- **CPU** — every register, flag, control signal (IME, HALT, STOP,
-  double-speed, HALT-bug) plus IE / IF. Live-updated while running.
+- **CPU** — Game Boy: every register, flag, control signal (IME,
+  HALT, STOP, double-speed, HALT-bug) plus IE / IF. Game Boy
+  Advance: the ARM7TDMI register file (r0–r15 in the current mode's
+  bank, CPSR with N/Z/C/V + I/F/T + mode, SPSR), plus HALT, IME, IE,
+  IF, and the IntrWait mask that gates IntrWait halt-release.
+  Live-updated while running.
 - **Disasm** — live disassembly with the current instruction
-  highlighted. Seeds with ~165 instructions around PC and lazy-extends
-  at both edges as you scroll, so you can walk far before or after the
-  current address without losing your place. The address gutter is
-  clickable: left-click to toggle an execute breakpoint, right-click
-  anywhere on the row does the same. Operands show symbol names
-  instead of hex when a `.sym` file is loaded.
-- **Memory** — hex + ASCII viewer of the entire 64 KiB address space
-  with a virtual scroller. The region legend (ROM / VRAM / WRAM / OAM
-  / IO / HRAM) doubles as a quick-jump row. Click any byte to edit it
-  inline; Enter writes via the MMU (so MBC side-effects fire
-  normally). A 100-entry undo stack lives in the toolbar.
-- **Palettes** — DMG BGP / OBP0 / OBP1 and all 8 CGB background + 8
-  CGB object palettes. Hover a colour for its raw RGB555 value.
-- **Tiles** — the two VRAM tile banks rendered to a grid (384 tiles
-  each), the BG map at 256 × 256, and the full OAM sprite table.
-- **Audio** — per-channel oscilloscope traces (CH1 / CH2 squares,
-  CH3 wave, CH4 noise) plus envelope meters, so you can see exactly
-  which channel is playing what.
+  highlighted. On Game Boy Advance the decoder tracks CPSR.T to
+  decode ARM (4-byte) or Thumb (2-byte) instructions and re-seeds
+  the window when the mode switches. Seeds with ~165 instructions
+  around PC and lazy-extends at both edges as you scroll, so you
+  can walk far before or after the current address without losing
+  your place. The address gutter is clickable: left-click to toggle
+  an execute breakpoint, right-click anywhere on the row does the
+  same. Operands show symbol names instead of hex when a symbol
+  file is loaded.
+- **Memory** — hex + ASCII viewer with a virtual scroller, click to
+  edit any byte inline, 100-entry undo in the toolbar. Game Boy:
+  flat 64 KiB address space with a region legend (ROM / VRAM /
+  WRAM / OAM / IO / HRAM) that doubles as a quick-jump row. Game
+  Boy Advance: the sparse 4 GiB address space is split into
+  segments (BIOS / EWRAM / IWRAM / I/O / Palette / VRAM / OAM /
+  ROM / SRAM) picked from a toolbar — jump-to-address parses an
+  8-hex value and switches segments automatically. Writes route
+  through the bus so MMIO / palette / OAM side-effects fire
+  normally.
+- **Palettes** — Game Boy: DMG BGP / OBP0 / OBP1 and all 8 CGB
+  background + 8 CGB object palettes. Game Boy Advance: the two
+  256-entry palette banks (BG at `0x05000000`, OBJ at `0x05000200`)
+  laid out 16 × 16 so `(palette, index)` reads off naturally for
+  4bpp BGs and sprites. Hover any cell for its absolute index, raw
+  BGR/RGB555, and unpacked RGB.
+- **Tiles** — Game Boy: the two VRAM tile banks rendered to a grid
+  (384 tiles each), the BG map at 256 × 256, and the full OAM
+  sprite table. Game Boy Advance: all 96 KiB of VRAM as a flat tile
+  grid with a 4bpp / 8bpp toggle and a palette-bank picker; in
+  bitmap modes the framebuffer shows up directly as a scrolling
+  tile dump. (Per-BG map and per-OBJ sprite viewers don't have GBA
+  equivalents yet — GBA's four affine + four text BGs across
+  multiple modes plus OAM attribute fields make those non-trivial.)
+- **Audio** — per-channel oscilloscope traces plus envelope meters,
+  so you can see exactly which channel is playing what. Game Boy
+  has four rows (CH1 / CH2 squares, CH3 wave, CH4 noise); Game Boy
+  Advance has the same four PSG rows plus two for the Direct Sound
+  FIFOs (DSA / DSB), which drive the music in most GBA carts.
 - **Breakpoints** — list of active PC breakpoints + read / write
-  watchpoints. The add-form accepts a hex address (`$0150`, `0150`)
-  or a symbol name from the currently loaded `.sym` file. "At PC"
-  drops one at the current program counter. See
+  watchpoints. The add-form accepts a hex address (`$0150`, `0150`
+  on Game Boy; `$08000000`, `08000000` on Game Boy Advance) or a
+  symbol name from the currently loaded symbol file. "At PC" drops
+  one at the current program counter. See
   [Breakpoints and watchpoints](#breakpoints-and-watchpoints) below.
-- **Call stack** — inferred from CALL / RST / IRQ pushes and RET
-  pops. Top of the list is the innermost frame; the kind of each
-  frame (`CALL` / `RST` / `IRQ`) is colour-coded. Symbols replace
-  hex where known.
-- **Symbols** — loader for RGBDS-style `.sym` files. Pick a file, the
-  count + source label appear, and every other pane starts resolving
-  addresses to names. The parsed text is cached in `localStorage`
-  keyed by cart title, so the same ROM auto-restores its symbols next
-  session.
+- **Call stack** — top of the list is the innermost frame; symbols
+  replace hex where known. Game Boy: inferred from CALL / RST / IRQ
+  pushes and RET pops; frame kinds (`CALL` / `RST` / `IRQ`) are
+  colour-coded. Game Boy Advance: inferred from BL / Thumb-BL
+  pushes plus BX / LDM-with-PC / POP-with-PC returns plus IRQ
+  entry; frame kinds are `CALL` and `IRQ` (no `RST` analogue on
+  ARM7TDMI).
+- **Symbols** — loader for plain-text symbol files. Game Boy reads
+  RGBDS-style `.sym` (`bank:addr name`); Game Boy Advance uses flat
+  32-bit addresses (`[0x|$]AAAAAAAA[:] NAME` per line, blank lines
+  and `;` / `#` comments skipped, so `nm` output or a build-log
+  excerpt pastes straight in). Pick a file, the count + source
+  label appear, and every other pane starts resolving addresses to
+  names. The parsed text is cached in `localStorage` keyed by cart
+  identity, so the same ROM auto-restores its symbols next session.
 
 A control bar along the bottom has **Play / Pause**, **Step** (one
 CPU instruction), **Frame** (one full VBlank), and **Rewind** (one
@@ -501,8 +609,9 @@ Three flavours, all set from the Breakpoints pane:
   tints red while active. Stepping off a hit breakpoint passes
   through once so you don't loop on it.
 - **Read watchpoint** — pauses the moment any instruction reads from
-  the address. Useful for catching vblank-wait loops (watch `$FF44`)
-  or finding which routine polls a game variable.
+  the address. Useful for catching vblank-wait loops (watch `$FF44`
+  on Game Boy, `$04000006` on Game Boy Advance) or finding which
+  routine polls a game variable.
 - **Write watchpoint** — pauses on any write. The classic
   "what's changing this variable?" tool — watch the RAM slot, play
   the game, the emulator pauses the exact instant something touches
@@ -510,13 +619,16 @@ Three flavours, all set from the Breakpoints pane:
 
 A toast announces each hit with kind + address; the Call stack pane
 shows the routine chain that led there. All three pass through the
-MMU's normal read / write path, so DMA, HDMA, and MBC-register
-writes trigger watchpoints too.
+bus's normal read / write path, so DMA, HDMA, MBC-register, and
+GBA MMIO writes trigger watchpoints too.
 
 #### Symbol files
 
-A `.sym` file maps `bank:addr` pairs to names — produced by RGBDS,
-no$gmb, and most Game Boy disassemblers. Examples:
+Symbol-file format depends on the engine, since Game Boy addresses
+are bank-prefixed and Game Boy Advance addresses are flat 32-bit.
+
+**Game Boy** — a `.sym` file maps `bank:addr` pairs to names,
+produced by RGBDS, no$gmb, and most Game Boy disassemblers:
 
 ```
 00:0150 EntryPoint
@@ -524,12 +636,22 @@ no$gmb, and most Game Boy disassemblers. Examples:
 01:4a8c LoadTilemap
 ```
 
-With one loaded, `CALL $4A8C` shows up as `CALL LoadTilemap` in the
-Disasm pane, call-stack frames gain names, and the Breakpoints
-add-form accepts identifiers as input. For popular commercial games,
-complete `.sym` files live in community disassembly projects (e.g.
-the `pret/` collective for Pokémon; `kaspermeerts/supermarioland`
-for Super Mario Land).
+**Game Boy Advance** — flat 32-bit addresses, more permissive
+syntax so `nm` output or a linker map excerpt drops in cleanly:
+
+```
+08000000  EntryPoint
+0x080003a8: GameLoop
+$03007FFC  IRQHandler
+```
+
+With a file loaded, `CALL $4A8C` (or `BL $080003A8`) shows up as
+`CALL LoadTilemap` (`BL GameLoop`) in the Disasm pane, call-stack
+frames gain names, and the Breakpoints add-form accepts
+identifiers as input. For popular commercial games, complete `.sym`
+files live in community disassembly projects (e.g. the `pret/`
+collective for Pokémon; `kaspermeerts/supermarioland` for Super
+Mario Land).
 
 ### Install as an app
 
@@ -538,8 +660,8 @@ On desktop Chrome / Edge, or Android Chrome, the browser shows an
 
 - The emulator runs in its own window, no browser toolbars.
 - It works fully offline.
-- `.gb` and `.gbc` files can be **double-clicked from the OS** to open
-  in the emulator.
+- `.gb`, `.gbc`, and `.gba` files can be **double-clicked from the OS**
+  to open in the emulator.
 - Your game data — ROMs, saves, cheats, thumbnails — stays in your
   browser's local storage. See [Privacy](#privacy) for the small set of
   network requests the page makes.
@@ -560,19 +682,20 @@ npm run dev
 
 Vite serves the app at `http://localhost:5173`.
 
-| Command                | Description                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------ |
-| `npm run dev`          | Start the Vite dev server with HMR                                             |
-| `npm run build`        | Produce a production build in `dist/`                                          |
-| `npm run preview`      | Serve the production build locally                                             |
-| `npm run typecheck`    | Typecheck both the UI and the DOM-free engine bundle, no emit                  |
-| `npm test`             | Run the Vitest unit suite once                                                 |
-| `npm run test:watch`   | Run Vitest in watch mode                                                       |
-| `npm run test:roms`    | Run the external test-ROM harness (auto-fetches the c-sp release on first run) |
-| `npm run lint`         | ESLint across the repo (file globs come from `eslint.config`)                  |
-| `npm run lint:fix`     | ESLint with `--fix` to auto-resolve safe issues                                |
-| `npm run format`       | Prettier write across the repo                                                 |
-| `npm run format:check` | Prettier check (no writes) — used by CI                                        |
+| Command                 | Description                                                                                                                                                                                                                                                                                                 |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`           | Start the Vite dev server with HMR                                                                                                                                                                                                                                                                          |
+| `npm run build`         | Produce a production build in `dist/`                                                                                                                                                                                                                                                                       |
+| `npm run preview`       | Serve the production build locally                                                                                                                                                                                                                                                                          |
+| `npm run typecheck`     | Typecheck both the UI and the DOM-free engine bundle, no emit                                                                                                                                                                                                                                               |
+| `npm test`              | Run the Vitest unit suite once                                                                                                                                                                                                                                                                              |
+| `npm run test:watch`    | Run Vitest in watch mode                                                                                                                                                                                                                                                                                    |
+| `npm run test:roms`     | Run the external test-ROM harness (auto-fetches the c-sp release on first run)                                                                                                                                                                                                                              |
+| `npm run test:gba-roms` | Run the GBA accuracy gate (40 self-scoring tests across jsmolka + fuzzarm + mgba-suite + nba-emu/hw-test; grades each test on the pass/total counts and pass codes the ROM reports about itself, diffed against a committed baseline; auto-fetches ROMs on first run; `-- --bless` re-records the baseline) |
+| `npm run lint`          | ESLint across the repo (file globs come from `eslint.config`)                                                                                                                                                                                                                                               |
+| `npm run lint:fix`      | ESLint with `--fix` to auto-resolve safe issues                                                                                                                                                                                                                                                             |
+| `npm run format`        | Prettier write across the repo                                                                                                                                                                                                                                                                              |
+| `npm run format:check`  | Prettier check (no writes) — used by CI                                                                                                                                                                                                                                                                     |
 
 ### Continuous integration
 
@@ -589,9 +712,23 @@ time (set it in `.env.local` for local testing or in Cloudflare Pages
 and link-cable mode falls back to same-machine BroadcastChannel
 pairing. The protocol contract — used both for WebRTC signalling and
 as the relay-mode fallback when peers can't establish a direct
-DataChannel — lives in `src/ui/session/webrtc-link.ts`.
+DataChannel — lives in `src/ui/session/webrtc-link.ts` (Game Boy
+byte-at-a-time transfers) and `src/ui/session/webrtc-link-gba.ts`
+(Game Boy Advance multiplayer halfwords). Room codes are namespaced
+with a `gba-` prefix on the GBA side so a Game Boy peer entering the
+same code never silently cross-pairs with a Game Boy Advance peer.
 
-### Emulator core
+The same relay endpoint serves both engines, but the **Game Boy
+Advance cross-device path is opt-in**: by default the GBA link
+falls back to same-machine BroadcastChannel even when
+`VITE_LINK_RELAY_URL` is set, because cable-detect handshakes are
+too latency-sensitive for typical internet RTT to drive reliably.
+Users who want to try slow protocols (Pokémon trade over the
+GBA Normal-32 mode) flip
+`localStorage["gb-gba-link-cross-device-experimental"] = "1"` and
+reload.
+
+### Game Boy core
 
 - **CPU** — Full Sharp LR35902 instruction set (256 primary opcodes +
   256 CB-prefix bit-operation opcodes), interrupt servicing,
@@ -636,12 +773,73 @@ DataChannel — lives in `src/ui/session/webrtc-link.ts`.
   double-speed mode, general-purpose + H-Blank HDMA.
 - **Timer** — DIV, TIMA, TMA, TAC with all four input-clock rates.
 
+### GBA core
+
+- **CPU** — ARM7TDMI with full ARM and Thumb decoders, all instruction
+  classes (data-processing, branches, multiplies incl. long-multiply
+  carry-flag quirks, single + multi-word loads/stores, SWI), the seven
+  CPU modes with banked R8–R14 + SPSR (USR/FIQ/IRQ/SVC/ABT/UND/SYS),
+  pipeline-aware open-bus reads, and the misaligned-LDR / LDRH /
+  LDRSH quirks real silicon exhibits. Passes jsmolka's full ARM /
+  Thumb / memory / unsafe test suites and fuzzarm.
+- **PPU** — All six BG modes (tile 0/1/2, bitmap 3/4/5) with the four
+  BG layers, OBJ engine (128 sprites, 8 size/shape combos, normal +
+  affine including double-size), three windows (WIN0 / WIN1 / OBJWIN),
+  alpha blending (BLDCNT modes 0–3) with semi-transparent OBJ alpha
+  preservation, OBJ + BG mosaic, the BG2/BG3 affine reference-point
+  per-line accumulators that make mode-7 racers work, and 2-line
+  DISPCNT BG-enable latching. Tile + bitmap renderers share a unified
+  compositor that handles priority sorting, OBJ-over-BG semantics,
+  and the OBJ-window mask pass.
+- **APU** — Full PSG (the GB's four channels, exposed through the GBA
+  register file at 0x60–0x8F) plus the two Direct Sound FIFOs at
+  0xA0 / 0xA4. FIFOs are pumped by timer-overflow IRQs and refilled
+  via DMA when they drop below the half-full watermark — the same
+  trigger real silicon uses, so cart-driven sample playback (the
+  way every commercial GBA game plays sampled audio) lands cleanly.
+  Mixer combines PSG + Direct Sound under SOUNDCNT_H volume controls.
+- **DMA** — All four channels (DMA0 internal + DMA1/2 sound + DMA3
+  general), every start-timing mode (Immediate, VBlank, HBlank,
+  Special — including DMA1/2's Sound-FIFO and DMA3's video-capture
+  timing), 16/32-bit transfers, address-control modes including
+  Increment-with-reload for repeating sound buffers, and the
+  channel-priority + bus-latch quirks that mgba-suite-dma exercises
+  (DMA0's "SRAM-not-on-bus" handling, cart-bus open-bus on aborted
+  transfers).
+- **Timers** — All four 16-bit countup timers with the four prescaler
+  divisors (1, 64, 256, 1024 CPU cycles per tick), cascade-from-
+  previous-timer mode, IRQ-on-overflow, and the deferred-write quirks
+  that test ROMs probe (control writes don't apply immediately when
+  the channel is mid-tick; reload latches at overflow).
+- **BIOS** — Full High-Level Emulation of the SWI vector. Math
+  (Div / DivArm / Sqrt / ArcTan / ArcTan2), memory (CpuSet /
+  CpuFastSet / RegisterRamReset), affine (BgAffineSet /
+  ObjAffineSet), halt / IntrWait / VBlankIntrWait with the polling-
+  loop semantics real BIOS exhibits (re-OR'd IE on each iteration),
+  and the four decompression SWIs (LZ77UnCompWRam / LZ77UnCompVRam /
+  RLUnCompWRam / RLUnCompVRam / HuffUnComp / Diff8/16bitUnFilter /
+  BitUnPack). No BIOS image required for normal play.
+- **Cart backup** — Auto-detected from the ROM image: SRAM (32 KiB),
+  Flash 64 KiB (Atmel + SST + Panasonic chip IDs), Flash 128 KiB
+  (Macronix + SST + Sanyo chip IDs with erase + bank switching), and
+  EEPROM with size autodetect (512 B vs 8 KiB resolved from the cart's
+  first DMA3 transfer). All four types persist to IndexedDB on the
+  same 2-second + tab-hide cadence as the GB side.
+- **Cart GPIO** — Plug-in feature port for the 4-pin GPIO bank at
+  0x080000C4 / C6 / C8. Drives Drill Dozer's rumble actuator
+  (V49E/J/P/K — bit 3 → `navigator.vibrate` / gamepad rumble) and
+  the Seiko S-3511A real-time clock used by Pokémon Ruby / Sapphire /
+  Emerald / FireRed / LeafGreen and the Boktai trilogy (Status /
+  DateTime / Time commands; clock reads from system time, so berry
+  growth, day/night cycles, and the daily Lottery Corner tick
+  naturally across save/load).
+
 ### Project structure
 
-The tree is split along one hard boundary: `src/gb/` is pure
-hardware simulation with **no DOM, no fetch, no localStorage** — it
-can be imported from Node for headless test runners. All browser-side
-code lives under `src/ui/`.
+The tree is split along one hard boundary: `src/gb/` and `src/gba/`
+(the two engine cores) are pure hardware simulation with **no DOM,
+no fetch, no localStorage** — they can be imported from Node for
+headless test runners. All browser-side code lives under `src/ui/`.
 
 ```
 src/
@@ -679,6 +877,52 @@ src/
 │       ├── call-stack.ts     #     Synthesized CALL / RST / IRQ frame tracker
 │       ├── disassembler.ts   #     Pure LR35902 decoder (256 primary + 256 CB opcodes)
 │       └── symbols.ts        #     RGBDS .sym parser + by-addr / by-name lookup
+├── gba/                      # Pure GBA engine, headless-runnable. ARM7TDMI (full ARM + Thumb decoders) + LCD-controller PPU (4 BGs + sprites + window + blend + mosaic + mode-7 affine) + APU (4 PSG channels + 2 Direct Sound FIFOs DMA-driven) + 4 timers + 4 DMA channels + interrupt controller + joypad + SIO register file + BIOS HLE (full SWI dispatcher incl. LZ77/RLE/Huffman/Diff/BitUnPack) + cart backup (SRAM/Flash 64/128 KiB/EEPROM 512 B/8 KiB) persisted to IDB + cart GPIO (rumble for Drill Dozer + WarioWare Twisted, RTC for Pokémon Gen 3 + Boktai, gyroscope for WarioWare Twisted, solar sensor for Boktai) + cart accelerometer (ADXL202E for Yoshi Topsy-Turvy + Koro Koro Puzzle)
+│   ├── index.ts              #   Public engine API (header parser, cheat codec/manager, GBA core)
+│   ├── globals.d.ts          #   No-DOM type shim for the headless engine build
+│   ├── cartridge/
+│   │   ├── header.ts         #     GBA ROM header parser + 0x96 magic-byte check
+│   │   ├── backup.ts         #     Backup-marker detection (EEPROM/SRAM/Flash) + SRAM (32 KB) + Flash (64/128 KB w/ chip ID, erase, bank switch) IoHandlers at 0x0E000000 + EEPROM (512 B / 8 KB autodetect, DMA3 bit-serial) at 0x0D000000
+│   │   ├── gpio.ts           #     Cart GPIO controller (data/direction/read-enable at 0x080000C4-C8) — plug-in features for peripherals on the shared 4-pin port
+│   │   ├── rumble.ts         #     GpioRumble feature (Drill Dozer V49* + WarioWare Twisted RZW* — data-bit 3 → onRumbleChange callback)
+│   │   ├── rtc.ts            #     Seiko S-3511A real-time-clock chip emulation as a GpioFeature (Status / DateTime / Time commands; BCD encoding; system Date.now() as time source)
+│   │   ├── rtc-detect.ts     #     RTC cart-detection table — Pokémon Gen 3 (Ruby/Sapphire/Emerald/FireRed/LeafGreen) + Boktai trilogy
+│   │   ├── accelerometer.ts  #     ADXL202E accelerometer (Yoshi Topsy-Turvy KYG* + Koro Koro Puzzle KHPJ) — memory-mapped register window at 0x0E008000-0x0E008500, 12-bit X/Y sample
+│   │   ├── gyroscope.ts      #     ADXRS300 Z-axis gyroscope (WarioWare: Twisted RZW*) — bit-serial protocol over GPIO bits 0/1/2 (sample/clock/data); 12-bit angular velocity reading shifted out MSB-first
+│   │   └── solar.ts          #     Konami photodiode + 8-bit digital-ramp ADC solar sensor (Boktai trilogy U3I*/U32*/U33*) — counter ramped via GPIO bit 0, reset + re-sample via bit 1, comparator output on bit 3
+│   ├── cheats/
+│   │   ├── codec.ts          #     Raw GBA cheat-code decoder (AAAAAAAA:VV 8/16/32-bit)
+│   │   └── manager.ts        #     Runtime cheat engine — per-frame RAM writes via bus
+│   ├── cpu/                  #   ARM7TDMI: full ARM + Thumb decoders + banked regs + condition codes
+│   │   ├── cpu.ts            #     Top-level CPU with stepArm/stepThumb dispatch on CPSR.T (+ Halt/IntrWait gate)
+│   │   ├── arm.ts            #     ARM-state decoder + executors (all instruction classes)
+│   │   ├── thumb.ts          #     Thumb-state decoder + executors (all 19 instruction formats)
+│   │   ├── alu.ts            #     Shared ALU helper (16 data-processing ops + carry/overflow)
+│   │   ├── bios-hle.ts       #     SWI dispatcher: math + memory + affine + halt/IntrWait + LZ77/RLE/Huffman/Diff decompression + BitUnPack
+│   │   ├── shifter.ts        #     Barrel shifter (LSL/LSR/ASR/ROR/RRX with imm/reg quirks)
+│   │   ├── conditions.ts     #     16 ARM condition codes (EQ/NE/.../AL/NV)
+│   │   └── registers.ts      #     ArmRegisters with FIQ/IRQ/SVC/ABT/UND mode banking + CPSR/SPSR
+│   ├── memory/               #   Memory bus: byte regions (RAM/ROM) + handler regions (MMIO)
+│   │   ├── bus.ts            #     MemoryBus interface + FlatBus (single-region; used by unit tests)
+│   │   ├── mapped-bus.ts     #     MappedBus + GBA memory-map factory (BIOS/EWRAM/IWRAM/IO/VRAM/…)
+│   │   ├── interrupts.ts     #     IE/IF/IME register file + raise() helper (CPU polls before each step)
+│   │   └── dma.ts            #     4 DMA channels w/ immediate / VBlank / HBlank / Sound-FIFO triggers
+│   ├── apu/                  #   APU: 4 PSG channels + Direct Sound A/B + stereo mixer (UI-fed AudioContext)
+│   │   ├── apu.ts            #     Register file + frame sequencer + mixer + Direct Sound FIFOs (timer-drained pop)
+│   │   └── channels.ts       #     PSG channel implementations — squares (1+2 w/ sweep) + wave (3) + noise/LFSR (4)
+│   ├── joypad/               #   Joypad: KEYINPUT (0x130) read-only + KEYCNT (0x132) R/W
+│   │   └── joypad.ts         #     10-button active-low key state (A/B/SELECT/START/D-pad/L/R)
+│   ├── sio/                  #   Serial I/O — mode-aware register file (0x120..0x15F)
+│   │   └── sio.ts            #     RCNT/SIOCNT mode dispatch (Normal-8/Normal-32/Multiplayer/UART/General-purpose/JOY-bus); no link cable yet
+│   ├── timer/                #   4 hardware timers (0x100..0x10F) with prescaler + cascade + IRQ
+│   │   └── timer.ts          #     Drives Direct Sound FIFO pop via Apu.onTimerOverflow
+│   ├── ppu/                  #   PPU: LCD controller (bitmap modes 3 + 4 + tile modes 0/1/2 + sprites)
+│   │   ├── ppu.ts            #     DISPCNT/DISPSTAT/VCOUNT/BG*CNT/BG*OFS/affine-matrix/WIN*/BLD*/MOSAIC I/O + dot-scanline state machine + front-to-back compositor with window-masking + alpha/brighten/darken blend + semi-transparent-OBJ forced-alpha + BG mosaic post-process + modes 0-5 (incl. 160×128 mode 5 bitmap)
+│   │   ├── bg.ts             #     Text + affine BG renderers (4bpp/8bpp text; 8bpp affine; per-tile flip + palette bank; matrix sampling + wraparound)
+│   │   ├── obj.ts            #     Sprite renderer — normal + affine sprites (OAM parsing; shape × size; 4bpp + 8bpp; 1D + 2D mapping; double-size affine box; OBJ-window cover for attr-0 mode 2; semi-trans marker for mode 1; source-space mosaic snap when attr-0 bit 12)
+│   │   └── window.ts         #     Per-pixel WIN0/WIN1/OBJWIN/WINOUT enable mask (priority WIN0 > WIN1 > OBJWIN > outside; GBATEK rectangle clamping)
+│   └── serialization/        #   Save-state lineage scaffold (independent from GB)
+│       └── serialization.ts  #     GBA_STATE_VERSION + GbaStateReader/Writer + upgradeGbaState migrator chain
 └── ui/                       # Browser shell — DOM, network, storage
     ├── state.ts              #   Shared mutable app state + renderer/audio/gamepad singletons
     ├── dom.ts                #   Centralised getElementById wall
@@ -711,7 +955,7 @@ src/
     │   ├── library.ts        #     Recents / library grid
     │   ├── slots.ts          #     Save-slot grid + doSaveState / doLoadState
     │   ├── cheats.ts         #     Cheat list + add form + .cht import + online search
-    │   ├── cart-info.ts      #     ROM header metadata
+    │   ├── cart-info.ts      #     ROM header metadata + GBA save-data export/import/clear + per-game override editors
     │   ├── debugger.ts       #     Debugger popover orchestrator (tab strip + control bar)
     │   ├── printer.ts        #     Printer tray popover — printed pages with PNG export
     │   ├── more.ts           #     Narrow-viewport overflow menu — mirror-clicks the secondary triggers
@@ -724,8 +968,12 @@ src/
     ├── session/              #   Runtime / lifecycle glue (session-scoped behaviour)
     │   ├── actions.ts        #     Pause / turbo / screenshot / recording / fullscreen
     │   ├── link-status.ts    #     CustomEvent channel from link impls → Settings status pill
-    │   ├── link-cable.ts     #     Same-machine BroadcastChannel link
-    │   ├── webrtc-link.ts    #     Cross-device WebRTC link (signalling via Cloudflare Worker relay, then peer-to-peer)
+    │   ├── link-cable.ts     #     Same-machine GB BroadcastChannel link
+    │   ├── webrtc-link.ts    #     Cross-device GB WebRTC link (signalling via Cloudflare Worker relay, then peer-to-peer)
+    │   ├── link-cable-gba.ts #     Same-machine GBA Multi-Pak BroadcastChannel link (cached-state + per-slot queue)
+    │   ├── webrtc-link-gba.ts #    Cross-device GBA Multi-Pak link (experimental; opt-in via localStorage)
+    │   ├── runtime-gba.ts    #     GBA-side rAF loop + chunked sub-frame interleave for the BC link path
+    │   ├── pacing-gba.ts     #     Pure helper: catch-up frame count math for the GBA pacer
     │   ├── printer-link.ts   #     SerialLink that wires the engine printer's bytes back into the MMU
     │   ├── cart-overrides.ts #     Per-cart palette / colour-correction / render-mode pinning
     │   ├── rewind.ts         #     Backspace-held rewind scrubber (UI)
@@ -784,37 +1032,64 @@ src/
 
 ### Clock domain
 
-The emulator uses **M-cycles** (= 4 T-cycles / 4 dots) as the lingua
-franca between subsystems. `CPU.step()` returns the M-cycles consumed;
-`Timer.tick(m)` takes M-cycles directly; `PPU.tick(m)` takes M-cycles
-and converts to dots internally. The APU is the exception — it ticks
-in real-time T-cycles via `APU.tickTCycles(t)` called per CPU bus
-access, so wave-channel-RAM reads land at the exact M-cycle the access
-happens on. The APU's 512 Hz frame sequencer isn't even tied to that
-counter; it's clocked by the falling edge of DIV bit 12 (single-speed)
-or bit 13 (double-speed), driven from the Timer. One Game Boy frame
-is `4 194 304 / 4 / 59.73 ≈ 17 556` M-cycles.
+**Game Boy.** The engine uses **M-cycles** (= 4 T-cycles / 4 dots) as
+the lingua franca between subsystems. `CPU.step()` returns the
+M-cycles consumed; `Timer.tick(m)` takes M-cycles directly;
+`PPU.tick(m)` takes M-cycles and converts to dots internally. The
+APU is the exception — it ticks in real-time T-cycles via
+`APU.tickTCycles(t)` called per CPU bus access, so wave-channel-RAM
+reads land at the exact M-cycle the access happens on. The APU's
+512 Hz frame sequencer isn't even tied to that counter; it's clocked
+by the falling edge of DIV bit 12 (single-speed) or bit 13
+(double-speed), driven from the Timer. One Game Boy frame is
+`4 194 304 / 4 / 59.73 ≈ 17 556` M-cycles.
+
+**Game Boy Advance.** The GBA engine ticks in raw CPU cycles at
+**16.78 MHz** (= 4 × the Game Boy's clock; the dot clock stays at
+the same 4.19 MHz). There's no M-cycle abstraction — `cpu.step()`
+returns cycles, the PPU and APU consume cycles, and the timers
+divide them down. One full GBA frame is **280 896 cycles** at ~59.73
+Hz; `Gba.runFrame()` may overshoot by 1–3 cycles when the last
+instruction straddles the boundary and credits the next frame's
+budget. All four hardware timers, DMA channels, the SIO unit, and
+the APU's two Direct Sound FIFOs share the same cycle counter, with
+each subsystem's `tick(cycles)` advancing in lockstep with the CPU.
 
 ### Frame pacing
 
-`GameBoy.runFrame()` runs exactly one frame (one VBlank). The main loop
-paces itself against **wall-clock time**, not the monitor's
-`requestAnimationFrame` rate — so a 120 Hz or 144 Hz display doesn't
-make the emulator run too fast. Elapsed milliseconds (scaled by
-`speedMultiplier`) accumulate into a budget; `runFrame` is called as
-many times as fit. A cap prevents a backgrounded tab from producing a
-huge catch-up burst on return.
+Both engines pace themselves against **wall-clock time**, not the
+monitor's `requestAnimationFrame` rate — so a 120 Hz or 144 Hz
+display doesn't make the emulator run too fast. Elapsed milliseconds
+(scaled by `speedMultiplier`) accumulate into a budget; `runFrame`
+is called as many times as fit. A cap prevents a backgrounded tab
+from producing a huge catch-up burst on return.
+
+The two engines run on separate rAF loops because their per-frame
+needs differ. `GameBoy.runFrame()` runs exactly one frame (one
+VBlank) atomically. `Gba.runFrame()` is the same shape, but the
+GBA loop in `src/ui/session/runtime-gba.ts` uses a chunked variant
+(`runFrameChunked`) that yields to the task queue mid-frame **only
+when SIO activity is detected** — needed so cross-tab
+BroadcastChannel link-cable messages can drain between halfword
+transfers without the runtime busy-waiting on its own message
+queue. Idle frames stay atomic and pay zero yield overhead.
 
 ### Audio output
 
-`AudioOutput` uses the _scheduled AudioBuffer_ technique: the APU fills
-its `outLeft` / `outRight` arrays each frame, then the host schedules
-them onto the audio graph starting at `nextStart`, which walks forward
-one buffer-length at a time. If the queue falls behind wall clock
-(slow frame) or drifts too far ahead (fast frame), `nextStart` is
-realigned so latency stays bounded. All source buffers route through a
-master `GainNode`. Pausing suspends the `AudioContext`, cutting
-already-queued audio too.
+A single `AudioOutput` instance (created in `src/ui/state.ts`)
+serves both engines. The Game Boy APU and the Game Boy Advance APU
+each fill their own `outLeft` / `outRight` arrays each frame and
+call back into `audio.schedule(left, right, count)` — the rest of
+the pipeline doesn't care which engine produced the samples.
+
+`AudioOutput` uses the _scheduled AudioBuffer_ technique: incoming
+sample buffers are scheduled onto the audio graph starting at
+`nextStart`, which walks forward one buffer-length at a time. If
+the queue falls behind wall clock (slow frame) or drifts too far
+ahead (fast frame), `nextStart` is realigned so latency stays
+bounded. All source buffers route through a master `GainNode`.
+Pausing suspends the `AudioContext`, cutting already-queued audio
+too.
 
 ### Accuracy and known limitations
 
@@ -845,6 +1120,51 @@ edges:
   precise effects probed by parts of the Mealybug Tearoom suite (BGP /
   OBP / LCDC changed at specific dots inside an M-cycle) don't fully
   reproduce. No known gameplay impact; affects the test suite only.
+
+GBA accuracy is measured by `npm run test:gba-roms` against jsmolka,
+fuzzarm, mgba-suite, and nba-emu/hw-test. The current baseline is
+40/40 verdicts passing with 4545/7059 counter sub-tests cleared.
+Known gaps:
+
+- **HLE BIOS, not a real BIOS image.** The engine reimplements the
+  GBA BIOS at the SWI-vector level — math, memory, decompression,
+  IntrWait. Cycle costs of HLE SWIs are mid-range approximations,
+  not the exact 4 + 13×loops + 7 cycles a real division takes; the
+  net IRQ / timer drift is small enough that no shipping cart we've
+  tested wedges on it, but it's why a few mgba-suite-timing sub-tests
+  fall short. A real Nintendo BIOS can be dropped in at
+  `tests/gba-roms/gba_bios.bin` and the test runner will use it.
+- **Cycle accuracy is per-instruction, not per-bus-cycle.** Cart-ROM
+  prefetch + per-cycle bus-latch effects (DMA1-3 internal-SAD
+  continuation, the precise timer-tick-vs-bus-read interleave) are
+  the source of the remaining mgba-suite-timing / mgba-suite-dma /
+  nba-bus-128kb-boundary sub-test gaps. Real games tolerate it; the
+  test ROMs that probe exact T-cycle counts don't.
+- **Link cable: Multi-Player mode only, and experimental.** SIO
+  Multi-Player mode is the only transport-wired mode. Same-machine
+  pairs via `BroadcastChannel` between two tabs; cross-device
+  pairing rides the same Cloudflare Worker relay + WebRTC upgrade
+  the Game Boy cable uses, but is **opt-in only** on the GBA path
+  (`localStorage["gb-gba-link-cross-device-experimental"] = "1"`)
+  because cable-detect handshakes are latency-sensitive. In
+  practice slow trade protocols (Pokémon Ruby / Sapphire /
+  FireRed / LeafGreen / Emerald, mid-second handshake) work
+  reasonably; cable-detect-rate protocols (Tetris Worlds VS, Mario
+  Kart Super Circuit, Bomberman Tournament) are intermittent
+  because cross-tab BroadcastChannel IPC (~1-3 ms per message)
+  can't match real-cable round-trip times (~360 µs per transfer at
+  115200 baud). Normal-8 / Normal-32 / UART / JOY-bus modes are
+  intentionally left as no-transport stubs — they only matter for
+  GameCube link (Pokémon Box) and the e-Reader card scanner,
+  neither of which Glowboot emulates. The Wireless Adapter (RFU)
+  is also unsupported — its command set is ~80% undocumented in
+  public references and no open-source emulator has working
+  support after 10+ years of community effort.
+- **No encrypted Action Replay decoder.** GBA cheats accept raw
+  `AAAAAAAA:VV` and CodeBreaker `AAAAAAAA+VVVV` formats — the
+  libretro online database serves every published GBA code in pre-
+  decrypted CodeBreaker form, so an AR decoder adds no real value
+  beyond what's already on the open internet.
 
 ## Privacy
 
@@ -899,15 +1219,18 @@ of every save state stay in your browser.
 ## Disclaimer
 
 Glowboot is an independent project, not affiliated with, endorsed by,
-or sponsored by Nintendo Co., Ltd. **Game Boy** and **Game Boy Color**
-are trademarks of Nintendo, used here for descriptive purposes only.
+or sponsored by Nintendo Co., Ltd. **Game Boy**, **Game Boy Color**,
+and **Game Boy Advance** are trademarks of Nintendo, used here for
+descriptive purposes only.
 
-The emulator ships no ROMs, BIOS files, or other copyrighted content.
-Use it with cartridges you legally own, with public-domain or
-freely-licensed homebrew, and with patches whose authors permit
-redistribution. Game saves, screenshots, recordings, and printer
-output you produce while playing belong to you. The Glowboot authors
-take no responsibility for content users load into the emulator.
+The emulator ships no ROMs and no BIOS files. Game Boy Advance carts
+run through Glowboot's High-Level Emulation of the GBA BIOS, so no
+Nintendo BIOS image is required. Use Glowboot with cartridges you
+legally own, with public-domain or freely-licensed homebrew, and with
+patches whose authors permit redistribution. Game
+saves, screenshots, recordings, and printer output you produce while
+playing belong to you. The Glowboot authors take no responsibility for
+content users load into the emulator.
 
 ## Credits
 
@@ -922,7 +1245,7 @@ reference.
 - **MMPX (Style-Preserving Pixel-Art Magnification)** — Morgan McGuire
   & Mara Gagiu (2020, MIT) —
   [casual-effects.com paper](https://casual-effects.com/research/McGuire2021PixelArt/).
-  2× pattern-match scaler. Used by the **MMPX** render mode (default).
+  2× pattern-match scaler. Used by the **MMPX** render mode.
 - **HQ2x (GLSL implementation)** — Lior Halphon (MIT). The HQ-family
   algorithm itself is by Maxim Stepin (2003); Halphon's GLSL port is
   what we ported into Glowboot's WebGL renderer (with the bitwise
@@ -953,6 +1276,33 @@ was the next port of call. Glowboot's implementation is written from
 scratch in TypeScript, but the design decisions and the awareness of
 which quirks even exist were informed by studying those projects.
 Thank you to their authors.
+
+The GBA engine owes a parallel set of debts. Test-ROM coverage in
+`npm run test:gba-roms` runs against four upstream suites:
+[jsmolka/gba-tests](https://github.com/jsmolka/gba-tests) (ARM,
+Thumb, BIOS, memory, save-cart, PPU) by Julian Smolka;
+[DenSinH/FuzzARM](https://github.com/DenSinH/FuzzARM) (randomised
+ARM / Thumb fuzz coverage) by Dennis Eddy;
+[mgba-emu/suite](https://github.com/mgba-emu/suite) (memory, I/O,
+timing, DMA, BIOS math, video edges) by Vicki Pfau / the mGBA team,
+fetched from the
+[Asphaltian/sgba](https://github.com/Asphaltian/sgba) community
+mirror so we pin a known-good build with recent DMA-latching fixes;
+and [nba-emu/hw-test](https://github.com/nba-emu/hw-test) (DMA, IRQ,
+HALTCNT, timer edges) by fleroviux. Authoritative hardware
+documentation lives in **GBATEK** by Martin Korth, the canonical
+GBA hardware reference, together with the gbdev community wiki and
+forum threads. For the dark corners GBATEK leaves to interpretation
+— BIOS HLE clobber semantics, GPIO peripherals (RTC / rumble /
+gyroscope / solar / accelerometer), DMA bus-latch behaviour, cart
+prefetch + WAITCNT timing — the next port of call was the readable
+open-source code of [mGBA](https://mgba.io/) again (especially
+`gba/bios.c` and `gba/cart-game-info.c`) plus
+[NanoBoyAdvance](https://github.com/nba-emu/NanoBoyAdvance) by
+fleroviux. Same authorship caveat applies: every line under
+`src/gba/` is original TypeScript, but the design decisions and the
+list of "things you didn't know existed until they hit your test
+suite" came from those projects. Thank you to their authors.
 
 ## License
 

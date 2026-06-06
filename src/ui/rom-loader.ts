@@ -1,5 +1,7 @@
 import { GameBoy } from "../gb";
+import { Gba, parseGbaHeader } from "../gba";
 import { restoreSymbolsForCurrentCart } from "./debugger/symbols-pane.js";
+import { restoreGbaSymbolsForCurrentCart } from "./debugger/symbols-pane-gba.js";
 import {
   canvas,
   canvasPlaceholder,
@@ -16,45 +18,360 @@ import {
 import { confirmAction } from "./hud/modal.js";
 import { resetStatus, tickStatus } from "./hud/status.js";
 import { errorToast, toast } from "./hud/toast.js";
+import { readGyroscope, readSolarBrightness, readTilt, requestMotionPermission, startTilt } from "./input/tilt.js";
 import { loadCartOverrides } from "./persistence/cart-overrides.js";
 import * as Cheats from "./persistence/cheats.js";
 import { importStateFile } from "./persistence/io/state.js";
 import { KEYS, lsGet } from "./persistence/local-storage.js";
 import * as Recents from "./persistence/recents.js";
 import * as SaveRam from "./persistence/save-ram.js";
+import * as SaveRamGba from "./persistence/save-ram-gba.js";
 import * as SaveState from "./persistence/save-state.js";
+import { refreshPrinterTrigger } from "./popovers";
 import { applyCartOverrides } from "./session/cart-overrides.js";
 import { startPacing, stopPacing } from "./session/pacing.js";
 import { applyPatch, detectPatch } from "./session/patches.js";
 import { flushPlayTime, startPlayTimer } from "./session/play-time.js";
-import { RewindBuffer } from "./session/rewind-buffer.js";
-import { applyColorCorrection, applyCurrentPalette, applyMuteState, refreshPaletteAvailability } from "./settings";
-import { audio, gamepad, renderer, setPaused, state } from "./state.js";
+import { REWIND_CAPACITY_SECONDS, RewindBuffer } from "./session/rewind-buffer.js";
+import { startGbaSession, stopGbaSession } from "./session/runtime-gba.js";
+import {
+  applyColorCorrection,
+  applyCurrentPalette,
+  applyMuteState,
+  refreshGbOnlyAvailability,
+  refreshPaletteAvailability,
+  syncIntegerScaleToggle
+} from "./settings";
+import { audio, gamepad, renderer, type RewindMeta, setPaused, state, swapRenderer } from "./state.js";
 
 /**
- * All ROM-entry paths converge here: the header **Load ROM** button, the
- * drag-and-drop handler, and the PWA `launchQueue` (double-click a .gb /
- * .gbc from the OS once the app is installed). Everything calls the same
- * `startEmulator` so lifecycle bookkeeping (flush previous cart, auto-
- * resume, thumbnail capture) lives in one place.
+ * All ROM-entry paths converge here. Engine dispatch lives in each
+ * entry point so the GB-only `startEmulator` never sees a GBA ROM:
+ *
+ *   - Header **Load ROM** button (file `<input>` `change` handler) —
+ *     routes `.gba` to {@link handleGbaRomFile}, otherwise to the GB
+ *     path via {@link loadRomFile} → {@link startEmulator}.
+ *   - Drag-and-drop handler — same dispatch as the load button, plus
+ *     handles `.ips` / `.bps` patches and dropped `.gbstate` /
+ *     `.gbastate` save-state files.
+ *   - PWA `launchQueue` — double-click a registered file extension
+ *     from the OS once the app is installed; `file_handlers` in
+ *     `vite.config.ts` register `.gb` / `.gbc` / `.gba`, and the
+ *     consumer below mirrors the drop-handler dispatch.
+ *
+ * Lifecycle bookkeeping (flush previous cart, auto-resume, thumbnail
+ * capture) lives in {@link startEmulator} (GB) and
+ * {@link handleGbaRomFile} (GBA) so the entry points stay small.
  */
 
 const ROM_RE = /\.(gb|gbc)$/i;
+const GBA_ROM_RE = /\.gba$/i;
 const PATCH_RE = /\.(ips|bps)$/i;
-const STATE_RE = /\.gbstate$/i;
+// Matches `.gbstate` (Game Boy) and `.gbastate` (Game Boy Advance).
+// `importStateFile` is engine-polymorphic so the same drop path
+// dispatches both — the JSON envelope's cartId selects which engine
+// actually receives the state.
+const STATE_RE = /\.gba?state$/i;
 
-/** Read the user's rewind-buffer-length preference. One capture per
- *  second, so the number is both seconds of history and slots in the
- *  ring. Range-clamped to avoid a corrupt localStorage value blowing
- *  up memory; 60 is the historical default. */
-function loadRewindCapacity(): number {
-  const raw = parseInt(lsGet(KEYS.REWIND_CAPACITY) ?? "60", 10);
-  if (!Number.isFinite(raw)) return 60;
-  return Math.max(10, Math.min(1800, raw));
+/** Boot a GBA ROM. The function tears down any running GB session
+ *  first and persists save-RAM / auto-state for both engines so the
+ *  outgoing cart can be resumed later. Exported so the library popover
+ *  can dispatch GBA entries back through here — see also
+ *  {@link startEmulator} for the GB side. */
+export async function handleGbaRomFile(file: File, rememberInRecents = true): Promise<void> {
+  let buffer: ArrayBuffer;
+  try {
+    buffer = await file.arrayBuffer();
+  } catch (err) {
+    console.warn("[Loader] file read failed:", err);
+    errorToast("Could not read file");
+    return;
+  }
+  let header;
+  try {
+    header = parseGbaHeader(new Uint8Array(buffer));
+  } catch (err) {
+    errorToast(`Not a valid GBA ROM: ${(err as Error).message}`);
+    return;
+  }
+
+  // Tear down any running GB session before booting the GBA cart.
+  // Flush the outgoing GB cart's save RAM + auto-snapshot so its
+  // resume point isn't lost when the user comes back to it later.
+  if (state.gb) {
+    await SaveRam.save(state.gb.cart, true);
+    await SaveState.saveAutoState(state.gb);
+    stopPacing();
+    state.gb = null;
+    gamepad.unbind();
+    state.rewinder?.stop();
+    state.rewinder = null;
+  }
+  // Cancel any pending thumbnail capture left over from the previous
+  // cart — without this, a 4-second-delayed snapshot scheduled by the
+  // outgoing GB load would fire against the GBA framebuffer and
+  // overwrite the wrong library entry.
+  if (state.thumbnailTimer !== null) {
+    clearTimeout(state.thumbnailTimer);
+    state.thumbnailTimer = null;
+  }
+  // Flush the outgoing GBA cart's backup + auto-snapshot before
+  // discarding it (e.g. when switching between two GBA carts).
+  if (state.gba) {
+    await SaveRamGba.save(state.gba, true);
+    await SaveState.saveAutoState(state.gba);
+    state.rewinder?.stop();
+    state.rewinder = null;
+  }
+
+  // Rebuild the shared renderer at GBA dimensions (240×160). The GB
+  // path's renderer is sized to 160×144; carrying that into a GBA load
+  // would either letterbox or stretch the framebuffer. We honour the
+  // user's preferred render mode so GBA also benefits from the WebGL
+  // shaders rather than being pinned to Canvas 2D.
+  swapRenderer(lsGet(KEYS.RENDER_MODE) ?? "canvas", { width: 240, height: 160 });
+
+  // Fresh Gba defaults to speedMultiplier = 1; hide the ×N indicator
+  // if the previous cart was left mid-cycle. Mirrors the GB path.
+  speedEl?.classList.remove("is-on");
+
+  await audio.resume(); // must be inside the user-gesture frame that loaded the file
+
+  // No BIOS image: GBA carts run through Glowboot's HLE BIOS. The real
+  // Cult-of-GBA BIOS is kept only as a test-runner diagnostic aid (see
+  // tests/run-gba-roms.ts), never shipped to the browser.
+  const gba = new Gba(new Uint8Array(buffer));
+  state.gba = gba;
+  // Re-sync the Settings controls now that the engine has switched.
+  // With the unified prefs (one key for integer-scale) the toggle
+  // value doesn't change across engines, but `refreshGbOnlyAvailability`
+  // does need the swap to grey out the GB-only controls.
+  syncIntegerScaleToggle();
+  refreshGbOnlyAvailability();
+  refreshPaletteAvailability();
+  // Hydrate any previously-loaded symbol file for this exact cart so
+  // disasm / call-stack labels reappear without the user re-picking the
+  // file. No-op when nothing's stored.
+  restoreGbaSymbolsForCurrentCart();
+  // Restore persisted SRAM / Flash bytes before the cart's first
+  // instruction runs — otherwise the cart's "load save" routine sees
+  // an erased backup and starts a new game.
+  await SaveRamGba.load(gba);
+  // Seed the cheat engine with persisted entries so per-frame writes
+  // resume in the same enabled / disabled state the user left them.
+  gba.cheats.setEntries(await Cheats.loadGba(gba));
+  // Resume from the last auto-snapshot if one exists for this cart.
+  // Best-effort — a version mismatch or decode error just leaves the
+  // cart at its fresh state. Mirrors the GB path's behaviour.
+  try {
+    if ((await SaveState.hasAutoState(gba)) && (await SaveState.loadAutoState(gba))) {
+      toast("Resumed last session");
+    }
+  } catch (err) {
+    console.warn("[State] GBA auto-resume failed:", err);
+  }
+  // Keyboard + gamepad input feed through the bound joypad. Touch
+  // input picks it up via the `getJoypad` callback in panels.ts.
+  gamepad.bind(gba.joypad);
+  gamepad.bindShoulders(gba.joypad);
+  startGbaSession(gba, audio);
+  // Play-time tracking — same plumbing as the GB path so the library
+  // shows total play and "most played" counts across both engines.
+  // Key the timer by `idForGba` so GBA carts get their own per-cart
+  // bucket; flushPlayTime is already invoked on pause / tab-hide /
+  // ROM swap via the shared session hooks.
+  state.playTrackingId = Recents.idForGba(gba);
+  startPlayTimer();
+
+  // Same landing-screen takedown the GB path does: hide the "Load ROM"
+  // placeholder (it's still on top of the canvas otherwise, intercepting
+  // every tap) and flag the body as carrying a running cart so the touch
+  // toolbar fades in.
+  if (canvasPlaceholder) canvasPlaceholder.hidden = true;
+  document.body.classList.add("has-cart");
+
+  // Header icons that need a running engine. Mirror the subset of the
+  // `startEmulator` path's enable block that's actually wired for GBA
+  // today: fullscreen + library + save-slots + cart-info. Cheats and
+  // the debugger are GB-only for now — stay disabled with a tooltip
+  // that explains *why* rather than the generic "load a ROM" wording.
+  if (fsBtn) {
+    fsBtn.disabled = false;
+    fsBtn.title = "Fullscreen";
+  }
+  if (recentsTrigger) {
+    recentsTrigger.disabled = false;
+    recentsTrigger.title = "Library";
+  }
+  if (slotsTrigger) {
+    slotsTrigger.disabled = false;
+    slotsTrigger.title = "Save slots";
+  }
+  if (cheatsTrigger) {
+    cheatsTrigger.disabled = false;
+    cheatsTrigger.title = "Cheats";
+  }
+  if (debuggerTrigger) {
+    debuggerTrigger.disabled = false;
+    debuggerTrigger.title = "Debugger";
+  }
+  if (cartInfoTrigger) cartInfoTrigger.hidden = false;
+
+  const label = header.title || file.name.replace(/\.[^.]+$/, "");
+  // Drive the NOW-PLAYING strip (title + FPS + elapsed-time) for the
+  // GBA session, same hooks the GB path uses. `tickStatus` is wired
+  // from `startGbaSession`'s `onFrame`.
+  resetStatus(label.toUpperCase());
+  // Reuse `currentFilename` so the Reset hotkey can re-launch via the
+  // GBA branch in `resetCart`. The two engines are mutually exclusive
+  // so they don't fight over the field.
+  state.currentFilename = file.name;
+  // Re-project the engine-agnostic user prefs onto the fresh APU.
+  // Palette / colour-correction are GB-specific and silently no-op
+  // when `state.gb` is null. The other shared knobs (audio mode etc.)
+  // arrive via per-cart overrides below.
+  applyMuteState();
+
+  // Rewinder — same contract as the GB side, just snapshotting a
+  // GBA engine with its 240×160 framebuffer. `state.rewinder` was
+  // re-typed polymorphic in this commit so a single slot serves
+  // both engines.
+  state.rewinder = new RewindBuffer<RewindMeta>(
+    gba,
+    () => ({
+      frameCount: state.frameCount,
+      elapsedMs: performance.now() - state.runStartMs,
+      // Copy — the PPU writes into the same buffer object every
+      // frame, so we need our own snapshot to display on rewind.
+      framebuffer: new Uint8ClampedArray(gba.framebuffer) as Uint8ClampedArray<ArrayBuffer>
+    }),
+    1000,
+    REWIND_CAPACITY_SECONDS
+  );
+  state.rewinder.start();
+  // Per-cart overrides — same record format the GB path uses, keyed
+  // by `cartIdOfGba`. Currently only the audio-mode pin applies to
+  // GBA carts (palette / colour-correction / renderer-abstraction
+  // knobs are GB-only by nature). Non-blocking so the cart still
+  // starts with global defaults if IDB is slow.
+  void loadCartOverrides(Recents.idForGba(gba)).then((overrides) => {
+    if (state.gba === gba) applyCartOverrides(overrides);
+  });
+  // Forward the cart's GPIO rumble bit to the connected controller's
+  // vibration actuator (and the device's haptic motor on mobile),
+  // mirroring the GB MBC5 path. Non-rumble carts leave the hook null.
+  if (gba.hasRumble) {
+    gba.onRumbleChange = (on) => gamepad.setRumble(on);
+  }
+  // Re-attach (or lazily create) the GBA Multiplayer link. Settings
+  // init can't construct the GBA-side BC link before a cart is loaded
+  // — at that point `state.gba` is still null and `enable2PlayerLink`
+  // falls through to the GB-side path. Mirror the persisted link mode
+  // here so a 2P session survives "page-reload with cart auto-load".
+  if (state.gbaLink === null && lsGet(KEYS.LINK_CABLE_MODE) === "2p") {
+    const roomCode = (lsGet(KEYS.LINK_ROOM_CODE) ?? "").trim();
+    const RELAY_URL = ((import.meta.env.VITE_LINK_RELAY_URL as string | undefined) ?? "").trim();
+    // Cross-device GBA Multi-Pak is experimental — see
+    // `GBA_LINK_CROSS_DEVICE_EXPERIMENTAL` doc in local-storage.ts.
+    // Without the opt-in, room codes are ignored on the GBA path and
+    // we fall back to same-machine BroadcastChannel.
+    const crossDeviceExperimental = lsGet(KEYS.GBA_LINK_CROSS_DEVICE_EXPERIMENTAL) === "1";
+    if (roomCode && RELAY_URL && crossDeviceExperimental) {
+      const { WebRtcGbaLink } = await import("./session/webrtc-link-gba.js");
+      state.gbaLink = new WebRtcGbaLink(roomCode, RELAY_URL);
+    } else {
+      const { BroadcastChannelGbaLink } = await import("./session/link-cable-gba.js");
+      state.gbaLink = new BroadcastChannelGbaLink();
+    }
+  }
+  if (state.gbaLink !== null) gba.sio.setLink(state.gbaLink);
+  // Yoshi-family tilt carts (Yoshi Topsy-Turvy, Koro Koro Puzzle) —
+  // point the sensor at the same device-motion / keyboard reader the
+  // GB MBC7 path uses. `startTilt` is idempotent; on iOS the motion
+  // API needs a user-gesture permission prompt, attached to the canvas's
+  // first click. The accelerometer chip and the MBC7 chip are different
+  // hardware, but the host-side input vector (`{x, y}` in g-units) is
+  // exactly what both want, so the source is shared.
+  if (gba.tilt !== null) {
+    startTilt();
+    gba.tilt.tiltSource = () => readTilt();
+    const screen = document.getElementById("screen");
+    if (screen) {
+      const onceClick = () => {
+        screen.removeEventListener("click", onceClick);
+        void requestMotionPermission();
+      };
+      screen.addEventListener("click", onceClick);
+    }
+    // The Yoshi-family carts capture the sensor reading at the moment
+    // the player presses A on each calibration step — there's no real-
+    // time visual feedback before that. A keyboard user has no reason
+    // to know they have to hold I/J/K/L *while* pressing A on each
+    // step, and without it the cart records an empty tilt range and
+    // gameplay Yoshi visually leans but can't move. Surface the rule
+    // up-front so they don't have to discover it the hard way.
+    toast("Tilt cart — hold I/J/K/L while pressing A on each calibration step.");
+  }
+  // WarioWare: Twisted! — wire the cart-side gyroscope to the
+  // shared keyboard / DeviceMotion reader. The gyroscope measures
+  // angular velocity around Z; we map the same J/L "tilt left/right"
+  // keys to clockwise / anti-clockwise rotation (Y axis is meaningless
+  // for a Z-rotation sensor and is ignored).
+  if (gba.gyroscope !== null) {
+    startTilt();
+    gba.gyroscope.angularVelocitySource = () => readGyroscope();
+    toast("Gyroscope cart — J/L to rotate counter-clockwise / clockwise.");
+  }
+  // Boktai trilogy — wire the cart-side solar sensor to the brightness
+  // value the Settings → Session → "Solar brightness" slider drives.
+  // The cart's photodiode is sampled on every counter-reset pulse, so
+  // any slider change takes effect on the next in-game sensor read.
+  if (gba.solarSensor !== null) {
+    gba.solarSensor.brightnessSource = () => readSolarBrightness();
+    toast("Solar-sensor cart — adjust ambient light via Settings → Solar brightness.");
+  }
+  // Add the GBA cart to the library so it shows up in the Recents
+  // popover alongside GB entries. Skipped when the launch came from a
+  // library card click itself (the caller will bump the timestamp via
+  // a follow-up `rememberGba` call to avoid re-writing the bytes).
+  if (rememberInRecents) {
+    void Recents.rememberGba(gba, new Uint8Array(buffer), file.name);
+  }
+  // Capture a library thumbnail a few seconds in — mirrors the GB
+  // path. Time the capture for when the user is most likely past the
+  // splash/title screen, so the library tile reflects actual play.
+  // `cartIdOfGba` keeps the id stable across the timeout boundary;
+  // the `state.gba === gbaRef` guard skips the write if the user has
+  // since swapped to another cart.
+  const gbaRef = gba;
+  state.thumbnailTimer = window.setTimeout(() => {
+    state.thumbnailTimer = null;
+    if (state.gba !== gbaRef) return;
+    let thumb: string | undefined;
+    try {
+      thumb = canvas.toDataURL("image/png");
+    } catch {
+      /* tainted canvas */
+    }
+    if (thumb) void Recents.setThumbnail(Recents.idForGba(gbaRef), thumb);
+  }, 4000);
 }
 
 export async function startEmulator(romData: Uint8Array, filename: string, rememberInRecents = true): Promise<void> {
   await audio.resume(); // must be inside a user-gesture frame
+
+  // Tear down any running GBA session before booting a GB cart.
+  // No-op if no GBA session is active. Rebuilds the renderer at 160×144
+  // so the new GB engine paints into a correctly-sized viewport.
+  const wasGba = state.gba !== null;
+  if (state.gba) {
+    await SaveRamGba.save(state.gba, true);
+    state.gba = null;
+  }
+  stopGbaSession();
+  if (wasGba) {
+    swapRenderer(lsGet(KEYS.RENDER_MODE) ?? "canvas", { width: 160, height: 144 });
+  }
 
   // Flush the previous cart's save RAM, auto-snapshot, and play-time
   // counter before discarding it. Await so all three writes complete before
@@ -104,6 +421,12 @@ export async function startEmulator(romData: Uint8Array, filename: string, remem
     return;
   }
   state.gb = gb;
+  // Re-sync the Settings controls now that the engine has switched
+  // (the user may have just been on a GBA cart). Most controls share
+  // a single key now, but `refreshGbOnlyAvailability` needs the swap
+  // to re-enable the GB-only rows that are greyed out under GBA.
+  syncIntegerScaleToggle();
+  refreshGbOnlyAvailability();
   await SaveRam.load(gb.cart);
   gb.cheats.setEntries(await Cheats.load(gb.cart));
   gamepad.bind(gb.joypad);
@@ -128,7 +451,6 @@ export async function startEmulator(romData: Uint8Array, filename: string, remem
   // canvas-click handler that invokes `requestMotionPermission` from
   // inside a user-gesture context (Safari rejects the request otherwise).
   if (gb.cart.mbcType === "MBC7") {
-    const { startTilt, readTilt, requestMotionPermission } = await import("./input/tilt.js");
     startTilt();
     gb.cart.tiltSource = () => readTilt();
     const screen = document.getElementById("screen");
@@ -204,7 +526,7 @@ export async function startEmulator(romData: Uint8Array, filename: string, remem
   // to re-evaluate now that `state.gb` is set — its disabled-state
   // hint can now move from the generic "load a ROM" wording to the
   // more specific "set Link cable to Printer in Settings" step.
-  void import("./popovers/printer.js").then((m) => m.refreshPrinterTrigger());
+  refreshPrinterTrigger();
 
   // Body-level signal that a cart is running. CSS uses this to fade
   // the touch action toolbar in (every button below the canvas needs
@@ -219,7 +541,7 @@ export async function startEmulator(romData: Uint8Array, filename: string, remem
   // of the default boot state. Best-effort — a version mismatch or decode
   // error just leaves the cart at its fresh state.
   try {
-    if ((await SaveState.hasAutoState(gb.cart)) && (await SaveState.loadAutoState(gb))) {
+    if ((await SaveState.hasAutoState(gb)) && (await SaveState.loadAutoState(gb))) {
       toast("Resumed last session");
     }
   } catch (err) {
@@ -241,7 +563,7 @@ export async function startEmulator(romData: Uint8Array, filename: string, remem
       framebuffer: new Uint8ClampedArray(gb.ppu.framebuffer) as Uint8ClampedArray<ArrayBuffer>
     }),
     1000,
-    loadRewindCapacity()
+    REWIND_CAPACITY_SECONDS
   );
   state.rewinder.start();
 
@@ -257,7 +579,7 @@ export async function startEmulator(romData: Uint8Array, filename: string, remem
   // palette / colour-correction / render-mode replaces the global value
   // just for this cart. Non-blocking: if IDB is slow the cart still
   // starts with the global defaults.
-  void loadCartOverrides(gb.cart).then((overrides) => {
+  void loadCartOverrides(Recents.idFor(gb.cart)).then((overrides) => {
     if (state.gb === gb) applyCartOverrides(overrides);
   });
 
@@ -349,12 +671,14 @@ async function tryLoadAsPatch(file: File): Promise<boolean> {
   return true;
 }
 
-/** Import a dropped `.gbstate` file into the currently-running cart.
- *  Validation (cartId match, schema) lives in `importStateFile` — this
- *  wrapper just handles the file-read + toast for each failure path so
- *  the drop handler stays tidy. */
+/** Import a dropped save-state file (`.gbstate` for Game Boy,
+ *  `.gbastate` for Game Boy Advance) into the currently-running cart.
+ *  Validation (cartId match, schema) lives in `importStateFile` —
+ *  this wrapper just handles the file-read + toast for each failure
+ *  path so the drop handler stays tidy. */
 async function tryLoadAsState(file: File): Promise<void> {
-  if (!state.gb) {
+  const engine = state.gb ?? state.gba;
+  if (!engine) {
     toast("Load a ROM first, then drop the save state");
     return;
   }
@@ -366,7 +690,7 @@ async function tryLoadAsState(file: File): Promise<void> {
     errorToast("Could not read save-state file");
     return;
   }
-  const result = await importStateFile(state.gb.cart, text);
+  const result = await importStateFile(engine, text);
   if (!result.ok) {
     errorToast(result.reason ?? "Import failed");
     return;
@@ -385,7 +709,35 @@ canvasPlaceholder?.addEventListener("click", () => romInput.click());
 // point. Save-RAM (in-game save files) is intentionally left alone —
 // users who genuinely want a fresh start can delete the Library entry.
 export async function resetCart(): Promise<void> {
-  if (!state.gb || !state.currentFilename) return;
+  const filename = state.currentFilename;
+  if (!filename) return;
+
+  // GBA path. Same UX as GB: confirm, clear auto-state, tear down,
+  // reload from cached ROM bytes. SRAM / Flash / EEPROM is kept so
+  // in-game saves survive the restart (the user can wipe those from
+  // the Slots popover if they want a truly clean state).
+  if (state.gba) {
+    const ok = await confirmAction({
+      title: "Restart this ROM?",
+      body: "Your last-session resume point will be cleared. In-game saves are kept.",
+      confirmLabel: "Restart",
+      danger: true
+    });
+    if (!ok) return;
+    const bytes = new Uint8Array(state.gba.mem.rom);
+    await SaveState.clearAutoState(state.gba);
+    stopGbaSession();
+    state.gba = null;
+    // Reconstruct a synthetic File so the existing GBA load path
+    // handles all the wiring (audio resume, canvas swap, save-RAM
+    // load, header parse, toast, status reset). Wrapping the bytes
+    // in a File is cheap and avoids duplicating that logic here.
+    const file = new File([bytes], filename, { type: "application/octet-stream" });
+    await handleGbaRomFile(file);
+    return;
+  }
+
+  if (!state.gb) return;
   const ok = await confirmAction({
     title: "Restart this ROM?",
     body: "Your last-session resume point will be cleared. In-game saves are kept.",
@@ -394,8 +746,7 @@ export async function resetCart(): Promise<void> {
   });
   if (!ok) return;
   const bytes = state.gb.cart.rom;
-  const filename = state.currentFilename;
-  await SaveState.clearAutoState(state.gb.cart);
+  await SaveState.clearAutoState(state.gb);
   // Detach the running engine before re-entering `startEmulator` — its
   // "flush old cart" block would otherwise re-write the auto-state we
   // just cleared before the restart even begins.
@@ -407,6 +758,12 @@ export async function resetCart(): Promise<void> {
 romInput.addEventListener("change", async () => {
   const files = Array.from(romInput.files ?? []);
   if (files.length === 0) return;
+  const gbaRom = files.find((f) => GBA_ROM_RE.test(f.name));
+  if (gbaRom) {
+    await handleGbaRomFile(gbaRom);
+    romInput.value = "";
+    return;
+  }
   const rom = files.find((f) => ROM_RE.test(f.name));
   const patch = files.find((f) => PATCH_RE.test(f.name));
   try {
@@ -466,11 +823,17 @@ document.body.addEventListener("drop", async (e) => {
   setDropTarget(false);
   const files = Array.from(e.dataTransfer?.files ?? []);
   if (files.length === 0) return;
+  const gbaRom = files.find((f) => GBA_ROM_RE.test(f.name));
   const rom = files.find((f) => ROM_RE.test(f.name));
   const patch = files.find((f) => PATCH_RE.test(f.name));
   const savedState = files.find((f) => STATE_RE.test(f.name));
-  if (!rom && !patch && !savedState) return;
+  if (!gbaRom && !rom && !patch && !savedState) return;
   e.preventDefault();
+
+  if (gbaRom) {
+    await handleGbaRomFile(gbaRom);
+    return;
+  }
 
   if (rom && patch) {
     let romBytes: Uint8Array;
@@ -512,10 +875,12 @@ document.body.addEventListener("drop", async (e) => {
   if (savedState) await tryLoadAsState(savedState);
 });
 
-/** PWA file association — when a .gb / .gbc is opened from the OS via the
- *  installed PWA the browser hands the file to the page through
- *  window.launchQueue. The file_handlers entry in the manifest registers
- *  the association; this just consumes what gets delivered. No-op in
+/** PWA file association — when a `.gb` / `.gbc` / `.gba` is opened
+ *  from the OS via the installed PWA the browser hands the file to
+ *  the page through `window.launchQueue`. The `file_handlers` entry
+ *  in the manifest registers all three associations; this consumer
+ *  routes the delivered file to whichever engine handles its
+ *  extension, mirroring the drop-handler dispatch above. No-op in
  *  browsers without the API (Safari / Firefox). */
 const lq = (
   window as Window & {
@@ -527,5 +892,10 @@ const lq = (
 lq?.setConsumer(async (params) => {
   const handle = params.files?.[0];
   if (!handle) return;
-  await loadRomFile(await handle.getFile());
+  const file = await handle.getFile();
+  if (GBA_ROM_RE.test(file.name)) {
+    await handleGbaRomFile(file);
+  } else {
+    await loadRomFile(file);
+  }
 });

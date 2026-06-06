@@ -11,11 +11,15 @@
  * imprint and cross-loading would corrupt the engine. The check uses
  * the same CRC-hashed id as the Library, so a patched ROM and its
  * vanilla twin are distinct carts even with identical titles.
+ *
+ * Engine-polymorphic: GB and GBA carts share the same envelope format
+ * because the only engine-specific bit is the opaque state bytes, and
+ * the cart-id namespaces are disjoint (`gba:` prefix on GBA ids
+ * prevents cross-engine collisions).
  */
 
-import type { Cartridge } from "../../../gb";
 import { saveBlobNative } from "../../save-blob.js";
-import { cartIdOf } from "../cart-id.js";
+import { engineCartId, engineCartTitle, isGbaEngine, type SaveStateEngine } from "../save-state.js";
 import { idbGet, idbPut, STORE_SAVE_STATES } from "../storage.js";
 import { b64ToBytes, bytesToB64 } from "./base64.js";
 
@@ -48,15 +52,16 @@ interface StateBundle {
 
 /** Serialise the given slot into a standalone bundle. Returns null if
  *  the slot is empty so callers can no-op without a try/catch. */
-export async function exportSlot(cart: Cartridge, slot: number): Promise<string | null> {
-  const id = `${cartIdOf(cart)}:${slot}`;
+async function exportSlot(engine: SaveStateEngine, slot: number): Promise<string | null> {
+  const cartId = engineCartId(engine);
+  const id = `${cartId}:${slot}`;
   const rec = await idbGet<StateRecord>(STORE_SAVE_STATES, id);
   if (!rec || !rec.bytes) return null;
   const bundle: StateBundle = {
     $: TAG,
     version: VERSION,
     cartId: rec.cartId,
-    cartTitle: cart.title,
+    cartTitle: engineCartTitle(engine),
     slot: rec.slot,
     savedAt: rec.savedAt,
     bytes: bytesToB64(rec.bytes),
@@ -74,13 +79,23 @@ export async function exportSlot(cart: Cartridge, slot: number): Promise<string 
  *  sheet (Photos / Files / AirDrop / etc.) appears — iOS Safari ignores
  *  `<a download>`, which would otherwise silently swallow the file.
  *  Desktop falls back to the classic invisible-anchor download. */
-export async function downloadSlot(cart: Cartridge, slot: number): Promise<boolean> {
-  const json = await exportSlot(cart, slot);
+export async function downloadSlot(engine: SaveStateEngine, slot: number): Promise<boolean> {
+  const json = await exportSlot(engine, slot);
   if (!json) return false;
-  const safeTitle = cart.title.replace(/[^A-Za-z0-9_.-]/g, "_").trim() || "gameboy";
+  const title = engineCartTitle(engine);
+  const safeTitle = title.replace(/[^A-Za-z0-9_.-]/g, "_").trim() || "game";
   const blob = new Blob([json], { type: "application/json" });
-  const filename = `${safeTitle}-slot${slot}.gbstate`;
-  if (await saveBlobNative(blob, filename)) return true;
+  // The envelope itself is engine-polymorphic (cartId carries the
+  // `gba:` prefix), but a per-engine file extension makes it obvious
+  // at-a-glance which engine an exported state belongs to and keeps
+  // the OS file-association heuristics tidy. Both extensions parse
+  // identically on import — the cart-id check in the bundle decides
+  // whether the file matches the currently-loaded cart.
+  const ext = isGbaEngine(engine) ? "gbastate" : "gbstate";
+  const filename = `${safeTitle}-slot${slot}.${ext}`;
+  const share = await saveBlobNative(blob, filename);
+  if (share === "shared") return true;
+  if (share === "cancelled") return false;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -107,7 +122,7 @@ export interface ImportResult {
  *  currently-loaded cart, upsert the record into IDB under the file's
  *  slot. Mismatched cartId is rejected rather than silently written —
  *  cross-loading a different cart's state would corrupt the engine. */
-export async function importStateFile(cart: Cartridge, json: string): Promise<ImportResult> {
+export async function importStateFile(engine: SaveStateEngine, json: string): Promise<ImportResult> {
   let bundle: unknown;
   try {
     bundle = JSON.parse(json);
@@ -116,7 +131,7 @@ export async function importStateFile(cart: Cartridge, json: string): Promise<Im
   }
   if (!isBundle(bundle)) return { ok: false, reason: "Not a Game Boy save-state file" };
 
-  const currentId = cartIdOf(cart);
+  const currentId = engineCartId(engine);
   if (bundle.cartId !== currentId) {
     return {
       ok: false,

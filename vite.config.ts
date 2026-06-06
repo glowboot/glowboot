@@ -43,27 +43,34 @@ export default defineConfig({
       manifest: {
         name: "Glowboot",
         short_name: "Glowboot",
-        description: "Glowboot — a Game Boy / Game Boy Color emulator that runs in your browser.",
+        description: "Glowboot — a Game Boy, Game Boy Color, and Game Boy Advance emulator that runs in your browser.",
         theme_color: "#1a0b3d",
         background_color: "#1a0b3d",
         display: "standalone",
-        orientation: "portrait",
+        // Was "portrait" — locked installed PWAs to portrait so the
+        // rotate-prompt was unreachable. Now "any": Settings → Controls
+        // → Touch → Landscape layout picks the in-app behaviour, and
+        // the rotate-prompt only shows when the user has explicitly
+        // chosen "Force portrait".
+        orientation: "any",
         start_url: "/",
         scope: "/",
         icons: [
           { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
           { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" }
         ],
-        // OS-level file association: double-clicking a .gb / .gbc launches
-        // the installed PWA which then receives the file via launchQueue.
-        // Reuses an existing window when one is already open (emulator
-        // is single-instance — a second ROM replaces the running one).
+        // OS-level file association: double-clicking a .gb / .gbc / .gba
+        // launches the installed PWA which then receives the file via
+        // launchQueue. Reuses an existing window when one is already open
+        // (emulator is single-instance — a second ROM replaces the running
+        // one).
         file_handlers: [
           {
             action: "/",
             accept: {
               "application/x-gameboy-rom": [".gb"],
-              "application/x-gameboy-color-rom": [".gbc"]
+              "application/x-gameboy-color-rom": [".gbc"],
+              "application/x-gba-rom": [".gba"]
             }
           }
         ],
@@ -72,7 +79,8 @@ export default defineConfig({
       workbox: {
         // Cache every asset Vite emits so the app runs fully offline after the
         // first visit. ROMs are loaded via the file picker so they aren't part
-        // of the precache.
+        // of the precache. No BIOS is shipped — GBA carts run through Glowboot's
+        // HLE BIOS in the browser.
         globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"]
       }
     })

@@ -53,10 +53,13 @@ export function saveTouchLayout(layout: TouchLayout): void {
 
 export function applyTouchLayout(layout: TouchLayout): void {
   const overlay = document.querySelector<HTMLElement>(".gb-touch");
-  if (!overlay) return;
-  overlay.style.setProperty("--touch-scale", layout.scale.toFixed(2));
-  overlay.style.setProperty("--touch-spacing", `${layout.spacing}px`);
-  overlay.classList.toggle("is-mirrored", layout.mirror);
+  // Custom properties go on `<body>` (not `.gb-touch`) so the canvas
+  // can also read `--touch-scale` for the landscape gutter-reserve
+  // calc in `touch.css`. var() inheritance still resolves them inside
+  // `.gb-touch`, so portrait-layout CSS keeps working unchanged.
+  document.body.style.setProperty("--touch-scale", layout.scale.toFixed(2));
+  document.body.style.setProperty("--touch-spacing", `${layout.spacing}px`);
+  if (overlay) overlay.classList.toggle("is-mirrored", layout.mirror);
 }
 
 function clamp(v: number, lo: number, hi: number): number {

@@ -25,7 +25,6 @@ import {
   paletteSelect,
   pixelResponseSlider,
   renderModeSelect,
-  rewindCapacitySelect,
   rumblePresetSelect,
   rumbleResetBtn,
   rumbleStrengthSlider,
@@ -36,7 +35,9 @@ import {
   settingsPop,
   settingsSavedPip,
   settingsSearchInput,
+  solarBrightnessSlider,
   touchHapticToggle,
+  touchLandscapeSelect,
   touchMirrorToggle,
   touchResetBtn,
   touchRoot,
@@ -47,6 +48,7 @@ import {
 } from "../dom.js";
 import { confirmAction } from "../hud/modal.js";
 import { errorToast, toast } from "../hud/toast.js";
+import { DEFAULT_SOLAR_BRIGHTNESS, setSolarBrightnessCache } from "../input/tilt.js";
 import * as Touch from "../input/touch.js";
 import {
   applyTouchLayout,
@@ -58,6 +60,13 @@ import {
 import { downloadLibrary, importLibrary } from "../persistence/io/library.js";
 import { downloadSettings, importSettings } from "../persistence/io/settings.js";
 import { KEYS, lsGet, lsRemove, lsSet } from "../persistence/local-storage.js";
+// Deep import (not `from "../popovers"`) is deliberate — the popovers
+// barrel re-exports `cart-info.ts`, which imports `loadIntegerScalePref`
+// from this very file. Routing through the barrel here would re-enter
+// the settings barrel mid-load and hand cart-info.ts a partial namespace
+// where `loadIntegerScalePref` is still undefined. The IDE's "Import
+// can be shortened" hint is wrong on this line; ignore it.
+import { onPagePrinted, setLinkModeIsPrinter } from "../popovers/printer.js";
 import * as Palettes from "../session/palettes.js";
 import {
   audio,
@@ -329,9 +338,49 @@ export function refreshPaletteAvailability(): void {
   const isDmg = !!state.gb && !state.gb.cart.cgb;
   // CGB carts ship their own palette in ROM; the DMG picker has no
   // effect, so disable the select and surface the explainer note.
+  // GBA carts don't have an indexed palette concept at all — same
+  // disabled state, same explainer.
   if (paletteSelect) paletteSelect.disabled = !isDmg;
   if (paletteNote) paletteNote.hidden = isDmg;
 }
+
+/** Disable the controls that only the GB engine consumes when a GBA
+ *  cart is the active engine. Called by rom-loader after each cart
+ *  switch and once at module-init so the initial empty-state matches.
+ *
+ *  Currently covers:
+ *    - CGB colour correction (PPU-side, GB only)
+ *    - Link cable mode + room code (serial protocol, GB only)
+ *
+ *  The palette picker has its own three-state (DMG / CGB / GBA)
+ *  rule in {@link refreshPaletteAvailability}; that one stays
+ *  separate. */
+export function refreshGbOnlyAvailability(): void {
+  const onGba = state.gba !== null;
+  if (colorCorrectionToggle) colorCorrectionToggle.disabled = onGba;
+  // Link-cable mode select: 2-player works for both engines now (Phase 1
+  // GBA Multiplayer); printer is GB-only because it implements the
+  // SerialLink byte-shift protocol the GB's MMU drives. We HIDE the
+  // printer option rather than disable+hide — the GBA can't print at
+  // all, so the option is structurally absent on GBA carts, not just
+  // "present but unavailable". (See settings disable-vs-hide audit:
+  // hide when the control is conceptually inapplicable, disable when
+  // it exists but has no effect for this cart.)
+  if (linkCableModeSelect) {
+    const printerOpt = linkCableModeSelect.querySelector<HTMLOptionElement>('option[value="printer"]');
+    if (printerOpt) printerOpt.hidden = onGba;
+    // If the user had printer selected and switches to a GBA cart,
+    // demote to "off" so the now-invalid mode doesn't sit there.
+    if (onGba && linkCableModeSelect.value === "printer") {
+      linkCableModeSelect.value = "off";
+      linkCableModeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+}
+// Run once at module-init so an initial GBA-cart load (e.g. PWA
+// launch with a .gba file queued) sees the correct disabled state
+// even before rom-loader's first sync pass.
+refreshGbOnlyAvailability();
 
 buildPaletteSelect();
 onSectionReset("display", () => {
@@ -374,15 +423,36 @@ const colorCorrectionEnabledRef = { value: colorCorrectionEnabled };
 }
 
 // ─── Integer scaling ─────────────────────────────────────────────────────
-// Sizes the canvas to the largest whole-number multiple of 160×144 that
-// fits its container so every on-screen pixel represents the same number
-// of source pixels. Without this the browser stretches 160-px source to
-// the container width and produces uneven pixel sizes even with
-// `image-rendering: pixelated`. Default ON — avoids the subtle uneven-
-// pixel shimmer most users notice on first sight. Persists in
-// `gb-integer-scale` (explicit "0" means opted out).
+// Sizes the canvas to the largest whole-number multiple of its native
+// resolution that fits the container so every on-screen pixel represents
+// the same number of source pixels. Without this the browser stretches
+// source to the container width and produces uneven pixel sizes even with
+// `image-rendering: pixelated`.
+//
+// Single preference shared across GB and GBA — `KEYS.INTEGER_SCALE`.
+// Default OFF: GBA's 240×160 doesn't grid evenly on most viewports, and
+// the integer-only canvas leaves visible gutter that reads as wasted
+// space at first glance. Users who want the clean per-pixel scaling can
+// toggle it on in Settings → Display.
+export function loadIntegerScalePref(): boolean {
+  const v = lsGet(KEYS.INTEGER_SCALE);
+  if (v === null || v === undefined) return false;
+  return v !== "0";
+}
+function saveIntegerScalePref(on: boolean): void {
+  lsSet(KEYS.INTEGER_SCALE, on ? "1" : "0");
+}
+/** Re-read the stored integer-scale preference into the Settings
+ *  toggle. Called by rom-loader after each cart load; with the unified
+ *  key the value never differs across engines, but keeping the sync
+ *  point means any future engine-aware override slots in cleanly. */
+export function syncIntegerScaleToggle(): void {
+  const el = integerScaleToggle;
+  if (!el) return;
+  el.checked = loadIntegerScalePref();
+}
 {
-  const enabled = INIT_LS[KEYS.INTEGER_SCALE] !== "0";
+  const enabled = loadIntegerScalePref();
   renderer.integerScale = enabled;
   const el = integerScaleToggle;
   if (el) {
@@ -390,12 +460,13 @@ const colorCorrectionEnabledRef = { value: colorCorrectionEnabled };
     el.addEventListener("change", () => {
       const on = el.checked;
       renderer.integerScale = on;
-      lsSet(KEYS.INTEGER_SCALE, on ? "1" : "0");
+      saveIntegerScalePref(on);
     });
   }
   onSectionReset("display", () => {
-    renderer.integerScale = true;
-    if (el) el.checked = true;
+    renderer.integerScale = false;
+    if (el) el.checked = false;
+    saveIntegerScalePref(false);
   });
 }
 
@@ -442,12 +513,14 @@ const RENDER_MODES: readonly RenderMode[] = [
   "webgl-sxbr"
 ];
 
-/** Default render mode for a fresh browser — MMPX (style-preserving 2×
- *  pixel-art magnification, McGuire & Mara 2020) keeps sprites and fonts
- *  pixel-crisp while rounding diagonals and corners cleanly. Users who
- *  prefer a different shader (or pure Canvas 2D) override via the
- *  dropdown. */
-const DEFAULT_RENDER_MODE: RenderMode = "webgl-mmpx";
+/** Default render mode for a fresh browser — "Original" (the Canvas 2D
+ *  path: `putImageData` with no shader, no upscaler, no colour grade).
+ *  Pairs with the matching "Original" default in the audio-mode dropdown
+ *  so a brand-new user gets unprocessed sound and pixels out of the box,
+ *  matching what real silicon would output. Users who want a shader
+ *  (MMPX, LCD, CRT, etc.) or a coloured audio mode pick it from the
+ *  dropdowns; the picks persist. */
+const DEFAULT_RENDER_MODE: RenderMode = "canvas";
 function normaliseRenderMode(v: unknown): RenderMode {
   return RENDER_MODES.includes(v as RenderMode) ? (v as RenderMode) : DEFAULT_RENDER_MODE;
 }
@@ -456,7 +529,7 @@ function normaliseRenderMode(v: unknown): RenderMode {
   const el = renderModeSelect;
   const applyMode = (v: RenderMode): void => {
     const next = swapRenderer(v);
-    next.integerScale = lsGet(KEYS.INTEGER_SCALE) !== "0";
+    next.integerScale = loadIntegerScalePref();
     const stored = parseFloat(lsGet(KEYS.PIXEL_RESPONSE) ?? "0");
     next.setPixelResponse(Number.isFinite(stored) ? Math.max(0, Math.min(0.85, stored)) : 0);
     next.setColorGrade(loadGrade());
@@ -565,34 +638,52 @@ function loadGrade(): ColorGrade {
   });
 }
 
-// ─── Rewind-buffer length ────────────────────────────────────────────────
-// One snapshot per second, so `capacity` == seconds of history. Memory
-// footprint is linear (~80 KB per second). We apply the choice live to
-// the current RewindBuffer (if any) via `setCapacity`, and rom-loader
-// reads the pref when constructing a fresh buffer on ROM load. 60 s is
-// the historical default. Persists in `gb-rewind-capacity`.
+// ─── Solar brightness ───────────────────────────────────────────────────
+// Ambient-light sample fed to the Boktai trilogy's cart-side photodiode.
+// 0 = pitch black (cart calibration target), 1 = direct sunlight (Solar
+// Gun fully charged). The cart-side `GpioSolarSensor` polls
+// `readSolarBrightness()` from input/tilt.ts; this block owns the
+// slider state and persistence. No-op for non-Boktai carts — the
+// `solarSensor` field on those engines stays null and the source is
+// never polled.
+//
+// Slider step is 0.1 in pages/index.html — 10 discrete levels match
+// the sun gauge in Boktai 2 / 3 (10 bars each). Boktai 1's gauge has
+// 8 bars, so adjacent slider steps occasionally land on the same
+// bar; the cart still gets the raw 8-bit photodiode value either
+// way, only the HUD readout aliases. The encoding curve itself lives
+// in `LUX_LEVEL_TABLE` in src/gba/cartridge/solar.ts.
 {
-  const DEFAULT_REWIND_SECONDS = 60;
-  const stored = parseInt(INIT_LS[KEYS.REWIND_CAPACITY] ?? String(DEFAULT_REWIND_SECONDS), 10);
-  const initial = Number.isFinite(stored) ? stored : DEFAULT_REWIND_SECONDS;
-  const el = rewindCapacitySelect;
+  const stored = parseFloat(INIT_LS[KEYS.SOLAR_BRIGHTNESS] ?? "");
+  const initial = Number.isFinite(stored) ? Math.max(0, Math.min(1, stored)) : DEFAULT_SOLAR_BRIGHTNESS;
+  setSolarBrightnessCache(initial);
+  const el = solarBrightnessSlider;
   if (el) {
     el.value = String(initial);
-    // If the stored value isn't one of the preset options, the <select>
-    // falls through to the first option — snap the persisted value to
-    // what the user actually sees so there's no silent mismatch.
-    if (el.value !== String(initial)) el.value = String(DEFAULT_REWIND_SECONDS);
-    el.addEventListener("change", () => {
-      const seconds = parseInt(el.value, 10) || DEFAULT_REWIND_SECONDS;
-      state.rewinder?.setCapacity(seconds);
-      lsSet(KEYS.REWIND_CAPACITY, String(seconds));
+    el.addEventListener("input", () => {
+      const v = parseFloat(el.value);
+      const clamped = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : DEFAULT_SOLAR_BRIGHTNESS;
+      setSolarBrightnessCache(clamped);
+      lsSet(KEYS.SOLAR_BRIGHTNESS, String(clamped));
     });
   }
   onSectionReset("behavior", () => {
-    state.rewinder?.setCapacity(DEFAULT_REWIND_SECONDS);
-    if (el) el.value = String(DEFAULT_REWIND_SECONDS);
+    setSolarBrightnessCache(DEFAULT_SOLAR_BRIGHTNESS);
+    if (el) {
+      el.value = String(DEFAULT_SOLAR_BRIGHTNESS);
+      syncSliderLabel(el);
+    }
+    lsRemove(KEYS.SOLAR_BRIGHTNESS);
   });
 }
+
+// Rewind-buffer length used to live here as a user-tunable dropdown
+// with per-engine prefs. Most users never changed it, and the longer
+// presets on GBA (≥ 5 min = ≥ 180 MB) were OOM hazards on mobile.
+// The buffer is now a fixed `REWIND_CAPACITY_SECONDS` (= 120 s) for
+// both engines; the constant lives next to the buffer in
+// `session/rewind-buffer.ts` so engine accounting and storage live
+// together.
 
 // ─── Link cable ──────────────────────────────────────────────────────────
 // Three modes share one select:
@@ -649,12 +740,18 @@ function readLinkMode(): LinkMode {
   // matters. Hide the printer popover trigger except in printer mode.
   const subRows = document.querySelectorAll<HTMLElement>(".settings-row.link-cable-sub");
   function syncMode(mode: LinkMode): void {
-    for (const row of subRows) row.hidden = mode !== "2p";
+    const showSub = mode === "2p";
+    for (const row of subRows) row.hidden = !showSub;
+    // Disable the room-code input alongside hiding its row so it's
+    // not reachable via the tab order while invisible. (`hidden` only
+    // affects rendering and accessibility tree, not tab focus on
+    // child form controls in every browser.)
+    if (linkRoomCodeInput) linkRoomCodeInput.disabled = !showSub;
     // Printer button is always present in the action row now; the
     // printer module owns the disabled-flag logic so it can keep the
     // trigger enabled when there's persisted print history even if
     // the link cable isn't currently set to "printer".
-    void import("../popovers/printer.js").then((m) => m.setLinkModeIsPrinter(mode === "printer"));
+    setLinkModeIsPrinter(mode === "printer");
   }
 
   if (select) {
@@ -706,6 +803,46 @@ function readLinkMode(): LinkMode {
 }
 
 async function enable2PlayerLink(): Promise<void> {
+  if (state.gba !== null) {
+    if (state.gbaLink) return;
+    const roomCode = (lsGet(KEYS.LINK_ROOM_CODE) ?? "").trim();
+    const crossDeviceExperimental = lsGet(KEYS.GBA_LINK_CROSS_DEVICE_EXPERIMENTAL) === "1";
+    const wantsCrossDevice = roomCode.length > 0 && RELAY_URL.length > 0;
+    if (wantsCrossDevice && crossDeviceExperimental) {
+      // Cross-device pairing via the build-time relay URL. The relay
+      // worker is the same one the GB cable uses — we just prefix the
+      // room code with `gba-` inside WebRtcGbaLink so the two
+      // protocols can't accidentally cross-pair.
+      // Gated behind the experimental flag — see KEY doc-comment for
+      // why (RTT vs cable-detect protocol tolerance).
+      console.info(`[Link] GBA 2P → cross-device via ${RELAY_URL} (experimental)`);
+      const { WebRtcGbaLink } = await import("../session/webrtc-link-gba.js");
+      state.gbaLink = new WebRtcGbaLink(roomCode, RELAY_URL);
+    } else {
+      if (wantsCrossDevice) {
+        // Room code + relay URL are set, the user clearly meant
+        // cross-device — but the experimental opt-in isn't on.
+        console.info(
+          "[Link] GBA 2P → ignoring room code: cross-device GBA Multi-Pak is " +
+            "experimental and off by default. Set " +
+            `localStorage["${KEYS.GBA_LINK_CROSS_DEVICE_EXPERIMENTAL}"] = "1" ` +
+            "to opt in (Pokémon trade may work; Multi-Pak cable-detect protocols " +
+            "exceed typical internet RTT). Falling back to same-machine BroadcastChannel."
+        );
+      } else if (roomCode && !RELAY_URL) {
+        console.warn(
+          "[Link] GBA 2P requested with a room code, but VITE_LINK_RELAY_URL " +
+            "is empty in this build. Falling back to same-machine pairing only."
+        );
+      } else {
+        console.info("[Link] GBA 2P → same-machine (BroadcastChannel)");
+      }
+      const { BroadcastChannelGbaLink } = await import("../session/link-cable-gba.js");
+      state.gbaLink = new BroadcastChannelGbaLink();
+    }
+    state.gba.sio.setLink(state.gbaLink);
+    return;
+  }
   if (state.link) return;
   const roomCode = (lsGet(KEYS.LINK_ROOM_CODE) ?? "").trim();
   if (roomCode && RELAY_URL) {
@@ -738,7 +875,6 @@ async function enable2PlayerLink(): Promise<void> {
 async function enablePrinterLink(): Promise<void> {
   if (state.link) return;
   const { PrinterLink } = await import("../session/printer-link.js");
-  const { onPagePrinted } = await import("../popovers/printer.js");
   state.link = new PrinterLink(onPagePrinted);
   if (state.gb) state.gb.mmu.setSerialLink(state.link);
   // Printer mode has no peer to wait for — the virtual printer is
@@ -748,12 +884,18 @@ async function enablePrinterLink(): Promise<void> {
 }
 
 function disableLink(): void {
-  if (!state.link) return;
-  state.link.close();
-  state.link = null;
-  if (state.gb) {
-    // Restore the no-op default so transfers resume failing silently.
-    state.gb.mmu.setSerialLink(NO_LINK);
+  if (state.link !== null) {
+    state.link.close();
+    state.link = null;
+    if (state.gb) {
+      // Restore the no-op default so transfers resume failing silently.
+      state.gb.mmu.setSerialLink(NO_LINK);
+    }
+  }
+  if (state.gbaLink !== null) {
+    state.gbaLink.close();
+    state.gbaLink = null;
+    if (state.gba) state.gba.sio.setLink(null);
   }
 }
 
@@ -796,12 +938,16 @@ function disableLink(): void {
 // MBC5 cart rumble (Pokémon Pinball, Perfect Dark, …) is always wired up
 // — the cart's own rumble bit drives the motor unconditionally. The
 // audio-reactive follower is opt-in (default OFF) because the effect is
-// subjective and feels noisy in music-heavy games. The strength slider
-// below acts as a soft "off" for users who want to dial it down without
-// flipping a separate toggle. Pref: `gb-audio-rumble`.
+// subjective and feels noisy in music-heavy games. Preset only matters
+// when the follower is on; Strength is independent (it's the master
+// intensity for both cart and audio rumble). Pref: `gb-audio-rumble`.
+function syncAudioRumbleSubControls(enabled: boolean): void {
+  if (rumblePresetSelect) rumblePresetSelect.disabled = !enabled;
+}
 {
   const audioEnabled = INIT_LS[KEYS.AUDIO_RUMBLE] === "1";
   gamepad.setAudioRumbleEnabled(audioEnabled);
+  syncAudioRumbleSubControls(audioEnabled);
 
   const audioEl = audioRumbleToggle;
 
@@ -809,12 +955,14 @@ function disableLink(): void {
     audioEl.checked = audioEnabled;
     audioEl.addEventListener("change", () => {
       gamepad.setAudioRumbleEnabled(audioEl.checked);
+      syncAudioRumbleSubControls(audioEl.checked);
       lsSet(KEYS.AUDIO_RUMBLE, audioEl.checked ? "1" : "0");
     });
   }
 
   onSectionReset("rumble", () => {
     gamepad.setAudioRumbleEnabled(false);
+    syncAudioRumbleSubControls(false);
     if (audioEl) audioEl.checked = false;
   });
 }
@@ -976,16 +1124,39 @@ audio.volume = savedVolumePct / 100;
 }
 
 // ─── Per-channel mutes ───────────────────────────────────────────────────
-const savedMutes = (INIT_LS[KEYS.CHANNEL_MUTES] ?? "0000").padEnd(4, "0");
-const muteState: [boolean, boolean, boolean, boolean] = [
+// Slots 0-3 are the PSG channels (CH1 / CH2 / CH3 / CH4), shared
+// between GB and GBA. Slots 4-5 are GBA-only Direct Sound A and B —
+// the streamed-PCM path that carries most commercial GBA audio.
+// Commercial games typically split music (DSA) from sound effects
+// (DSB), so exposing them separately is the user-perceivable win.
+// Migration: older 5-char storage had a single "DS" flag at index 4;
+// duplicate it into both A and B so a user who muted "DS" sees both
+// new buttons muted. Pre-DS 4-char strings still pad cleanly to 6
+// with DS defaulting to unmuted.
+const savedMutesRaw = INIT_LS[KEYS.CHANNEL_MUTES] ?? "";
+const savedMutes =
+  savedMutesRaw.length === 5
+    ? savedMutesRaw + savedMutesRaw.charAt(4) // old DS → DSA + DSB
+    : savedMutesRaw.padEnd(6, "0");
+const muteState: [boolean, boolean, boolean, boolean, boolean, boolean] = [
   savedMutes.charAt(0) === "1",
   savedMutes.charAt(1) === "1",
   savedMutes.charAt(2) === "1",
-  savedMutes.charAt(3) === "1"
+  savedMutes.charAt(3) === "1",
+  savedMutes.charAt(4) === "1",
+  savedMutes.charAt(5) === "1"
 ];
 
 export function applyMuteState(): void {
+  // Same four PSG channels on both engines; the GBA APU exposes the
+  // matching `muteChannel` array specifically so this wiring stays a
+  // simple per-engine fan-out instead of branching every render frame.
   if (state.gb) for (let i = 0; i < 4; i++) state.gb.apu.muteChannel[i] = !!muteState[i];
+  if (state.gba) {
+    for (let i = 0; i < 4; i++) state.gba.mem.apu.muteChannel[i] = !!muteState[i];
+    state.gba.mem.apu.muteDirectSoundA = !!muteState[4];
+    state.gba.mem.apu.muteDirectSoundB = !!muteState[5];
+  }
   muteButtons.forEach((btn) => {
     const ch = parseInt(btn.dataset.ch ?? "0", 10);
     btn.classList.toggle("muted", !!muteState[ch]);
@@ -995,19 +1166,25 @@ applyMuteState();
 muteButtons.forEach((btn) =>
   btn.addEventListener("click", () => {
     const ch = parseInt(btn.dataset.ch ?? "0", 10);
-    if (ch < 0 || ch > 3) return;
+    if (ch < 0 || ch > 5) return;
     muteState[ch] = !muteState[ch];
     applyMuteState();
     lsSet(KEYS.CHANNEL_MUTES, muteState.map((m) => (m ? "1" : "0")).join(""));
   })
 );
 onSectionReset("audio", () => {
-  for (let i = 0; i < 4; i++) muteState[i] = false;
+  for (let i = 0; i < muteState.length; i++) muteState[i] = false;
   applyMuteState();
 });
 
 // ─── Touch controls ──────────────────────────────────────────────────────
-const touch = touchRoot ? Touch.initTouchControls(() => state.gb?.joypad ?? null, touchRoot) : null;
+const touch = touchRoot
+  ? Touch.initTouchControls(
+      () => state.gb?.joypad ?? state.gba?.joypad ?? null,
+      () => state.gba?.joypad ?? null,
+      touchRoot
+    )
+  : null;
 const savedTouchMode = Touch.loadTouchMode();
 touch?.setMode(savedTouchMode);
 
@@ -1037,6 +1214,33 @@ syncTouchLayoutVisibility(savedTouchMode);
     if (el) el.value = def;
     touch?.setMode(def);
     syncTouchLayoutVisibility(def);
+  });
+}
+
+// ─── Touch landscape layout ──────────────────────────────────────────────
+// Pick how the on-screen controls behave when the device is held in
+// landscape. `portrait` keeps the rotate-prompt overlay (historical
+// default); the other three reflow the controls to live alongside or
+// over the canvas. The chosen value lands on `body[data-landscape-
+// layout="..."]`, which both touch.css and base.css read.
+{
+  const saved = Touch.loadTouchLandscapeLayout();
+  Touch.applyTouchLandscapeLayout(saved);
+  Touch.installTouchRevealListener();
+  const el = touchLandscapeSelect;
+  if (el) {
+    el.value = saved;
+    el.addEventListener("change", () => {
+      const next = el.value as Touch.TouchLandscapeLayout;
+      Touch.saveTouchLandscapeLayout(next);
+      Touch.applyTouchLandscapeLayout(next);
+    });
+  }
+  onSectionReset("touch", () => {
+    const def: Touch.TouchLandscapeLayout = Touch.DEFAULT_TOUCH_LANDSCAPE_LAYOUT;
+    if (el) el.value = def;
+    Touch.saveTouchLandscapeLayout(def);
+    Touch.applyTouchLandscapeLayout(def);
   });
 }
 
@@ -1135,7 +1339,7 @@ wireSectionReset(audioResetBtn, "audio", [KEYS.VOLUME, KEYS.CHANNEL_MUTES, KEYS.
 wireSectionReset(
   sessionResetBtn,
   "behavior",
-  [KEYS.AUTO_PAUSE, KEYS.REWIND_CAPACITY, KEYS.LINK_CABLE_MODE, KEYS.LINK_ROOM_CODE],
+  [KEYS.AUTO_PAUSE, KEYS.LINK_CABLE_MODE, KEYS.LINK_ROOM_CODE, KEYS.SOLAR_BRIGHTNESS],
   "Session"
 );
 

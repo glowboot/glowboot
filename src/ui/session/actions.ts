@@ -1,4 +1,5 @@
 import { type BreakpointHit, takeHit } from "../../gb";
+import { parseGbaHeader } from "../../gba";
 import { canvas, consoleEl, fsBtn, overlayFlash, recBadge, speedEl, statusEl, touchSpeedLabelEl } from "../dom.js";
 import { announce } from "../hud/announce.js";
 import { toast } from "../hud/toast.js";
@@ -6,7 +7,20 @@ import { audio, renderer, setPaused, state } from "../state.js";
 import { startPacing, stopPacing } from "./pacing.js";
 import { flushPlayTime, startPlayTimer } from "./play-time.js";
 import { Recorder } from "./recording.js";
+import { pauseGbaSession, resumeGbaSession } from "./runtime-gba.js";
 import * as Screenshot from "./screenshot.js";
+
+/** Cart title for the currently-loaded ROM, suitable for embedding
+ *  in a screenshot / recording filename. Prefers the GB cart's
+ *  header title, then the GBA header title (parsed lazily from ROM
+ *  bytes — `Gba` doesn't surface a pre-parsed `title` field), then a
+ *  generic fallback. The Screenshot.sanitize step handles unicode +
+ *  whitespace + filesystem-unsafe characters downstream. */
+function cartTitleForFilename(): string {
+  if (state.gb) return state.gb.cart.title || "gameboy";
+  if (state.gba) return parseGbaHeader(state.gba.mem.rom).title || "gba";
+  return "game";
+}
 
 /** Pause / resume, turbo, screenshot, and the fullscreen button — the
  *  "runtime control" actions that are triggered either by the keyboard
@@ -14,23 +28,36 @@ import * as Screenshot from "./screenshot.js";
 
 export async function togglePause(): Promise<void> {
   const gb = state.gb;
-  if (!gb) return;
+  const gba = state.gba;
+  if (!gb && !gba) return;
   if (state.paused) {
-    // Credit MBC3 RTC for the pause gap — a real cart keeps ticking while
-    // the console is off, so Pokémon G/S berries / day-night cycle reflect
-    // real elapsed time rather than emulated CPU time only.
-    if (state.rtcWallPauseMs > 0) {
-      gb.cart.advanceRtcByWallMs(Date.now() - state.rtcWallPauseMs);
+    if (gb) {
+      // Credit MBC3 RTC for the pause gap — a real cart keeps ticking
+      // while the console is off, so Pokémon G/S berries / day-night
+      // cycle reflect real elapsed time rather than emulated CPU time
+      // only. GBA has no realtime clock so this branch is GB-only.
+      if (state.rtcWallPauseMs > 0) {
+        gb.cart.advanceRtcByWallMs(Date.now() - state.rtcWallPauseMs);
+        state.rtcWallPauseMs = 0;
+      }
+      await audio.resume();
+      startPacing(gb);
+    } else if (gba) {
+      // GBA has no RTC catch-up; just resume the rAF + audio context.
       state.rtcWallPauseMs = 0;
+      await audio.resume();
+      resumeGbaSession();
     }
-    await audio.resume();
-    startPacing(gb);
     if (statusEl) statusEl.textContent = "Running";
     startPlayTimer();
     announce("Resumed");
   } else {
-    if (state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
-    stopPacing();
+    // Only stamp the RTC pause marker when a GB cart is loaded — GBA
+    // carts don't consume it and a stale stamp could leak forward to a
+    // future GB cart load if it weren't cleared on cart swap.
+    if (gb && state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
+    if (gb) stopPacing();
+    else pauseGbaSession();
     await audio.suspend();
     if (statusEl) statusEl.textContent = "Paused";
     void flushPlayTime();
@@ -43,24 +70,24 @@ export async function togglePause(): Promise<void> {
  *  resumed at 1× because the sample scheduler is pinned to wall time —
  *  any other multiplier drops / duplicates samples and produces
  *  glitching. */
-export const SPEED_STEPS: readonly number[] = [0.5, 1, 2, 4];
+const SPEED_STEPS: readonly number[] = [0.5, 1, 2, 4];
 
 /** Step through SPEED_STEPS. `direction` is +1 by default (a plain
  *  turbo press); pass -1 (Shift+turbo) to walk backwards so the user
  *  can back out of a 4× commitment without cycling through 0.5×. */
 export function cycleSpeed(direction: 1 | -1 = 1): void {
-  const gb = state.gb;
-  if (!gb) return;
+  const engine = state.gb ?? state.gba;
+  if (!engine) return;
   const len = SPEED_STEPS.length;
-  const currentIdx = SPEED_STEPS.indexOf(gb.speedMultiplier);
+  const currentIdx = SPEED_STEPS.indexOf(engine.speedMultiplier);
   const next = SPEED_STEPS[(currentIdx + direction + len) % len]!;
   applySpeed(next);
 }
 
 function applySpeed(speed: number): void {
-  const gb = state.gb;
-  if (!gb) return;
-  gb.speedMultiplier = speed;
+  const engine = state.gb ?? state.gba;
+  if (!engine) return;
+  engine.speedMultiplier = speed;
   if (speed === 1) void audio.resume();
   else void audio.suspend();
   if (speedEl) {
@@ -89,18 +116,22 @@ function applySpeed(speed: number): void {
  *  incrementing / re-rendering here would double the effect. */
 export function frameAdvance(): void {
   const gb = state.gb;
-  if (!gb) return;
+  const gba = state.gba;
+  if (!gb && !gba) return;
   if (!state.paused) {
     // First tap auto-pauses so the user doesn't have to press Space
     // before starting to step.
-    stopPacing();
+    if (gb) stopPacing();
+    else pauseGbaSession();
     void audio.suspend();
-    if (state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
+    // GBA has no RTC catch-up; only the GB branch stamps the marker.
+    if (gb && state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
     if (statusEl) statusEl.textContent = "Paused";
     void flushPlayTime();
     setPaused(true);
   }
-  gb.stepFrame();
+  if (gb) gb.stepFrame();
+  else gba!.stepFrame();
 }
 
 /** Single-instruction step — debugger's finest-grained control. Auto-
@@ -110,21 +141,28 @@ export function frameAdvance(): void {
  *  resulted so visual progress is visible. */
 export function stepInstruction(): void {
   const gb = state.gb;
-  if (!gb) return;
+  const gba = state.gba;
+  if (!gb && !gba) return;
   if (!state.paused) {
-    stopPacing();
+    if (gb) stopPacing();
+    else pauseGbaSession();
     void audio.suspend();
-    if (state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
+    if (gb && state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
     if (statusEl) statusEl.textContent = "Paused";
     void flushPlayTime();
     setPaused(true);
   }
-  gb.stepInstruction();
-  // Paint the framebuffer directly rather than through `gb.onFrame`,
-  // because that callback also bumps `state.frameCount` via tickStatus
-  // — and a single-instruction step isn't a new frame. The Step frame
-  // button (which calls runFrame) goes through onFrame as usual.
-  renderer.render(gb.ppu.framebuffer);
+  if (gb) {
+    gb.stepInstruction();
+    // Paint the framebuffer directly rather than through `gb.onFrame`,
+    // because that callback also bumps `state.frameCount` via tickStatus
+    // — and a single-instruction step isn't a new frame. The Step frame
+    // button (which calls runFrame) goes through onFrame as usual.
+    renderer.render(gb.ppu.framebuffer);
+  } else {
+    gba!.stepInstruction();
+    renderer.render(gba!.framebuffer);
+  }
 }
 
 /**
@@ -179,12 +217,23 @@ export function stepFrameBack(): void {
 }
 
 export async function takeScreenshot(): Promise<void> {
-  const base = Screenshot.sanitize(state.gb?.cart.title || "gameboy");
+  const base = Screenshot.sanitize(cartTitleForFilename());
   const iso = new Date().toISOString().replace(/[:.]/g, "-");
   overlayFlash?.classList.add("active");
   setTimeout(() => overlayFlash?.classList.remove("active"), 120);
-  await Screenshot.captureTo(canvas, `${base}-${iso}.png`);
-  toast("Screenshot saved");
+  const result = await Screenshot.captureTo(canvas, `${base}-${iso}.png`);
+  switch (result) {
+    case "saved":
+    case "shared":
+      toast("Screenshot saved");
+      return;
+    case "cancelled":
+      toast("Screenshot cancelled");
+      return;
+    case "failed":
+      toast("Screenshot failed — see console for details");
+      return;
+  }
 }
 
 /** Single session-wide recorder — starting while active is a stop, so the
@@ -192,14 +241,14 @@ export async function takeScreenshot(): Promise<void> {
 const recorder = new Recorder();
 
 export function toggleRecording(): void {
-  if (!state.gb) return;
+  if (!state.gb && !state.gba) return;
   if (recorder.active) {
     recorder.stop();
     recBadge?.classList.remove("rec-badge--on");
     toast("Recording saved");
     return;
   }
-  const base = Screenshot.sanitize(state.gb.cart.title || "gameboy");
+  const base = Screenshot.sanitize(cartTitleForFilename());
   const iso = new Date().toISOString().replace(/[:.]/g, "-");
   const audioStream = audio.createRecordingTap();
   const ok = recorder.start(canvas, audioStream, `${base}-${iso}`);

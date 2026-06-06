@@ -3,9 +3,13 @@ import { state } from "../state.js";
 import { drainBreakpointHit } from "./actions.js";
 
 /**
- * requestAnimationFrame-driven pacer for the engine. Sits in the UI layer
- * (not the engine) so `src/gb/` stays host-agnostic — the engine
- * exposes only `runFrame()` and the scheduler decides when to call it.
+ * requestAnimationFrame-driven pacer for the Game Boy / Game Boy Color
+ * engine. The Game Boy Advance engine has its own pacer at
+ * `./runtime-gba.ts` (with sub-frame chunked execution + SIO
+ * activity-gated yields for the link-cable path). Both sit in the UI
+ * layer (not the engine) so `src/gb/` and `src/gba/` stay host-
+ * agnostic — the engines expose only `runFrame()` and the schedulers
+ * decide when to call them.
  *
  * The pacer targets wall-clock time rather than the display's rAF rate,
  * so a 120 Hz / 144 Hz monitor doesn't make the emulator run too fast.

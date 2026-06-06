@@ -19,7 +19,7 @@
  * this would become a per-GameBoy instance.
  */
 
-export type BreakpointKind = "pc" | "read" | "write";
+type BreakpointKind = "pc" | "read" | "write";
 
 export interface BreakpointHit {
   kind: BreakpointKind;

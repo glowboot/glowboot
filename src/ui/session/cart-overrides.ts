@@ -1,6 +1,7 @@
 import { AUDIO_MODES, type AudioMode } from "../audio/output.js";
 import type { CartOverrides } from "../persistence/cart-overrides.js";
 import { KEYS, lsGet } from "../persistence/local-storage.js";
+import { loadIntegerScalePref } from "../settings";
 import { audio, renderer, state, swapRenderer } from "../state.js";
 import * as Palettes from "./palettes.js";
 
@@ -17,30 +18,40 @@ function clampPixelResponse(v: number): number {
  * global localStorage defaults — calling `applyCartOverrides({})`
  * effectively resets every override to the global value.
  *
- * This runs after the global prefs have already been re-applied in
+ * Engine awareness: palette + CGB colour-correction target the GB PPU
+ * directly and are no-ops on GBA. Renderer pins (render mode, integer
+ * scale, pixel response) and audio mode apply to both engines through
+ * the shared renderer / audio-output abstractions.
+ *
+ * Runs after the global prefs have already been re-applied in
  * `rom-loader.ts`, so we can overwrite freely.
  */
 export function applyCartOverrides(overrides: CartOverrides): void {
   const gb = state.gb;
-  if (!gb) return;
+  const gba = state.gba;
+  if (!gb && !gba) return;
 
-  // ── Palette (DMG only) ─────────────────────────────────────────────
-  // CGB carts drive their own palette RAM, so per-cart palette pinning
-  // only makes sense for DMG games. Skip silently on CGB.
-  if (!gb.cart.cgb) {
+  if (gb && !gb.cart.cgb) {
+    // ── Palette (DMG only) ───────────────────────────────────────────
+    // CGB carts drive their own palette RAM, so per-cart palette pinning
+    // only makes sense for DMG games. Skip silently on CGB and GBA.
     const paletteId = overrides.palette ?? Palettes.loadPaletteId();
     const p = Palettes.findPalette(paletteId) ?? Palettes.findPalette(Palettes.DEFAULT_PALETTE_ID);
     if (p) gb.ppu.setDmgCompatPalette(p.bg, p.obp0, p.obp1);
   }
 
-  // ── CGB colour correction ──────────────────────────────────────────
-  const cc = overrides.colorCorrection ?? lsGet(KEYS.COLOR_CORRECTION) !== "0";
-  gb.ppu.colorCorrection = cc;
+  if (gb) {
+    // ── CGB colour correction ────────────────────────────────────────
+    const cc = overrides.colorCorrection ?? lsGet(KEYS.COLOR_CORRECTION) !== "0";
+    gb.ppu.colorCorrection = cc;
+  }
 
   // ── Render mode ────────────────────────────────────────────────────
   // Swap only when the mode actually differs — swapping destroys the
-  // current canvas element, so no-op swaps would flicker.
-  const wantedMode = overrides.renderMode ?? lsGet(KEYS.RENDER_MODE) ?? "webgl-mmpx";
+  // current canvas element, so no-op swaps would flicker. The renderer
+  // abstraction handles both engines; the dims come from the active
+  // engine inside `swapRenderer`.
+  const wantedMode = overrides.renderMode ?? lsGet(KEYS.RENDER_MODE) ?? "canvas";
   const currentMode = rendererModeOf(renderer);
   const didSwap = wantedMode !== currentMode;
   if (didSwap) swapRenderer(wantedMode);
@@ -50,7 +61,7 @@ export function applyCartOverrides(overrides: CartOverrides): void {
   // pins for these fields take effect even when the render mode didn't
   // change. Falls through to the global localStorage values when the
   // user hasn't pinned an override.
-  const integerOn = overrides.integerScale ?? lsGet(KEYS.INTEGER_SCALE) !== "0";
+  const integerOn = overrides.integerScale ?? loadIntegerScalePref();
   renderer.integerScale = integerOn;
   const rawResp =
     overrides.pixelResponse ??
@@ -60,18 +71,22 @@ export function applyCartOverrides(overrides: CartOverrides): void {
     })();
   renderer.setPixelResponse(clampPixelResponse(rawResp));
 
-  // ── Audio mode ─────────────────────────────────────────────────────
-  // Set on every invocation so loading a cart without an override snaps
-  // the global filter chain back into place after a previous cart had
-  // one pinned. The Set lookup defends against an old IDB record that
-  // names a mode id this build no longer ships.
+  // Repaint the current frame on a fresh renderer so the swap doesn't
+  // expose an empty canvas while the engine is paused.
+  if (didSwap) {
+    if (gb) renderer.render(gb.ppu.framebuffer);
+    else if (gba) renderer.render(gba.framebuffer);
+  }
+
+  // ── Audio mode ───────────────────────────────────────────────────────
+  // Web Audio output graph is engine-agnostic — applies to both GB and
+  // GBA. Set on every invocation so loading a cart without an override
+  // snaps the global filter chain back into place after a previous
+  // cart had one pinned. The Set lookup defends against an old IDB
+  // record that names a mode id this build no longer ships.
   const wantedAudio = overrides.audioMode ?? lsGet(KEYS.AUDIO_MODE) ?? "studio";
   const audioMode: AudioMode = VALID_AUDIO_MODES.has(wantedAudio) ? (wantedAudio as AudioMode) : "studio";
   audio.setAudioMode(audioMode);
-
-  // Repaint the current frame on a fresh renderer so the swap doesn't
-  // expose an empty canvas while the engine is paused.
-  if (didSwap && state.gb) renderer.render(state.gb.ppu.framebuffer);
 }
 
 /** Inverse of `shaderForMode` in state.ts — tells us which dropdown

@@ -1,4 +1,5 @@
 import type { GameBoy, SerialLink } from "../gb";
+import type { Gba } from "../gba";
 import { AudioOutput } from "./audio/output.js";
 import { canvas, setCanvas } from "./dom.js";
 import { GamepadInput } from "./input/gamepad.js";
@@ -54,21 +55,30 @@ function shaderForMode(mode: string | null): ShaderName | null {
   }
 }
 
-function createRenderer(c: HTMLCanvasElement): CanvasRenderer | WebGLRenderer {
-  // Fall back to MMPX when no render-mode pref is stored — matches the
-  // default surfaced by `panels.ts` so a fresh browser sees the same
-  // shader immediately on first paint (and not a one-frame flash of
-  // Canvas 2D before the setting binding has caught up).
-  const stored = lsGet(KEYS.RENDER_MODE) ?? "webgl-mmpx";
+/** Resolution of the current core's framebuffer. The renderer pipeline
+ *  needs this to size its backing texture, FBO, and TemporalBlender so
+ *  GB (160×144) and GBA (240×160) share the same shader chain instead
+ *  of forcing GBA to bypass through raw 2D. */
+export interface RenderDims {
+  width: number;
+  height: number;
+}
+
+function createRenderer(c: HTMLCanvasElement, dims?: RenderDims): CanvasRenderer | WebGLRenderer {
+  // Fall back to "Original" (Canvas 2D, no shader / upscaler / colour
+  // grade) when no render-mode pref is stored — matches the default
+  // surfaced by `panels.ts` so a fresh browser sees unprocessed pixels
+  // immediately on first paint.
+  const stored = lsGet(KEYS.RENDER_MODE) ?? "canvas";
   const shader = shaderForMode(stored);
   if (shader) {
     try {
-      return new WebGLRenderer(c, shader);
+      return new WebGLRenderer(c, shader, dims?.width, dims?.height);
     } catch (err) {
       console.warn("[Renderer] WebGL init failed — falling back to Canvas 2D:", err);
     }
   }
-  return new CanvasRenderer(c);
+  return new CanvasRenderer(c, dims?.width, dims?.height);
 }
 
 /** Hot-swap the active renderer. Because a `<canvas>` element's context
@@ -81,7 +91,7 @@ function createRenderer(c: HTMLCanvasElement): CanvasRenderer | WebGLRenderer {
  *  The caller is responsible for re-applying any render-specific prefs
  *  (integer scale, pixel response, colour grade) against the new
  *  renderer — we return it so the caller can do that directly. */
-export function swapRenderer(mode: string | null): CanvasRenderer | WebGLRenderer {
+export function swapRenderer(mode: string | null, dims?: RenderDims): CanvasRenderer | WebGLRenderer {
   const old = canvas;
   const parent = old.parentElement;
   if (!parent) return renderer;
@@ -98,22 +108,30 @@ export function swapRenderer(mode: string | null): CanvasRenderer | WebGLRendere
   // ResizeObserver edges that keep the old canvas reachable.
   renderer.dispose();
 
+  // Pick the active core's framebuffer size when the caller doesn't
+  // supply explicit dims — settings popover changes mid-game shouldn't
+  // need to thread the resolution through. Defaults to GB when no
+  // engine is up yet so the boot path still constructs a 160×144 chain.
+  const effectiveDims: RenderDims | undefined =
+    dims ?? (state.gba ? { width: 240, height: 160 } : state.gb ? { width: 160, height: 144 } : undefined);
+
   const shader = shaderForMode(mode);
   if (shader) {
     try {
-      renderer = new WebGLRenderer(fresh, shader);
+      renderer = new WebGLRenderer(fresh, shader, effectiveDims?.width, effectiveDims?.height);
     } catch (err) {
       console.warn("[Renderer] WebGL init failed — falling back to Canvas 2D:", err);
-      renderer = new CanvasRenderer(fresh);
+      renderer = new CanvasRenderer(fresh, effectiveDims?.width, effectiveDims?.height);
     }
   } else {
-    renderer = new CanvasRenderer(fresh);
+    renderer = new CanvasRenderer(fresh, effectiveDims?.width, effectiveDims?.height);
   }
 
-  // Push the last-rendered PPU frame through the new renderer so the
+  // Push the last-rendered framebuffer through the new renderer so the
   // screen doesn't blank between swap and the next engine frame
   // (notable on paused games or during a mode switch at a menu).
   if (state.gb) renderer.render(state.gb.ppu.framebuffer);
+  else if (state.gba) renderer.render(state.gba.framebuffer);
   return renderer;
 }
 export const audio = new AudioOutput();
@@ -178,10 +196,11 @@ export const RUMBLE_PRESETS: readonly RumblePreset[] = [
 
 export const DEFAULT_RUMBLE_PRESET_ID = "balanced";
 
-/** Currently-selected preset id. Panel handler writes this on dropdown
- *  change; state.ts reads it every poll through the registered
- *  envelope callback, so no re-wiring is needed on cart switch. */
-export let rumblePresetId: string = DEFAULT_RUMBLE_PRESET_ID;
+/** Currently-selected preset id. Panel handler writes this via
+ *  `setRumblePresetId` on dropdown change; `resolvePreset` reads it
+ *  every audio-envelope poll, so no re-wiring is needed on cart
+ *  switch. Module-local — external callers go through the setter. */
+let rumblePresetId: string = DEFAULT_RUMBLE_PRESET_ID;
 export function setRumblePresetId(id: string): void {
   rumblePresetId = id;
 }
@@ -203,6 +222,10 @@ gamepad.start();
 export const state = {
   /** Current Game Boy engine, or null before any ROM has been loaded. */
   gb: null as GameBoy | null,
+  /** Current GBA engine, or null when not running a `.gba` cart. At
+   *  most one of `gb` / `gba` is non-null at any time — the rom-loader
+   *  tears down the old core before constructing the new one. */
+  gba: null as Gba | null,
   paused: false,
 
   // Rewind
@@ -257,6 +280,14 @@ export const state = {
    *  we only care about the shared `SerialLink` interface here. */
   link: null as SerialLink | null,
 
+  /** Active GBA Multiplayer-mode link instance, parallel to `link`.
+   *  Separate slot because the GBA cable carries 16-bit halfwords in
+   *  a ring topology and is structurally different from the GB
+   *  byte-oriented SerialLink. Either field may be populated at any
+   *  time (whichever engine is loaded); when the cart swaps, the
+   *  unused slot is torn down. */
+  gbaLink: null as import("../gba/sio/sio-link.js").GbaSioLink | null,
+
   /** True while the emulator is paused specifically because the window
    *  lost focus. Lets `auto-pause.ts` distinguish its own pause from a
    *  user-initiated one so focus→blur cycles don't accidentally resume
@@ -270,6 +301,13 @@ export const state = {
    *  the cart clock once on whichever resume transition fires first. */
   rtcWallPauseMs: 0
 };
+
+// Console-debug handle. Exposes the shared state + audio output on a
+// single window namespace so things like `glowboot.state.gba.mem.apu.
+// diagnostics` work from DevTools without dynamic imports. The
+// underscored name keeps it out of every-day completion noise but
+// is still discoverable via `Object.keys(window)`.
+(window as unknown as { glowboot: unknown }).glowboot = { state, audio, gamepad };
 
 /** Update `state.paused` and mirror it to `body.is-paused` in one step.
  *  Centralising the mirror here means CSS-driven UI affordances (the

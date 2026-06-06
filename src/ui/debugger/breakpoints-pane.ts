@@ -19,9 +19,12 @@ import { hex4 } from "./format.js";
 import type { Pane } from "./pane.js";
 
 /**
- * Breakpoints pane — management UI for the registry in
- * `gb/debug/breakpoints.ts`. Three lists (PC / read / write) plus
- * an add-form that takes `$XXXX` or plain hex and a kind selector.
+ * Breakpoints pane for the Game Boy / Game Boy Color engine —
+ * management UI for the registry in `gb/debug/breakpoints.ts`. The
+ * Game Boy Advance equivalent lives at `./breakpoints-pane-gba.ts`
+ * and accepts 32-bit hex addresses. Three lists (PC / read / write)
+ * plus an add-form that takes `$XXXX` or plain hex and a kind
+ * selector.
  *
  * The lists are rebuilt on every `refresh` rather than diff-patched —
  * breakpoint counts are small (dozens at most) and Set iteration order
@@ -32,10 +35,21 @@ import type { Pane } from "./pane.js";
  * No inline edit of an existing entry — that's just remove + re-add.
  */
 
+interface SectionRefs {
+  list: HTMLDivElement | null;
+  remove: (addr: number) => void;
+  onChange: () => void;
+  /** Last-rendered list signature — skip the rebuild when unchanged
+   *  so a 60 Hz rAF refresh doesn't wipe the X button between user
+   *  mousedown and mouseup (browser drops the click event if its
+   *  target node disappears mid-gesture). */
+  lastSig: string;
+}
+
 interface Refs {
-  pcList: HTMLDivElement;
-  readList: HTMLDivElement;
-  writeList: HTMLDivElement;
+  pc: SectionRefs;
+  read: SectionRefs;
+  write: SectionRefs;
   addrInput: HTMLInputElement;
   kindSelect: HTMLSelectElement;
   status: HTMLSpanElement;
@@ -64,7 +78,8 @@ function parseAddr(raw: string): number | null {
 function buildSection(
   title: string,
   remove: (addr: number) => void,
-  listRef: { list: HTMLDivElement | null }
+  ref: SectionRefs,
+  onChange: () => void
 ): HTMLElement {
   const section = document.createElement("div");
   section.className = "bp-section";
@@ -73,24 +88,26 @@ function buildSection(
   h.textContent = title;
   const list = document.createElement("div");
   list.className = "bp-list";
-  listRef.list = list;
+  ref.list = list;
+  ref.remove = remove;
+  ref.onChange = onChange;
   section.append(h, list);
-  list.addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button.bp-remove");
-    if (!btn) return;
-    const addr = Number(btn.dataset.addr);
-    if (!Number.isFinite(addr)) return;
-    remove(addr);
-  });
   return section;
 }
 
-function renderList(container: HTMLDivElement, addrs: number[], emptyLabel: string): void {
+function renderList(ref: SectionRefs, addrs: number[], emptyLabel: string): void {
+  // Skip the rebuild when nothing changed — see SectionRefs.lastSig.
+  // The current ROM bank is folded into the signature so a CGB bank
+  // swap also invalidates (the symbol text may change).
+  const bank = state.gb?.cart.currentRomBank ?? 0;
+  const sig = bank + ":" + addrs.join(",");
+  if (sig === ref.lastSig) return;
+  ref.lastSig = sig;
+  const container = ref.list!;
   if (addrs.length === 0) {
     container.innerHTML = `<div class="bp-empty">${emptyLabel}</div>`;
     return;
   }
-  const bank = state.gb?.cart.currentRomBank ?? 0;
   container.innerHTML = "";
   for (const a of addrs) {
     const row = document.createElement("div");
@@ -102,10 +119,15 @@ function renderList(container: HTMLDivElement, addrs: number[], emptyLabel: stri
     const rm = document.createElement("button");
     rm.type = "button";
     rm.className = "bp-remove";
-    rm.dataset.addr = String(a);
     rm.textContent = "×";
     rm.title = "Remove";
     rm.setAttribute("aria-label", `Remove breakpoint at ${hex4(a)}`);
+    rm.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      ref.remove(a);
+      ref.onChange();
+    });
     row.append(addrSpan, rm);
     container.appendChild(row);
   }
@@ -174,18 +196,22 @@ export const breakpointsPane: Pane = {
           addWriteWatchpoint(pc);
           break;
       }
+      breakpointsPane.refresh();
     });
     form.append(addrInput, kindSelect, submit, atPcBtn);
     container.appendChild(form);
 
     // Three sections.
-    const pcRef: { list: HTMLDivElement | null } = { list: null };
-    const readRef: { list: HTMLDivElement | null } = { list: null };
-    const writeRef: { list: HTMLDivElement | null } = { list: null };
+    const pcRef: SectionRefs = { list: null, remove: removePcBreakpoint, onChange: () => {}, lastSig: "\0" };
+    const readRef: SectionRefs = { list: null, remove: removeReadWatchpoint, onChange: () => {}, lastSig: "\0" };
+    const writeRef: SectionRefs = { list: null, remove: removeWriteWatchpoint, onChange: () => {}, lastSig: "\0" };
+    const refreshNow = (): void => {
+      breakpointsPane.refresh();
+    };
     container.append(
-      buildSection("Execute (PC)", removePcBreakpoint, pcRef),
-      buildSection("Read watchpoints", removeReadWatchpoint, readRef),
-      buildSection("Write watchpoints", removeWriteWatchpoint, writeRef)
+      buildSection("Execute (PC)", removePcBreakpoint, pcRef, refreshNow),
+      buildSection("Read watchpoints", removeReadWatchpoint, readRef, refreshNow),
+      buildSection("Write watchpoints", removeWriteWatchpoint, writeRef, refreshNow)
     );
 
     // Footer with Clear all.
@@ -198,6 +224,7 @@ export const breakpointsPane: Pane = {
     clearBtn.addEventListener("click", () => {
       clearAll();
       toast("Breakpoints cleared");
+      refreshNow();
     });
     footer.appendChild(clearBtn);
     container.appendChild(footer);
@@ -222,12 +249,13 @@ export const breakpointsPane: Pane = {
       }
       addrInput.value = "";
       addrInput.focus();
+      refreshNow();
     });
 
     refs = {
-      pcList: pcRef.list!,
-      readList: readRef.list!,
-      writeList: writeRef.list!,
+      pc: pcRef,
+      read: readRef,
+      write: writeRef,
       addrInput,
       kindSelect,
       status
@@ -236,9 +264,9 @@ export const breakpointsPane: Pane = {
 
   refresh(): void {
     if (!refs) return;
-    renderList(refs.pcList, listPcBreakpoints(), "no breakpoints");
-    renderList(refs.readList, listReadWatchpoints(), "no watchpoints");
-    renderList(refs.writeList, listWriteWatchpoints(), "no watchpoints");
+    renderList(refs.pc, listPcBreakpoints(), "no breakpoints");
+    renderList(refs.read, listReadWatchpoints(), "no watchpoints");
+    renderList(refs.write, listWriteWatchpoints(), "no watchpoints");
     const hit = peekHit();
     if (hit) {
       const label = hit.kind === "pc" ? "exec" : hit.kind;
