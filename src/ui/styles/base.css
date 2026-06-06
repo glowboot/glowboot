@@ -79,6 +79,7 @@
 .slot-action:focus-visible,
 .binding-chip:focus-visible,
 .bindings-reset:focus-visible,
+.cart-info-save-btn:focus-visible,
 .settings-io-btn:focus-visible,
 .mute-btn:focus-visible,
 .cheat-delete:focus-visible,
@@ -288,6 +289,15 @@ header.top {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+/* GBA shoulder pills — hidden by default, revealed when a GBA cart is
+   loaded (body.is-gba is toggled by runtime-gba.ts). Same chip styling
+   as the GB face buttons; only the visibility gating differs. */
+.ctrl-group.ctrl-gba {
+  display: none;
+}
+body.is-gba .ctrl-group.ctrl-gba {
+  display: inline-flex;
 }
 .ctrl-sep {
   display: inline-block;
@@ -1044,19 +1054,19 @@ body.is-paused .touch-action[data-touch-action="pause"] .icon-play {
 }
 
 /* ═════════ Rotate-to-portrait overlay ═════════
-   The Game Boy was a portrait-only device and the emulator's UI
-   reflects that. On a touch device in landscape we cover the screen
-   with this overlay so the user rotates rather than fighting a
-   landscape layout that was never going to feel right. Conditions:
-     * landscape orientation
-     * coarse pointer (phones / tablets — desktops with rotated
-       monitors aren't asked to rotate)
-   No JS — all conditions are media-query expressible. */
+   Historical behaviour: when a touch device is in landscape we cover
+   the screen with this overlay so the user rotates rather than fighting
+   a landscape layout that was never going to feel right. Now opt-in via
+   Settings → Controls → Touch → Landscape layout = "Force portrait"
+   (which sets `body[data-landscape-layout="portrait"]` — the default
+   for users updating from a pre-landscape build). The flank / overlay
+   / reveal layouts hide this overlay so their CSS in `touch.css` can
+   take over the in-landscape composition. */
 .rotate-prompt {
   display: none;
 }
 @media (orientation: landscape) and (pointer: coarse) {
-  .rotate-prompt {
+  body[data-landscape-layout="portrait"] .rotate-prompt {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1080,14 +1090,6 @@ body.is-paused .touch-action[data-touch-action="pause"] .icon-play {
     font-family: "VT323", monospace;
     font-size: 26px;
     letter-spacing: 1px;
-  }
-  .rotate-prompt-sub {
-    margin: 0;
-    font-family: "JetBrains Mono", monospace;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.65);
-    max-width: 360px;
-    line-height: 1.4;
   }
   /* Game / chrome stays in the DOM but the overlay covers it; cheap,
      and reflows once the user rotates. */

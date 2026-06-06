@@ -1,6 +1,32 @@
-import type { Button, Joypad } from "../../gb";
-import { type GamepadBinding, type GamepadBindings, GB_BUTTONS, loadGamepadBindings } from "./bindings.js";
+import type { Button } from "../../gb";
+import {
+  type GamepadBinding,
+  type GamepadBindings,
+  GB_BUTTONS,
+  loadGamepadBindings,
+  loadShoulderGamepadBindings,
+  SHOULDER_BUTTONS,
+  type ShoulderButton,
+  type ShoulderGamepadBindings
+} from "./bindings.js";
 import { safeVibrate } from "./haptic.js";
+
+/** Minimum interface both engine joypads satisfy. GB and GBA both
+ *  expose `press` / `release` accepting the eight shared button
+ *  names. */
+export interface JoypadHost {
+  press(button: Button): void;
+  release(button: Button): void;
+}
+
+/** GBA shoulder host — implemented only by the GBA `Joypad` (whose
+ *  `press` already accepts `"l" | "r"`). Bound separately from the
+ *  primary `JoypadHost` so the gamepad poll knows when it should
+ *  iterate shoulder bindings at all. */
+export interface ShoulderHost {
+  press(button: ShoulderButton): void;
+  release(button: ShoulderButton): void;
+}
 
 /**
  * Web Gamepad API integration.
@@ -22,19 +48,27 @@ import { safeVibrate } from "./haptic.js";
 /** Analog-stick value beyond this magnitude counts as a press. */
 const AXIS_DEADZONE = 0.5;
 /** Half-window used to match a captured POV-hat sector value against the
- *  current axis reading. Sector spacing on a typical 8-way hat is ≈ 0.286,
- *  so 0.15 cleanly resolves a single sector without bleeding into neighbours. */
-const POV_TOLERANCE = 0.15;
+ *  current axis reading. Sector spacing on a typical 8-way hat is ≈ 0.286
+ *  (some controllers ≈ 0.25), so diagonals sit ≈ 0.125–0.143 away from
+ *  each adjacent cardinal. The window deliberately reaches PAST that gap
+ *  so a diagonal reading matches BOTH neighbouring cardinal bindings —
+ *  pressing down-left activates both `down` and `left` simultaneously,
+ *  the way an analog stick at (-0.71, +0.71) already does. Kept below
+ *  full sector spacing (≥ 0.25) so two cardinals never both fire from a
+ *  single cardinal reading. */
+const POV_TOLERANCE = 0.18;
 /** Axis baselines outside the [-1, 1] range identify POV-hat axes (which
  *  rest at e.g. 1.28). Capture stores the literal value for these. */
 const POV_REST_MIN_ABS = 1.1;
 
 export class GamepadInput {
-  private joypad: Joypad | null = null;
+  private joypad: JoypadHost | null = null;
+  private shoulderHost: ShoulderHost | null = null;
   private rafId = 0;
   private running = false;
   private loggedFirstSight = false;
   private bindings: GamepadBindings = loadGamepadBindings();
+  private shoulderBindings: ShoulderGamepadBindings = loadShoulderGamepadBindings();
 
   /** Tracks active sources so one Game Boy button can be held by multiple
    *  physical inputs without releasing prematurely. */
@@ -64,6 +98,7 @@ export class GamepadInput {
   /** Refresh from localStorage — call after the bindings UI saves. */
   refreshBindings(): void {
     this.bindings = loadGamepadBindings();
+    this.shoulderBindings = loadShoulderGamepadBindings();
     this.releaseAll();
   }
 
@@ -80,13 +115,22 @@ export class GamepadInput {
     };
   }
 
-  bind(joypad: Joypad): void {
+  bind(joypad: JoypadHost): void {
     this.joypad = joypad;
+  }
+
+  /** Bind a GBA shoulder host so the poll loop also dispatches L / R.
+   *  Cleared on `unbind`. The two hosts are typically the same
+   *  underlying GBA `Joypad`, but the split lets the GB path bind
+   *  without surfacing shoulder methods that wouldn't be used. */
+  bindShoulders(host: ShoulderHost): void {
+    this.shoulderHost = host;
   }
 
   unbind(): void {
     this.releaseAll();
     this.joypad = null;
+    this.shoulderHost = null;
     // Cut any ongoing rumble — switching ROMs or pausing shouldn't
     // leave the motor spinning because the outgoing cart was in the
     // middle of a rumble pulse. `setRumble` only flips the flag, so
@@ -318,6 +362,8 @@ export class GamepadInput {
       }
       const joypad = this.joypad;
       if (joypad) this.applyBindings(joypad, pad);
+      const shoulders = this.shoulderHost;
+      if (shoulders) this.applyShoulderBindings(shoulders, pad);
     }
     // Apply the pending rumble state at most once per rAF tick,
     // regardless of how many times the cart toggled the motor bit
@@ -326,13 +372,21 @@ export class GamepadInput {
     this.applyRumble(pads as (Gamepad | null)[]);
   }
 
-  private applyBindings(joypad: Joypad, pad: Gamepad): void {
+  private applyBindings(joypad: JoypadHost, pad: Gamepad): void {
     for (const gb of GB_BUTTONS) {
       const b = this.bindings[gb];
       // Cleared bindings (null) never fire — the user can leave a
       // face button unmapped and re-add it later via the editor.
       const active = b !== null && isBindingActive(pad, b);
       this.apply(joypad, `${pad.index}:${gb}`, gb, active);
+    }
+  }
+
+  private applyShoulderBindings(host: ShoulderHost, pad: Gamepad): void {
+    for (const s of SHOULDER_BUTTONS) {
+      const b = this.shoulderBindings[s];
+      const active = b !== null && isBindingActive(pad, b);
+      this.applyShoulder(host, `${pad.index}:s${s}`, s, active);
     }
   }
 
@@ -375,13 +429,24 @@ export class GamepadInput {
     }
   }
 
-  private apply(joypad: Joypad, src: string, button: Button, active: boolean): void {
+  private apply(joypad: JoypadHost, src: string, button: Button, active: boolean): void {
     const wasPressed = this.pressed.has(src);
     if (active && !wasPressed) {
       joypad.press(button);
       this.pressed.add(src);
     } else if (!active && wasPressed) {
       joypad.release(button);
+      this.pressed.delete(src);
+    }
+  }
+
+  private applyShoulder(host: ShoulderHost, src: string, button: ShoulderButton, active: boolean): void {
+    const wasPressed = this.pressed.has(src);
+    if (active && !wasPressed) {
+      host.press(button);
+      this.pressed.add(src);
+    } else if (!active && wasPressed) {
+      host.release(button);
       this.pressed.delete(src);
     }
   }
@@ -397,6 +462,11 @@ export class GamepadInput {
       joypad.release("down");
       joypad.release("left");
       joypad.release("right");
+    }
+    const shoulders = this.shoulderHost;
+    if (shoulders && this.pressed.size > 0) {
+      shoulders.release("l");
+      shoulders.release("r");
     }
     this.pressed.clear();
   }

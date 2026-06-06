@@ -1,0 +1,43 @@
+// No-DOM typecheck for the GBA engine. Mirrors `src/gb/tsconfig.json`
+// — restricts `src/gba/` to non-browser JS so any attempted use of
+// `document`, `window`, `fetch`, `localStorage`, etc. fails type-
+// checking. The pure-engine contract (no DOM / network / storage
+// deps) is enforced at the type level instead of relying on
+// convention.
+//
+// Lives next to the engine code so VS Code / TS Server auto-picks it
+// for files under `src/gba/` and the no-DOM lib applies inside the
+// editor too, not just under `npm run typecheck`.
+//
+// Standalone — does not extend the root tsconfig.json. See the
+// matching note in `src/gb/tsconfig.json` for the rationale; in
+// short, the engine is host-agnostic and shouldn't pick up browser-
+// shell settings by inheritance.
+//
+// Used by `npm run typecheck`, which invokes
+// `tsc -p src/gba/tsconfig.json --noEmit` as the third pass alongside
+// the regular UI typecheck and the DMG/CGB engine typecheck.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": [],
+    "strict": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true
+  },
+  // `globals.d.ts` is intentionally included here (unlike the root
+  // tsconfig which excludes it to avoid colliding with lib.dom.d.ts).
+  // The engine typecheck runs without DOM types, so the shim's
+  // minimal `console` / `crypto` declarations are exactly what we
+  // want.
+  "include": ["**/*.ts"],
+  "exclude": ["**/*.test.ts"]
+}

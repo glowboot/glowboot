@@ -2,7 +2,10 @@ import { state } from "../state.js";
 import type { Pane } from "./pane.js";
 
 /**
- * Audio pane — live oscilloscope + envelope bar per APU channel.
+ * Audio pane for the Game Boy / Game Boy Color APU — live oscilloscope
+ * + envelope bar per channel. The Game Boy Advance equivalent
+ * (`./audio-pane-gba.ts`) has the same shape but adds two Direct
+ * Sound FIFO rows.
  *
  * The APU fills a 4096-sample ring buffer per channel (one byte each,
  * values 0..15 = raw pre-mix amplitude). The pane reads the last

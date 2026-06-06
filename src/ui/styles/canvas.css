@@ -33,6 +33,13 @@
      tap on the canvas placeholder or rec badge. */
   touch-action: manipulation;
 }
+/* GBA carts render at 240×160 (3:2). The body gets `is-gba` while a
+   GBA session is running so the wrap + canvas both swap aspect ratio
+   in lockstep — without this the GBA framebuffer gets letterboxed
+   inside a 10:9 (Game Boy) container and looks horizontally squashed. */
+body.is-gba .canvas-wrap {
+  aspect-ratio: 3 / 2;
+}
 /* Drop-target highlight: dashed accent outline around the game area
    while a file is being dragged over the window. rom-loader.ts sets
    `body.is-drop-target` on dragenter/dragleave so every part of the
@@ -147,6 +154,9 @@ body[data-theme="forest-canopy"] {
   max-height: 100%;
   outline: 2px solid rgba(0, 0, 0, 0.5);
   border: 4px solid rgba(255, 255, 255, 0.85);
+}
+body.is-gba #screen {
+  aspect-ratio: 3 / 2;
 }
 /* Fullscreen target changed from #screen to .console so the on-screen
    touch overlay stays reachable — see touch.css for the .console:fullscreen

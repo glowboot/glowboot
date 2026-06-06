@@ -6,6 +6,7 @@ import {
   HOTKEY_ACTIONS,
   loadHotkeyBindings,
   loadKeyBindings,
+  loadShoulderKeyBindings,
   loadTiltBindings
 } from "../input/bindings.js";
 
@@ -88,11 +89,24 @@ function render(): void {
     ])
   );
 
-  // Tilt — only meaningful for MBC7 carts (Kirby Tilt 'n' Tumble,
-  // Command Master) but listed unconditionally because the cheat sheet
-  // is keyboard-bindings reference, not a per-cart capabilities sheet.
-  // Combined cell mirrors the D-Pad treatment, in forward/back/left/
-  // right order so the row reads like a familiar four-way pad.
+  // GBA shoulders — only meaningful on the GBA engine, but listed
+  // unconditionally because the cheat sheet is a keyboard-bindings
+  // reference, not a per-cart sheet. Sits above Tilt to mirror the
+  // Settings → Controls → Keyboard ordering: L/R applies to most
+  // GBA carts; tilt is a small niche.
+  const shoulders = loadShoulderKeyBindings();
+  panel.appendChild(
+    section("GBA shoulders", [
+      ["L", describeKey(shoulders.l)],
+      ["R", describeKey(shoulders.r)]
+    ])
+  );
+
+  // Tilt — only meaningful for a handful of carts (MBC7 GB titles +
+  // GBA tilt carts), but listed unconditionally for the same reason
+  // GBA shoulders are. Combined cell mirrors the D-Pad treatment, in
+  // forward/back/left/right order so the row reads like a familiar
+  // four-way pad.
   const tiltCell =
     describeKey(tilt.tiltForward) +
     " " +

@@ -4,7 +4,7 @@
  * The engine is host-agnostic: zero dependencies, no DOM access, no
  * timers, no I/O. The browser shell under `src/ui/` consumes it through
  * this barrel; everything reachable from here is also covered by the
- * DOM-free typecheck (`tsconfig.gb.json`), which guarantees the engine
+ * DOM-free typecheck (`src/gb/tsconfig.json`), which guarantees the engine
  * stays embeddable in any environment that can run TypeScript / ESM.
  *
  * Minimal embedding sketch:
@@ -76,4 +76,4 @@ export {
 } from "./debug/symbols.js";
 
 // State serialization
-export { StateReader, StateWriter, STATE_VERSION } from "./serialization/serialization.js";
+export { StateReader, StateWriter, STATE_VERSION, UnsupportedSaveStateError } from "./serialization/serialization.js";

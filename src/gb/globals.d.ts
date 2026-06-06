@@ -5,7 +5,7 @@
  * emulator to a particular host.
  *
  * Adding more globals here should be a deliberate decision — the
- * whole point of the restricted `tsconfig.gb.json` is that
+ * whole point of the restricted `src/gb/tsconfig.json` is that
  * platform-specific APIs (document, localStorage, fetch, setTimeout,
  * requestAnimationFrame, …) fail type-checking so they can't sneak
  * into the engine by accident.

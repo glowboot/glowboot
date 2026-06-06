@@ -17,7 +17,7 @@ import tseslint from "typescript-eslint";
  */
 export default tseslint.config(
   {
-    ignores: ["dist/**", "dist-dev/**", "node_modules/**", "public/**"]
+    ignores: ["dist/**", "dist-dev/**", "node_modules/**", "public/**", "archive/**"]
   },
   ...tseslint.configs.recommended,
   {

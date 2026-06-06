@@ -16,8 +16,8 @@
     "sourceMap": true
   },
   "include": ["src"],
-  // globals.d.ts is the engine's ambient-globals shim for the DOM-less
-  // tsconfig; the root config already has DOM so picking it up here
-  // would collide with lib.dom.d.ts.
-  "exclude": ["src/gb/globals.d.ts"]
+  // globals.d.ts files are the engines' ambient-globals shims for the
+  // DOM-less tsconfigs; the root config already has DOM so picking
+  // them up here would collide with lib.dom.d.ts.
+  "exclude": ["src/gb/globals.d.ts", "src/gba/globals.d.ts"]
 }

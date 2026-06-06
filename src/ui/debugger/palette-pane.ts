@@ -2,7 +2,10 @@ import { state } from "../state.js";
 import type { Pane } from "./pane.js";
 
 /**
- * Palette pane — visualises the currently-loaded palettes.
+ * Palette pane for the Game Boy / Game Boy Color engine —
+ * visualises the currently-loaded palettes. The Game Boy Advance
+ * equivalent (`./palette-pane-gba.ts`) renders the two 256-entry
+ * BG + OBJ banks as 16×16 grids.
  *
  * CGB: 8 BG palettes + 8 OBJ palettes, each 4 colours, rendered as
  * 4-swatch rows next to the palette index. Raw RGB555 appears in the

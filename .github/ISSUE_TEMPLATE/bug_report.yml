@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for taking the time to report a bug! A clear, reproducible report saves a lot of back-and-forth.
 
-        **Please don't share copyrighted ROMs.** Game name + region + revision is enough — no .gb / .gbc files in attachments.
+        **Please don't share copyrighted ROMs.** Game name + region + revision is enough — no .gb / .gbc / .gba files in attachments.
 
   - type: textarea
     id: summary
@@ -46,7 +46,7 @@ body:
         40-character hex hash of the ROM file. This identifies the exact dump, since the same game can have multiple incompatible revisions floating around.
 
         How to get it:
-          - **macOS / Linux**: `shasum -a 1 path/to/rom.gb`
+          - **macOS / Linux**: `shasum -a 1 path/to/rom.gb` (or `.gbc` / `.gba`)
           - **Windows**: `certutil -hashfile path\to\rom.gb SHA1`
 
         Paste only the hash, not the filename.
@@ -61,6 +61,7 @@ body:
       options:
         - DMG (original Game Boy)
         - CGB (Game Boy Color)
+        - GBA (Game Boy Advance)
         - Not sure
     validations:
       required: false

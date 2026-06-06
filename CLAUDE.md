@@ -1,6 +1,6 @@
 # Glowboot — Claude instructions
 
-A TypeScript Game Boy / Game Boy Color emulator that runs in the browser. End-user docs live in `README.md`; this file is for AI agents working on the codebase.
+A TypeScript Game Boy / Game Boy Color / Game Boy Advance emulator that runs in the browser. End-user docs live in `README.md`; this file is for AI agents working on the codebase.
 
 ## Stack
 
@@ -10,19 +10,31 @@ A TypeScript Game Boy / Game Boy Color emulator that runs in the browser. End-us
 ## Repo layout
 
 ```
-src/gb/   Hardware emulator: cpu, ppu, apu, mmu, joypad, cartridge, serialization.
-                Pure TypeScript, no DOM. Save states + headless tests rely on this.
-src/ui/         Browser shell: rom-loader, settings/, popovers/, input/, hud/,
-                persistence/, session/. Bridges the emulator to the browser.
-pages/          Vite root — `pages/index.html` is the emulator. Public assets
-                in `pages/public/`. Deployed to glowboot.pages.dev.
+src/gb/         GB / CGB hardware engine: cpu, ppu, apu, mmu, joypad,
+                cartridge, serialization. Pure TypeScript, no DOM. Save
+                states + headless tests rely on this.
+src/gba/        GBA hardware engine: cpu (arm/thumb), ppu, apu, memory
+                (bus/dma), cartridge, cheats, sio, timer, serialization.
+                Parallel to src/gb/, own tsconfig (src/gba/tsconfig.json)
+                forbids DOM imports. Own state-version lineage.
+src/ui/         Browser shell: rom-loader, settings/, popovers/, input/,
+                hud/, persistence/, session/, debugger/, renderer/.
+                Bridges either engine to the browser.
+src/main.ts     UI entry point.
+pages/          Vite root — `pages/index.html` is the emulator. Public
+                assets in `pages/public/`. Deployed to glowboot.pages.dev.
+tests/          Headless ROM-runner scripts — `npm run test:roms` and
+                `npm run test:gba-roms`. Has its own tsconfig —
+                `tests/tsconfig.json` widens rootDir to the repo root
+                so the runners can import from src/. Auto-fetched ROM
+                caches live under `tests/gba-roms/` (gitignored).
 ```
 
 ## CI gates (run in this order before reporting any task complete)
 
 ```sh
-npm run typecheck      # tsc — runs BOTH passes (main config + tsconfig.gb.json for the headless engine)
-npm test               # vitest — ~310 tests, fast
+npm run typecheck      # tsc — runs FOUR passes (main config + src/gb/tsconfig.json + src/gba/tsconfig.json for the headless engines + tests/tsconfig.json for ROM-runner scripts under tests/)
+npm test               # vitest — ~1250 tests, fast
 npm run lint           # eslint
 npm run format:check   # prettier
 npm run build          # full Vite build
@@ -49,8 +61,9 @@ If `format:check` warns, run `npm run format` (or `npx prettier --write <files>`
 
 - **Port from a reference, don't derive empirically.** For mapper / PPU / APU / serial protocol work, read Pan Docs, the gbdev wiki, and the source of established open-source Game Boy emulators _before_ writing code. Empirical guessing from runtime traces wastes hours.
 - **Verify against test ROM suites when you touch hardware.** `npm run test:roms` (no arg prints the suite menu). Not a CI gate — running everything is slow — but invaluable for catching regressions. Rough mapping: PPU work → `mealybug-tearoom-tests` + `dmg-acid2` / `cgb-acid2`; CPU / interrupts / timer → `blargg/cpu_instrs/individual`, `mooneye-test-suite`, `same-suite`; APU → `blargg/cgb_sound`, `same-suite`; MBCs → `mooneye-test-suite` mbc folders. Run only the relevant suite — `npm run test:roms mealybug` etc.
+- **GBA test ROMs**: `npm run test:gba-roms` runs a **self-scoring** accuracy gate — 40 tests across 4 suites (jsmolka, fuzzarm, mgba-suite, nba-hw-test). Each test is graded on numbers the ROM reports about itself; the run is diffed against the committed local baseline `tests/run-gba-roms-baseline.json` (no external reference hashes). Three signature kinds: **count** (IWRAM pass/total tally for the 12 mgba-suite counter categories + 10 nba-hw-test framework tests), **r12pass/r12fail** (jsmolka CPU pass/fail), **hash** (golden BGR555 framebuffer for the visual-only tests: fuzzarm, mgba video/sio-timing, jsmolka ppu). Verdicts: **pass / improve / regress / fail (known-bad) / changed / new**. The run **exits non-zero on regress / changed / crash / unimpl** (so it's a real gate), and prints a headline "counter sub-tests passing: N/M" rollup. After a verified accuracy change, re-record with `npm run test:gba-roms -- --bless`. Counter tests run past framebuffer-stability until their tally settles (the count is final, not an intermediate capture). Auto-fetches ROMs (SHA256-verified, pinned commits) on first run; `tests/gba-roms/` cache is gitignored. The runner honours a real Nintendo BIOS at `tests/gba-roms/gba_bios.bin` if present — counter values are BIOS-sensitive and the committed baseline assumes it; `--no-bios` forces HLE. Filter with `npm run test:gba-roms <substring>` (matches test id, suite, or ROM path).
 - **Validate the host-input → cart pipeline end-to-end before writing the protocol.** Prove a forced-constant input produces the expected in-game effect (e.g. a fixed tilt value rolls Kirby's ball east in Kirby Tilt 'n' Tumble) before iterating on input wiring.
-- **Save states**: whenever any subsystem's `serialize`/`deserialize` layout changes, bump `STATE_VERSION` in `src/gb/serialization/serialization.ts` AND add an `upgradeState` migrator that chains v(N) → v(N+1). The emulator is shared across users, so existing save files in the wild must keep loading.
+- **Save states**: whenever any subsystem's `serialize`/`deserialize` layout changes, bump the engine's state version AND add a v(N) → v(N+1) migrator. GB uses `STATE_VERSION` + `upgradeState` in `src/gb/serialization/serialization.ts`; GBA uses `GBA_STATE_VERSION` + `upgradeGbaState` in `src/gba/serialization/serialization.ts`. The two lineages are independent — bumping one must never touch the other. The emulator is shared across users, so existing save files in the wild must keep loading.
 
 ## Common gotchas
 

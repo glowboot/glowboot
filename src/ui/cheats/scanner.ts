@@ -4,9 +4,13 @@ import * as Cheats from "../persistence/cheats.js";
 import { state } from "../state.js";
 
 /**
- * Game Shark-style memory scanner. Lets the user narrow down the
- * address of a game value (health, lives, coins, boss HP, timers) by
- * repeatedly filtering a snapshot of RAM.
+ * Game Shark-style memory scanner for the Game Boy / Game Boy Color
+ * engine. The GBA engine has its own scanner with a width selector
+ * and a wider address space — see `./scanner-gba.ts`.
+ *
+ * Lets the user narrow down the address of a game value (health,
+ * lives, coins, boss HP, timers) by repeatedly filtering a snapshot
+ * of RAM.
  *
  * Two ways to start:
  *   - "Scan = N" — you can see the value in-game; the scanner keeps

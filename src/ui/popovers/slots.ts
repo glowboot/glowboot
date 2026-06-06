@@ -13,16 +13,30 @@ import { createPopover } from "./helper.js";
  * the card body loads the slot. `doSaveState` and `doLoadState` are
  * exported so the keyboard shortcuts (digit / Shift+digit) can trigger
  * the same actions.
+ *
+ * Engine routing: the popover serves whichever core is running —
+ * `state.gb` if a Game Boy cart is loaded, otherwise `state.gba`.
+ * Cross-engine collisions are impossible because the GB and GBA
+ * cart-id namespaces are disjoint (GBA ids begin with `gba:`).
  */
 
+/** Active engine for slot operations. Returns the GB engine when one
+ *  is loaded; the GBA engine when a GBA cart is loaded; null if no
+ *  cart is loaded. The two engines are mutually exclusive at any
+ *  point in time (rom-loader tears one down before constructing the
+ *  other). */
+function activeEngine(): SaveState.SaveStateEngine | null {
+  return state.gb ?? state.gba ?? null;
+}
+
 export async function doSaveState(slot = 0): Promise<void> {
-  const gb = state.gb;
-  if (!gb) return;
+  const engine = activeEngine();
+  if (!engine) return;
   // Guard against accidentally clobbering a user-labelled save. The
   // label is the user's signal that the contents mean something (e.g.
   // "Before Ganon") — overwriting an anonymous "#3" slot stays
   // silent to keep rapid-fire saves unobtrusive.
-  const existing = (await SaveState.listSlots(gb.cart)).find((s) => s.slot === slot);
+  const existing = (await SaveState.listSlots(engine)).find((s) => s.slot === slot);
   if (existing?.label) {
     const ok = await confirmAction({
       title: `Overwrite "${existing.label}"?`,
@@ -41,7 +55,7 @@ export async function doSaveState(slot = 0): Promise<void> {
   } catch {
     /* skip thumb */
   }
-  const ok = await SaveState.saveStateTo(gb, slot, thumb);
+  const ok = await SaveState.saveStateTo(engine, slot, thumb);
   if (ok) state.lastStateAt = performance.now();
   toast(ok ? `Saved slot ${slot}` : `Save ${slot} failed`);
   if (slotsPop?.classList.contains("open")) void renderSlots();
@@ -52,9 +66,9 @@ export async function doSaveState(slot = 0): Promise<void> {
 const LOAD_WARN_MS = 2 * 60 * 1000;
 
 export async function doLoadState(slot = 0): Promise<void> {
-  const gb = state.gb;
-  if (!gb) return;
-  if (!(await SaveState.hasState(gb.cart, slot))) {
+  const engine = activeEngine();
+  if (!engine) return;
+  if (!(await SaveState.hasState(engine, slot))) {
     toast(`Slot ${slot} empty`);
     return;
   }
@@ -74,7 +88,7 @@ export async function doLoadState(slot = 0): Promise<void> {
     });
     if (!ok) return;
   }
-  const ok = await SaveState.loadStateFrom(gb, slot);
+  const ok = await SaveState.loadStateFrom(engine, slot);
   if (ok) state.lastStateAt = performance.now();
   toast(ok ? `Loaded slot ${slot}` : `Load ${slot} failed`);
 }
@@ -125,18 +139,19 @@ document.addEventListener("keydown", (e) => {
 async function renderSlots(): Promise<void> {
   if (!slotsPop) return;
   slotsPop.innerHTML = "";
-  const gb = state.gb;
-  if (!gb) {
+  const engine = activeEngine();
+  if (!engine) {
     const msg = document.createElement("div");
     msg.className = "pop-empty";
     msg.textContent = "Load a ROM to see save slots";
     slotsPop.appendChild(msg);
     return;
   }
-
   // Toolbar — single "Import state…" button. Opens a file picker for
   // `.gbstate` files. The import module validates the cartId matches
   // the currently-loaded cart; mismatches show a toast and abort.
+  // Engine-polymorphic: GB and GBA share the envelope format and
+  // distinct cart-id namespaces, so import works the same for both.
   const toolbar = document.createElement("div");
   toolbar.className = "slots-toolbar";
   const importBtn = document.createElement("button");
@@ -145,7 +160,7 @@ async function renderSlots(): Promise<void> {
   importBtn.textContent = "Import state…";
   const importInput = document.createElement("input");
   importInput.type = "file";
-  importInput.accept = ".gbstate,application/json";
+  importInput.accept = ".gbstate,.gbastate,application/json";
   importInput.hidden = true;
   importBtn.addEventListener("click", () => importInput.click());
   importInput.addEventListener("change", async () => {
@@ -159,7 +174,7 @@ async function renderSlots(): Promise<void> {
       errorToast("Could not read file");
       return;
     }
-    const result = await importStateFile(gb.cart, text);
+    const result = await importStateFile(engine, text);
     if (!result.ok) {
       toast(result.reason ?? "Import failed");
       return;
@@ -174,7 +189,7 @@ async function renderSlots(): Promise<void> {
   const grid = document.createElement("div");
   grid.className = "slots-grid";
   const populated = new Map<number, SaveState.SlotInfo>();
-  for (const s of await SaveState.listSlots(gb.cart)) populated.set(s.slot, s);
+  for (const s of await SaveState.listSlots(engine)) populated.set(s.slot, s);
 
   for (let slot = 0; slot < SaveState.SLOT_COUNT; slot++) {
     const info = populated.get(slot);
@@ -261,7 +276,7 @@ async function renderSlots(): Promise<void> {
           confirmLabel: "Save"
         });
         if (next === null) return; // user cancelled
-        await SaveState.setSlotLabel(gb.cart, slot, next);
+        await SaveState.setSlotLabel(engine, slot, next);
         void renderSlots();
       });
       menu.appendChild(renameItem);
@@ -273,7 +288,7 @@ async function renderSlots(): Promise<void> {
       exportItem.addEventListener("click", async (e) => {
         e.stopPropagation();
         closeAllSlotOverflows();
-        const ok = await downloadSlot(gb.cart, slot);
+        const ok = await downloadSlot(engine, slot);
         toast(ok ? `Exported slot ${slot}` : `Export ${slot} failed`);
       });
       menu.appendChild(exportItem);
@@ -294,7 +309,7 @@ async function renderSlots(): Promise<void> {
           danger: true
         });
         if (!ok) return;
-        await SaveState.clearSlot(gb.cart, slot);
+        await SaveState.clearSlot(engine, slot);
         toast(`Cleared slot ${slot}`);
         void renderSlots();
       });

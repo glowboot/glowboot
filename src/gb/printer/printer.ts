@@ -17,7 +17,7 @@
  *   ▲ magic    ▲ 4-byte header        ▲ payload  ▲ ck  ▲ ack ▲ status
  */
 
-export const PRINTER_WIDTH_PX = 160;
+const PRINTER_WIDTH_PX = 160;
 
 /** One DATA band = 0x280 bytes = 640. 8 rows × 160 px × 2 bpp / 8. The
  *  printer asserts READY on its STATUS byte when the buffer has
