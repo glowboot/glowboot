@@ -3271,3 +3271,107 @@ body.is-touch .cheat-delete {
     max-width: none;
   }
 }
+
+/* ── Screenshot preview + AI-enhance modal ─────────────────────────────── */
+.ss-panel {
+  width: min(94vw, 560px);
+  gap: 10px;
+}
+.ss-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ss-close {
+  all: unset;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+}
+.ss-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.ss-stage {
+  position: relative;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  /* aspect-ratio set inline from the frame dims */
+}
+.ss-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.ss-img-native {
+  image-rendering: pixelated;
+}
+.ss-img-enhanced {
+  image-rendering: auto;
+  /* Reveal the enhanced frame from the split line to the right edge. */
+  clip-path: inset(0 0 0 var(--split, 50%));
+}
+.ss-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--split, 50%);
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+.ss-tag {
+  position: absolute;
+  bottom: 6px;
+  padding: 1px 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.ss-tag-before {
+  left: 6px;
+}
+.ss-tag-after {
+  right: 6px;
+}
+.ss-slider {
+  width: 100%;
+  margin: 2px 0 0;
+  accent-color: var(--gold, #e7b53c);
+  cursor: ew-resize;
+}
+.ss-dims {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+}
+.ss-note {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
+}
+.ss-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.ss-actions .modal-btn {
+  flex: 0 1 auto;
+}

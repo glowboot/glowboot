@@ -9,6 +9,7 @@ import { flushPlayTime, startPlayTimer } from "./play-time.js";
 import { Recorder } from "./recording.js";
 import { pauseGbaSession, resumeGbaSession } from "./runtime-gba.js";
 import * as Screenshot from "./screenshot.js";
+import { isScreenshotPreviewOpen, openScreenshotPreview } from "./screenshot-preview.js";
 
 /** Cart title for the currently-loaded ROM, suitable for embedding
  *  in a screenshot / recording filename. Prefers the GB cart's
@@ -216,24 +217,38 @@ export function stepFrameBack(): void {
   renderer.render(popped.meta.framebuffer as Uint8ClampedArray<ArrayBuffer>);
 }
 
-export async function takeScreenshot(): Promise<void> {
-  const base = Screenshot.sanitize(cartTitleForFilename());
-  const iso = new Date().toISOString().replace(/[:.]/g, "-");
+export function takeScreenshot(): void {
+  // Ignore a repeat trigger while the preview is up — the game is paused
+  // under it and re-entering would tangle the pause/resume bookkeeping.
+  if (isScreenshotPreviewOpen()) return;
+  // Capture the NATIVE PPU framebuffer (not the shader-displayed canvas):
+  // a pixel-exact source for the preview, and the un-double-processed
+  // input the AI-enhance path needs. GB is 160×144, GBA 240×160.
+  const fb = state.gb ? state.gb.ppu.framebuffer : state.gba ? state.gba.framebuffer : null;
+  if (!fb) return;
+  const width = state.gb ? 160 : 240;
+  const height = state.gb ? 144 : 160;
   overlayFlash?.classList.add("active");
   setTimeout(() => overlayFlash?.classList.remove("active"), 120);
-  const result = await Screenshot.captureTo(canvas, `${base}-${iso}.png`);
-  switch (result) {
-    case "saved":
-    case "shared":
-      toast("Screenshot saved");
-      return;
-    case "cancelled":
-      toast("Screenshot cancelled");
-      return;
-    case "failed":
-      toast("Screenshot failed — see console for details");
-      return;
-  }
+  const base = Screenshot.sanitize(cartTitleForFilename());
+  const iso = new Date().toISOString().replace(/[:.]/g, "-");
+
+  // Pause while the modal is up so the game can't advance (and the
+  // player can't die) behind the blocking overlay. Only auto-resume if
+  // WE paused — a pre-existing manual pause must survive the modal.
+  const pausedForModal = !state.paused;
+  if (pausedForModal) void togglePause();
+
+  // Copy the buffer — the engine reuses it for the next frame.
+  openScreenshotPreview(
+    new Uint8ClampedArray(fb.subarray(0, width * height * 4)),
+    width,
+    height,
+    `${base}-${iso}`,
+    () => {
+      if (pausedForModal && state.paused) void togglePause();
+    }
+  );
 }
 
 /** Single session-wide recorder — starting while active is a stop, so the
