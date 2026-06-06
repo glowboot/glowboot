@@ -1,0 +1,173 @@
+{
+  "fuzzarm-arm": {
+    "kind": "hash",
+    "hash": "f4c0fe5cebba30e254f1d86abc3329915b47305cf9a5a80cb10e9d42d6ab8194"
+  },
+  "fuzzarm-mixed": {
+    "kind": "hash",
+    "hash": "f4c0fe5cebba30e254f1d86abc3329915b47305cf9a5a80cb10e9d42d6ab8194"
+  },
+  "fuzzarm-thumb": {
+    "kind": "hash",
+    "hash": "f4c0fe5cebba30e254f1d86abc3329915b47305cf9a5a80cb10e9d42d6ab8194"
+  },
+  "jsmolka-arm": {
+    "kind": "r12pass"
+  },
+  "jsmolka-bios": {
+    "kind": "r12pass"
+  },
+  "jsmolka-flash128": {
+    "kind": "r12pass"
+  },
+  "jsmolka-flash64": {
+    "kind": "r12pass"
+  },
+  "jsmolka-memory": {
+    "kind": "r12pass"
+  },
+  "jsmolka-nes": {
+    "kind": "r12pass"
+  },
+  "jsmolka-ppu-hello": {
+    "kind": "r12pass"
+  },
+  "jsmolka-ppu-shades": {
+    "kind": "hash",
+    "hash": "da5336215e6c56d30146c42d81ad828a819214c307682903a5bcc87be8c0538e"
+  },
+  "jsmolka-ppu-stripes": {
+    "kind": "hash",
+    "hash": "4600c4f2749300b40f34dea969165d4d08d652543620076fb5cae249426f238d"
+  },
+  "jsmolka-save-none": {
+    "kind": "r12pass"
+  },
+  "jsmolka-sram": {
+    "kind": "r12pass"
+  },
+  "jsmolka-thumb": {
+    "kind": "r12pass"
+  },
+  "jsmolka-unsafe": {
+    "kind": "r12pass"
+  },
+  "mgba-suite-bios-math": {
+    "kind": "count",
+    "pass": 615,
+    "total": 615
+  },
+  "mgba-suite-carry": {
+    "kind": "count",
+    "pass": 93,
+    "total": 93
+  },
+  "mgba-suite-dma": {
+    "kind": "count",
+    "pass": 1196,
+    "total": 1256
+  },
+  "mgba-suite-io-read": {
+    "kind": "count",
+    "pass": 130,
+    "total": 130
+  },
+  "mgba-suite-memory": {
+    "kind": "count",
+    "pass": 1460,
+    "total": 1552
+  },
+  "mgba-suite-misc-edge": {
+    "kind": "count",
+    "pass": 4,
+    "total": 12
+  },
+  "mgba-suite-multiply-long": {
+    "kind": "count",
+    "pass": 72,
+    "total": 72
+  },
+  "mgba-suite-shifter": {
+    "kind": "count",
+    "pass": 140,
+    "total": 140
+  },
+  "mgba-suite-sio-read": {
+    "kind": "count",
+    "pass": 90,
+    "total": 90
+  },
+  "mgba-suite-sio-timing": {
+    "kind": "hash",
+    "hash": "3c26ed2875ccb4a19b2f1f3dbed85a8c5383f7c233407d0771b2f3e5d3f909fc"
+  },
+  "mgba-suite-timer-irq": {
+    "kind": "count",
+    "pass": 37,
+    "total": 90
+  },
+  "mgba-suite-timers": {
+    "kind": "count",
+    "pass": 411,
+    "total": 936
+  },
+  "mgba-suite-timing": {
+    "kind": "count",
+    "pass": 257,
+    "total": 2020
+  },
+  "mgba-suite-video": {
+    "kind": "hash",
+    "hash": "e1973b29b8c8368202cf5018dd1070eb7d314d27637de0f8b4892279746f34d0"
+  },
+  "nba-bus-128kb-boundary": {
+    "kind": "count",
+    "pass": 12,
+    "total": 18
+  },
+  "nba-dma-burst-into-tears": {
+    "kind": "count",
+    "pass": 3,
+    "total": 3
+  },
+  "nba-dma-force-nseq-access": {
+    "kind": "count",
+    "pass": 0,
+    "total": 2
+  },
+  "nba-dma-latch": {
+    "kind": "count",
+    "pass": 3,
+    "total": 3
+  },
+  "nba-dma-start-delay": {
+    "kind": "count",
+    "pass": 1,
+    "total": 1
+  },
+  "nba-haltcnt": {
+    "kind": "count",
+    "pass": 1,
+    "total": 6
+  },
+  "nba-irq-delay": {
+    "kind": "count",
+    "pass": 1,
+    "total": 1
+  },
+  "nba-ppu-vram-mirror": {
+    "kind": "count",
+    "pass": 10,
+    "total": 10
+  },
+  "nba-timer-reload": {
+    "kind": "count",
+    "pass": 7,
+    "total": 7
+  },
+  "nba-timer-start-stop": {
+    "kind": "count",
+    "pass": 2,
+    "total": 2
+  }
+}

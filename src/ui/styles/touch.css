@@ -67,9 +67,34 @@
    pulls them to full opacity for a "wakes up on touch" feel. The
    tactile pressable variant was the deciding factor over the cleaner
    outline-only sketches. */
+/* GBA shoulder buttons — top row of the touch grid, hidden when not
+   running a GBA cart. `body.is-gba` is toggled by runtime-gba.ts. The
+   row collapses to 0 px when display:none, so the GB layout below
+   isn't shifted.
+
+   Shape mimics real GBA shoulder geometry: a tab that wraps around
+   the top corner of the device. Asymmetric border-radius — bigger
+   curve on the outer (screen-edge) corner, flatter on the inner side
+   — sells the "shoulder, not pill" read. Stronger fills, two-stage
+   inset shadows (highlight + depth), and a translate-down press state
+   give the tactile pressable feel the start/select pills don't need
+   (see [[feedback_tactile_buttons]]). */
+.gba-shoulders {
+  display: none;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 0 calc(8px * var(--touch-scale));
+  margin-bottom: calc(6px * var(--touch-scale));
+}
+body.is-gba .gba-shoulders {
+  display: flex;
+}
+
 .gb-dpad {
   grid-column: 1;
-  grid-row: 1;
+  grid-row: 2;
   justify-self: center;
   position: relative;
   width: calc(clamp(130px, 36vw, 170px) * var(--touch-scale));
@@ -166,7 +191,7 @@
 
 .gb-ab {
   grid-column: 2;
-  grid-row: 1;
+  grid-row: 2;
   justify-self: center;
   display: flex;
   flex-direction: row;
@@ -268,7 +293,7 @@
 
 .gb-sys {
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: 3;
   display: flex;
   justify-content: center;
   gap: 28px;
@@ -311,6 +336,380 @@
   transform: translateY(1px) scale(0.97);
 }
 
+/* L/R shoulder buttons. Placed AFTER `.gb-btn` (whose `all: unset`
+   wipes inherited styling) so the source-order tiebreak with the
+   same-specificity base class lets these declarations win. Same
+   tactile recipe as A/B/start/select but rectangular with asymmetric
+   border-radius — the bigger curve on the outer (screen-edge) corner
+   sells the "tab wrapping around the device top" shoulder geometry. */
+.gb-btn-l,
+.gb-btn-r {
+  width: calc(118px * var(--touch-scale));
+  height: calc(36px * var(--touch-scale));
+  font-size: calc(16px * var(--touch-scale));
+  font-weight: 700;
+  letter-spacing: 3px;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -4px 0 rgba(0, 0, 0, 0.28),
+    0 6px 14px rgba(0, 0, 0, 0.4);
+  opacity: 0.92;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease,
+    transform 80ms ease,
+    box-shadow 120ms ease;
+}
+.gb-btn-l {
+  border-radius: 22px 8px 8px 18px;
+}
+.gb-btn-r {
+  border-radius: 8px 22px 18px 8px;
+}
+.gb-btn-l.is-pressed,
+.gb-btn-l:active,
+.gb-btn-r.is-pressed,
+.gb-btn-r:active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.24);
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+    0 2px 6px rgba(0, 0, 0, 0.32);
+}
+
+/* ═════════ Landscape layouts (touch, coarse pointer) ═════════
+   Three opt-in layouts that take over the viewport when the device is
+   held in landscape. Picked in Settings → Controls → Touch → Landscape
+   layout; persisted as `body[data-landscape-layout="..."]`. The fourth
+   value, `portrait`, falls through to the rotate-prompt overlay in
+   base.css and is the default for users upgrading from a pre-landscape
+   build.
+
+   Common composition (all three): `.console` fills the viewport, the
+   canvas is anchored full-height and centred at native aspect, and the
+   touch overlay becomes a fullscreen pointer-events: none layer whose
+   children (.gb-dpad, .gb-ab, .gba-shoulders, .gb-sys) absolute-
+   position themselves into corners + edges. Per-layout differences sit
+   in dedicated blocks below: flank reserves side gutter so the canvas
+   doesn't overlap the controls, overlay/reveal let it grow to viewport
+   width with controls dimmed (or hidden) on top. */
+@media (orientation: landscape) and (pointer: coarse) {
+  body[data-landscape-layout="flank"],
+  body[data-landscape-layout="overlay"],
+  body[data-landscape-layout="reveal"] {
+    overflow: hidden;
+  }
+  body[data-landscape-layout="flank"] .console,
+  body[data-landscape-layout="overlay"] .console,
+  body[data-landscape-layout="reveal"] .console {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    max-width: none;
+    z-index: 100;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    background: #000;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  /* Drive canvas-wrap width directly from `min(height-derived,
+     viewport-width-minus-gutters)` so aspect-ratio is preserved no
+     matter which constraint binds. An earlier version set
+     `height: 100%; width: auto; max-width: <gutter-cap>`; once the
+     gutter cap kicked in (narrow phone in flank mode) the width
+     clipped to it but the explicit height stayed at 100%, which
+     overrides aspect-ratio and squashes the canvas horizontally. The
+     per-layout selectors below set the width; this shared rule just
+     resets the base `width: 100%` and gives the flex item a stable
+     basis. */
+  body[data-landscape-layout="flank"] .canvas-wrap,
+  body[data-landscape-layout="overlay"] .canvas-wrap,
+  body[data-landscape-layout="reveal"] .canvas-wrap {
+    height: auto;
+    max-width: none;
+    max-height: 100vh;
+    flex: 0 0 auto;
+  }
+  /* Strip the chrome the portrait layout adds — ambient glow halo,
+     bezel border / padding / shadows — so the canvas reads as a clean
+     landscape "screen", same as we do for fullscreen. */
+  body[data-landscape-layout="flank"] .canvas-wrap::before,
+  body[data-landscape-layout="overlay"] .canvas-wrap::before,
+  body[data-landscape-layout="reveal"] .canvas-wrap::before {
+    display: none;
+  }
+  body[data-landscape-layout="flank"] .canvas-frame,
+  body[data-landscape-layout="overlay"] .canvas-frame,
+  body[data-landscape-layout="reveal"] .canvas-frame {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  /* #screen sizing inherits from the base #screen + body.is-gba
+     overrides in canvas.css (width: 100% on a now-aspect-correct
+     canvas-wrap; aspect-ratio gives the height). The rules here only
+     strip the portrait chrome. */
+  body[data-landscape-layout="flank"] #screen,
+  body[data-landscape-layout="overlay"] #screen,
+  body[data-landscape-layout="reveal"] #screen {
+    border: 0;
+    outline: 0;
+    border-radius: 0;
+  }
+
+  /* Touch overlay: fullscreen pointer-events: none stage. Each child
+     re-enables hits on itself. Reset the grid from the portrait rules
+     so children can absolute-position into corners. */
+  body[data-landscape-layout="flank"] .gb-touch,
+  body[data-landscape-layout="overlay"] .gb-touch,
+  body[data-landscape-layout="reveal"] .gb-touch {
+    display: block;
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    padding: 0;
+    grid-template-columns: none;
+    column-gap: 0;
+    row-gap: 0;
+    pointer-events: none;
+    z-index: 110;
+  }
+  /* `.gb-touch--off` (explicit Never) wins over the landscape layout —
+     hide controls entirely so the canvas is uncluttered. */
+  body[data-landscape-layout="flank"] .gb-touch--off,
+  body[data-landscape-layout="overlay"] .gb-touch--off,
+  body[data-landscape-layout="reveal"] .gb-touch--off {
+    display: none;
+  }
+
+  /* D-pad: bottom-left. The hit-area gets `pointer-events: auto` back. */
+  body[data-landscape-layout="flank"] .gb-dpad,
+  body[data-landscape-layout="overlay"] .gb-dpad,
+  body[data-landscape-layout="reveal"] .gb-dpad {
+    position: absolute;
+    left: calc(env(safe-area-inset-left) + 14px);
+    bottom: calc(env(safe-area-inset-bottom) + 16px);
+    margin: 0;
+    grid-column: auto;
+    grid-row: auto;
+    justify-self: auto;
+    pointer-events: auto;
+  }
+  /* A/B: bottom-right, mirror of d-pad position. */
+  body[data-landscape-layout="flank"] .gb-ab,
+  body[data-landscape-layout="overlay"] .gb-ab,
+  body[data-landscape-layout="reveal"] .gb-ab {
+    position: absolute;
+    right: calc(env(safe-area-inset-right) + 14px);
+    bottom: calc(env(safe-area-inset-bottom) + 16px);
+    margin: 0;
+    grid-column: auto;
+    grid-row: auto;
+    justify-self: auto;
+    pointer-events: auto;
+  }
+  /* Left-handed mirror still swaps d-pad / A-B sides. */
+  body[data-landscape-layout="flank"] .gb-touch.is-mirrored .gb-dpad,
+  body[data-landscape-layout="overlay"] .gb-touch.is-mirrored .gb-dpad,
+  body[data-landscape-layout="reveal"] .gb-touch.is-mirrored .gb-dpad {
+    left: auto;
+    right: calc(env(safe-area-inset-right) + 14px);
+  }
+  body[data-landscape-layout="flank"] .gb-touch.is-mirrored .gb-ab,
+  body[data-landscape-layout="overlay"] .gb-touch.is-mirrored .gb-ab,
+  body[data-landscape-layout="reveal"] .gb-touch.is-mirrored .gb-ab {
+    right: auto;
+    left: calc(env(safe-area-inset-left) + 14px);
+  }
+
+  /* GBA shoulders: top corners. Only renders on `body.is-gba` per the
+     base `.gba-shoulders` rule (display:none → flex), so the position
+     here is harmless on GB carts. */
+  body[data-landscape-layout="flank"] .gba-shoulders,
+  body[data-landscape-layout="overlay"] .gba-shoulders,
+  body[data-landscape-layout="reveal"] .gba-shoulders {
+    position: absolute;
+    top: calc(env(safe-area-inset-top) + 10px);
+    left: calc(env(safe-area-inset-left) + 10px);
+    right: calc(env(safe-area-inset-right) + 10px);
+    margin: 0;
+    padding: 0;
+    grid-column: auto;
+    grid-row: auto;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+  body[data-landscape-layout="flank"] .gba-shoulders .gb-btn,
+  body[data-landscape-layout="overlay"] .gba-shoulders .gb-btn,
+  body[data-landscape-layout="reveal"] .gba-shoulders .gb-btn {
+    pointer-events: auto;
+  }
+
+  /* Start/Select: bottom-centre pills. */
+  body[data-landscape-layout="flank"] .gb-sys,
+  body[data-landscape-layout="overlay"] .gb-sys,
+  body[data-landscape-layout="reveal"] .gb-sys {
+    position: absolute;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom) + 14px);
+    transform: translateX(-50%);
+    grid-column: auto;
+    grid-row: auto;
+    padding: 0;
+    gap: 12px;
+    pointer-events: none;
+  }
+  body[data-landscape-layout="flank"] .gb-sys .gb-btn,
+  body[data-landscape-layout="overlay"] .gb-sys .gb-btn,
+  body[data-landscape-layout="reveal"] .gb-sys .gb-btn {
+    pointer-events: auto;
+  }
+
+  /* ── Flank ─────────────────────────────────────────────────────────
+     Side gutters reserve room for the d-pad / A-B clusters so the
+     canvas doesn't overlap them. The width is `min(viewport-height *
+     aspect, viewport-width - 2*gutter)` — whichever binds first wins.
+     `width` (not `max-width`) so aspect-ratio gets to derive height
+     cleanly even when the gutter constraint kicks in on narrow
+     viewports. Gutter width tracks `--touch-scale`; the 28 px safety
+     margin keeps the canvas edge clear of the cluster's drop shadow. */
+  body[data-landscape-layout="flank"] .canvas-wrap {
+    width: min(calc(100vh * 10 / 9), calc(100vw - 2 * (clamp(130px, 36vw, 170px) * var(--touch-scale, 1.1) + 28px)));
+  }
+  body.is-gba[data-landscape-layout="flank"] .canvas-wrap {
+    width: min(calc(100vh * 3 / 2), calc(100vw - 2 * (clamp(130px, 36vw, 170px) * var(--touch-scale, 1.1) + 28px)));
+  }
+
+  /* Overlay + reveal: no gutter reserve; canvas grows to the largest
+     aspect-correct box that fits the viewport. The same `min()` trick
+     keeps aspect-ratio stable through whichever constraint binds. */
+  body[data-landscape-layout="overlay"] .canvas-wrap,
+  body[data-landscape-layout="reveal"] .canvas-wrap {
+    width: min(calc(100vh * 10 / 9), 100vw);
+  }
+  body.is-gba[data-landscape-layout="overlay"] .canvas-wrap,
+  body.is-gba[data-landscape-layout="reveal"] .canvas-wrap {
+    width: min(calc(100vh * 3 / 2), 100vw);
+  }
+
+  /* ── Overlay (dimmed) ──────────────────────────────────────────────
+     Canvas fills the viewport (no extra gutter beyond the natural
+     letterbox from aspect ratio). Controls float over it at reduced
+     opacity, pull to full opacity on press. backdrop-filter blur is
+     already on the children from the portrait rules — keeps them
+     legible against arbitrary cart artwork. */
+  /* Substantial fill boost shared by overlay + reveal: both put the
+     controls over the game rather than below it on neutral chrome, so
+     the portrait alphas (0.06–0.18, tuned for a dark window backdrop)
+     wash out against bright cart artwork. Start/Select + L/R use a
+     DARK fill rather than white-translucent so their letter labels
+     stay readable on bright carts — white-on-white-on-white over a
+     daytime scene fell apart. */
+  body[data-landscape-layout="overlay"] .gb-dpad,
+  body[data-landscape-layout="reveal"] .gb-dpad {
+    background: rgba(255, 255, 255, 0.18);
+  }
+  body[data-landscape-layout="overlay"] .gb-ab .gb-btn-a,
+  body[data-landscape-layout="reveal"] .gb-ab .gb-btn-a {
+    background: rgba(227, 93, 138, 0.55);
+  }
+  body[data-landscape-layout="overlay"] .gb-ab .gb-btn-b,
+  body[data-landscape-layout="reveal"] .gb-ab .gb-btn-b {
+    background: rgba(80, 120, 223, 0.55);
+  }
+  body[data-landscape-layout="overlay"] .gb-sys .gb-btn,
+  body[data-landscape-layout="reveal"] .gb-sys .gb-btn {
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+  body[data-landscape-layout="overlay"] .gba-shoulders .gb-btn,
+  body[data-landscape-layout="reveal"] .gba-shoulders .gb-btn {
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.4);
+  }
+
+  /* Opacity — target the same inner-most elements for overlay and
+     reveal so reveal's "shown" state matches overlay's "at-rest"
+     state. (Earlier version targeted the wrappers for reveal, which
+     compounded with each child's base 0.7 / 0.92 opacity and rendered
+     reveal noticeably dimmer than overlay.) */
+  body[data-landscape-layout="overlay"] .gb-dpad,
+  body[data-landscape-layout="overlay"] .gb-ab .gb-btn-a,
+  body[data-landscape-layout="overlay"] .gb-ab .gb-btn-b,
+  body[data-landscape-layout="overlay"] .gba-shoulders .gb-btn,
+  body[data-landscape-layout="overlay"] .gb-sys .gb-btn {
+    opacity: 0.78;
+  }
+  body[data-landscape-layout="overlay"] .gb-dpad:active,
+  body[data-landscape-layout="overlay"] .gb-dpad.is-pressed-up,
+  body[data-landscape-layout="overlay"] .gb-dpad.is-pressed-down,
+  body[data-landscape-layout="overlay"] .gb-dpad.is-pressed-left,
+  body[data-landscape-layout="overlay"] .gb-dpad.is-pressed-right,
+  body[data-landscape-layout="overlay"] .gb-ab .gb-btn-a:active,
+  body[data-landscape-layout="overlay"] .gb-ab .gb-btn-a.is-pressed,
+  body[data-landscape-layout="overlay"] .gb-ab .gb-btn-b:active,
+  body[data-landscape-layout="overlay"] .gb-ab .gb-btn-b.is-pressed,
+  body[data-landscape-layout="overlay"] .gba-shoulders .gb-btn:active,
+  body[data-landscape-layout="overlay"] .gba-shoulders .gb-btn.is-pressed,
+  body[data-landscape-layout="overlay"] .gb-sys .gb-btn:active,
+  body[data-landscape-layout="overlay"] .gb-sys .gb-btn.is-pressed {
+    opacity: 1;
+  }
+
+  /* ── Tap-to-reveal ────────────────────────────────────────────────
+     Same fills and 0.78 / 1.0 opacity pair as overlay; gated on
+     `body.touch-reveal-show` — touch.ts adds that class on any tap in
+     the game area or controls and removes it REVEAL_MS later. */
+  body[data-landscape-layout="reveal"] .gb-dpad,
+  body[data-landscape-layout="reveal"] .gb-ab .gb-btn-a,
+  body[data-landscape-layout="reveal"] .gb-ab .gb-btn-b,
+  body[data-landscape-layout="reveal"] .gba-shoulders .gb-btn,
+  body[data-landscape-layout="reveal"] .gb-sys .gb-btn {
+    opacity: 0;
+    transition: opacity 260ms ease;
+  }
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-dpad,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-ab .gb-btn-a,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-ab .gb-btn-b,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gba-shoulders .gb-btn,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-sys .gb-btn {
+    opacity: 0.78;
+  }
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-dpad:active,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-dpad.is-pressed-up,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-dpad.is-pressed-down,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-dpad.is-pressed-left,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-dpad.is-pressed-right,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-ab .gb-btn-a:active,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-ab .gb-btn-a.is-pressed,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-ab .gb-btn-b:active,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-ab .gb-btn-b.is-pressed,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gba-shoulders .gb-btn:active,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gba-shoulders .gb-btn.is-pressed,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-sys .gb-btn:active,
+  body[data-landscape-layout="reveal"].touch-reveal-show .gb-sys .gb-btn.is-pressed {
+    opacity: 1;
+  }
+}
+
 /* ═════════ Fullscreen layout ═════════
    The fullscreen button fullscreens `.console` (the wrapper around
    `.canvas-wrap` + `.gb-touch`) instead of the canvas alone, so the
@@ -319,8 +718,10 @@
    available height, chrome (glow / bezel / frame padding) stripped.
 
    Canvas fills the viewport from the top, touch overlay at the bottom.
-   Landscape on touch is unreachable (the rotate-prompt overlay covers
-   the screen first), so there's no flank-layout branch to maintain. */
+   In landscape on touch, the rules above this block take precedence
+   (they apply when `body[data-landscape-layout]` matches one of the
+   three opt-in layouts); fullscreen still works as expected because
+   `.console:fullscreen` wins via the more-specific pseudo-class. */
 .console:fullscreen {
   background: #000;
   max-width: none;
@@ -361,18 +762,30 @@
   border: 0;
   outline: 0;
   border-radius: 0;
-  /* Self-enforced 10:9 instead of `width: 100%; height: 100%`: on
-     mobile the wrapper's own aspect-ratio loses to flex sizing in
-     fullscreen, so forcing the canvas to fill width AND height
-     stretched the picture. With max-* bounds + aspect-ratio the
-     canvas grows as large as the wrapper allows along whichever
-     axis hits the cap first, and the unconstrained axis follows
-     the 10:9 ratio. */
+  /* Anchor the canvas to the wrapper's full height and derive width
+     from `aspect-ratio`. `max-width: 100%` caps it back if the
+     derived width would overflow (e.g. portrait viewport where the
+     height-major box ends up wider than the wrapper). Using
+     `height: 100%` instead of `height: auto` is load-bearing: the
+     GBA raw-2D path sets the canvas DOM attributes to literal
+     240×160, so `height: auto` would resolve to the small intrinsic
+     and the canvas would render smaller in fullscreen than
+     windowed. The 6×-native backing store the GB WebGL renderer
+     picks (`webgl.ts`) used to mask this — its 960×864 intrinsic
+     happens to be ≥ the windowed CSS box, so the issue only became
+     visible once GBA games landed. Anchoring height fixes both. */
+  height: 100%;
   width: auto;
-  height: auto;
   max-width: 100%;
-  max-height: 100%;
   aspect-ratio: 10 / 9;
+}
+/* GBA carts render 240×160 (3:2). The base `body.is-gba #screen`
+   rule in canvas.css loses to `.console:fullscreen #screen` here on
+   specificity (pseudo-class > class), so we have to repeat the
+   override under the fullscreen selector — otherwise GBA games get
+   pillarboxed inside the 3:2 wrapper in fullscreen. */
+body.is-gba .console:fullscreen #screen {
+  aspect-ratio: 3 / 2;
 }
 .console:fullscreen .gb-touch--on {
   flex: 0 0 auto;

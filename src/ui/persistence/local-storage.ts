@@ -85,20 +85,41 @@ export const KEYS = {
 
   // ─── Session / behaviour ───────────────────────────────────────────
   AUTO_PAUSE: "gb-auto-pause",
-  REWIND_CAPACITY: "gb-rewind-capacity",
+  /** Solar brightness, 0..1 float string. Only meaningful when a Boktai
+   *  cart is loaded; persists so the player's preferred "ambient light"
+   *  level carries between sessions. */
+  SOLAR_BRIGHTNESS: "gb-solar-brightness",
 
   // ─── Input ─────────────────────────────────────────────────────────
   KEY_BINDINGS: "gb-keys",
   GAMEPAD_BINDINGS: "gb-gamepad",
   HOTKEY_BINDINGS: "gb-hotkeys",
   TILT_BINDINGS: "gb-tilt",
+  SHOULDER_KEY_BINDINGS: "gb-shoulder-keys",
+  SHOULDER_GAMEPAD_BINDINGS: "gb-shoulder-gamepad",
   TOUCH_MODE: "gb-touch-mode",
   TOUCH_LAYOUT: "gb-touch-layout",
   TOUCH_PRESS_HAPTIC: "gb-touch-press-haptic",
+  /** How the on-screen controls behave when the device is held in
+   *  landscape. `flank` (default) splits controls into side gutters
+   *  with the canvas centred at native aspect; `overlay` floats them
+   *  dimmed over a viewport-filling canvas; `reveal` keeps them hidden
+   *  until the canvas is tapped; `portrait` keeps the historical
+   *  rotate-prompt overlay (opt-in only). */
+  TOUCH_LANDSCAPE_LAYOUT: "gb-touch-landscape",
 
   // ─── Link cable ────────────────────────────────────────────────────
   LINK_CABLE_MODE: "gb-link-cable",
   LINK_ROOM_CODE: "gb-link-room-code",
+  /** Experimental opt-in for cross-device GBA Multi-Pak via WebRTC.
+   *  Cable-detect protocols (Mario Kart, Tetris VS, Bomberman) are
+   *  latency-sensitive — typical internet RTT exceeds what carts
+   *  tolerate during the handshake, so this is off by default and
+   *  only intended for protocol-tolerant uses (Pokémon-style trade
+   *  over Normal-32 mode, slow-paced menu chat). Set to `"1"` in
+   *  dev tools to enable. Same-machine BroadcastChannel pairing
+   *  is unaffected (always supported). */
+  GBA_LINK_CROSS_DEVICE_EXPERIMENTAL: "gb-gba-link-cross-device-experimental",
 
   // ─── Library / popovers ────────────────────────────────────────────
   LIBRARY_SORT: "gb-library-sort",
@@ -114,3 +135,8 @@ export const KEYS = {
  *  share the same scheme. */
 export const SYMBOLS_KEY_PREFIX = "gb-symbols-";
 export const SYMBOLS_META_SUFFIX = "gb-symbols-meta";
+/** Parallel symbol-storage keyspace for GBA carts. The GB and GBA
+ *  symbol tables live independently so a cart titled the same on
+ *  both consoles (extremely rare but possible) doesn't cross-pollute. */
+export const SYMBOLS_KEY_PREFIX_GBA = "gba-symbols-";
+export const SYMBOLS_META_SUFFIX_GBA = "gba-symbols-meta";

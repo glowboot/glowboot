@@ -4,9 +4,12 @@ import type { Pane } from "./pane.js";
 
 /**
  * CPU state pane — live view of every register + flag + control
- * signal on the LR35902. Rebuilds the DOM once in `mount`, then
- * `refresh` just writes into the cached field spans each tick so the
- * browser doesn't pay layout costs for an unchanging card grid.
+ * signal on the LR35902 (Game Boy / Game Boy Color). The Game Boy
+ * Advance equivalent (`./cpu-pane-gba.ts`) shows the ARM7TDMI
+ * register file + CPSR / SPSR + mode banking. Rebuilds the DOM once
+ * in `mount`, then `refresh` just writes into the cached field spans
+ * each tick so the browser doesn't pay layout costs for an
+ * unchanging card grid.
  */
 
 interface Refs {

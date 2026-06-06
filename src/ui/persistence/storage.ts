@@ -11,8 +11,11 @@
  *                         one record per (cart, slot) — `cartId` indexed for
  *                         fast slot enumeration per cart.
  *   - `cheats`          — { cartId, entries: CheatEntry[] }
- *                         one record per cart, holds the user's Game Genie /
- *                         Game Shark codes for that cart.
+ *                         one record per cart, holds the user's cheat codes
+ *                         for that cart — Game Genie / Game Shark on GB,
+ *                         GameShark / CodeBreaker on GBA. Cart-id
+ *                         namespaces (`gba:` prefix) keep the two engines'
+ *                         records disjoint.
  *   - `cart-overrides`  — per-cart pinned settings (palette, render mode,
  *                         CGB colour correction, …) applied on cart load.
  *   - `printouts`       — Game Boy Printer page archive, one record per

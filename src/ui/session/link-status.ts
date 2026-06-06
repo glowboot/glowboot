@@ -1,8 +1,11 @@
 /**
  * Link-cable status channel — one-way broadcast from the link
- * implementations (local `BroadcastChannelLink`, remote `WebRTCLink`)
- * to the Settings → Link cable UI row, which shows a small status
- * indicator reflecting the current connection state.
+ * implementations (Game Boy `BroadcastChannelLink` / `WebRTCLink`,
+ * Game Boy Advance `BroadcastChannelGbaLink` / `WebRtcGbaLink`) to
+ * the Settings → Link cable UI row, which shows a small status
+ * indicator reflecting the current connection state. One channel
+ * across both engines because only one cable is live at a time —
+ * loading a GBA cart tears down any GB link and vice-versa.
  *
  * Uses a DOM `CustomEvent` rather than an explicit subscriber API so
  * the link classes stay decoupled from the panel module — they just
@@ -17,7 +20,7 @@
 
 export type LinkStatus = "off" | "idle" | "connected" | "error";
 
-export const LINK_STATUS_EVENT = "gb-link-status";
+const LINK_STATUS_EVENT = "gb-link-status";
 
 export function dispatchLinkStatus(status: LinkStatus): void {
   document.dispatchEvent(new CustomEvent<LinkStatus>(LINK_STATUS_EVENT, { detail: status }));

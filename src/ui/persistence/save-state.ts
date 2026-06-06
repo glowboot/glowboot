@@ -1,7 +1,7 @@
-import type { Cartridge, GameBoy } from "../../gb";
-import { UnsupportedSaveStateError } from "../../gb/serialization/serialization.js";
+import { type GameBoy, UnsupportedSaveStateError } from "../../gb";
+import { Gba, parseGbaHeader, UnsupportedGbaSaveStateError } from "../../gba";
 import { errorToast } from "../hud/toast.js";
-import { cartIdOf } from "./cart-id.js";
+import { cartIdOf, cartIdOfGba } from "./cart-id.js";
 import { idbDelete, idbGet, idbGetAllByIndex, idbPut, STORE_SAVE_STATES } from "./storage.js";
 
 /**
@@ -10,13 +10,49 @@ import { idbDelete, idbGet, idbGetAllByIndex, idbPut, STORE_SAVE_STATES } from "
  * separate `cartId` field so the UI can enumerate all slots for the
  * active cart via a single indexed query.
  *
- * The binary format itself (StateWriter / StateReader) lives in
- * `src/gb/serialization/serialization.ts`; this file only deals with
- * storage + slot bookkeeping.
+ * The binary format itself lives per-engine:
+ *  - `src/gb/serialization/serialization.ts` (GB)
+ *  - `src/gba/serialization/serialization.ts` (GBA)
+ *
+ * This module is engine-polymorphic: the GB cart-id derivation
+ * (`<title>:<headerChecksum>:<romCrc32>`) and GBA cart-id
+ * (`gba:<title>:<gameCode>:<hdrChk>:<romCrc32>`) live in cart-id.ts
+ * and produce disjoint namespaces, so the shared IDB store can hold
+ * states from both engines without collision.
  */
 
-function recordId(cart: Cartridge, slot: number): string {
-  return `${cartIdOf(cart)}:${slot}`;
+/** Engines this module knows how to snapshot. Both expose a compatible
+ *  `saveState()` / `loadState()` shape on their respective classes;
+ *  cart-id derivation routes through `engineCartId`. */
+export type SaveStateEngine = GameBoy | Gba;
+
+/** True when the given engine is a GBA instance. Exported so the
+ *  save-state import/export layer can choose engine-specific file
+ *  extensions (`.gbastate` vs `.gbstate`) at the user-visible
+ *  download / file-picker boundary. */
+export function isGbaEngine(engine: SaveStateEngine): engine is Gba {
+  return engine instanceof Gba;
+}
+
+function isGba(engine: SaveStateEngine): engine is Gba {
+  return isGbaEngine(engine);
+}
+
+/** Stable per-engine string used as the IDB key prefix. */
+export function engineCartId(engine: SaveStateEngine): string {
+  return isGba(engine) ? cartIdOfGba(engine) : cartIdOf(engine.cart);
+}
+
+/** Human-readable title for the engine's cart — used by the save-state
+ *  export filename + the import-mismatch toast. GB reads the parsed
+ *  `cart.title`; GBA parses the ROM header lazily because `Gba` doesn't
+ *  surface a pre-parsed title field. */
+export function engineCartTitle(engine: SaveStateEngine): string {
+  return isGba(engine) ? parseGbaHeader(engine.mem.rom).title : engine.cart.title;
+}
+
+function recordId(engine: SaveStateEngine, slot: number): string {
+  return `${engineCartId(engine)}:${slot}`;
 }
 
 interface StateRecord {
@@ -42,15 +78,16 @@ export const SLOT_COUNT = 12;
  *  `listSlots`. */
 const AUTO_SLOT = -1;
 
-export async function saveStateTo(gb: GameBoy, slot = 0, thumb?: string): Promise<boolean> {
+export async function saveStateTo(engine: SaveStateEngine, slot = 0, thumb?: string): Promise<boolean> {
   try {
-    const bytes = gb.saveState();
+    const bytes = engine.saveState();
+    const id = recordId(engine, slot);
     // Preserve any user-entered label across re-saves into the same slot —
     // overwriting the state bytes shouldn't wipe the "Before Ganon" tag.
-    const existing = await idbGet<StateRecord>(STORE_SAVE_STATES, recordId(gb.cart, slot));
+    const existing = await idbGet<StateRecord>(STORE_SAVE_STATES, id);
     const rec: StateRecord = {
-      id: recordId(gb.cart, slot),
-      cartId: cartIdOf(gb.cart),
+      id,
+      cartId: engineCartId(engine),
       slot,
       // Copy so the bytes aren't held through subsequent engine mutations.
       bytes: new Uint8Array(bytes),
@@ -77,24 +114,28 @@ export async function saveStateTo(gb: GameBoy, slot = 0, thumb?: string): Promis
   }
 }
 
-export async function loadStateFrom(gb: GameBoy, slot = 0): Promise<boolean> {
+export async function loadStateFrom(engine: SaveStateEngine, slot = 0): Promise<boolean> {
   try {
-    const rec = await idbGet<StateRecord>(STORE_SAVE_STATES, recordId(gb.cart, slot));
+    const rec = await idbGet<StateRecord>(STORE_SAVE_STATES, recordId(engine, slot));
     if (!rec) return false;
-    gb.loadState(rec.bytes);
+    engine.loadState(rec.bytes);
     return true;
   } catch (err) {
     // Version-mismatch / migrator-missing failures get a user-readable
     // explanation; everything else falls through to a generic warning.
-    if (err instanceof UnsupportedSaveStateError) errorToast(err.message);
+    // Both engines have their own UnsupportedXxxError class — both
+    // expose a `.message` we can surface verbatim.
+    if (err instanceof UnsupportedSaveStateError || err instanceof UnsupportedGbaSaveStateError) {
+      errorToast(err.message);
+    }
     console.warn("[State] load failed:", err);
     return false;
   }
 }
 
-export async function hasState(cart: Cartridge, slot = 0): Promise<boolean> {
+export async function hasState(engine: SaveStateEngine, slot = 0): Promise<boolean> {
   try {
-    const rec = await idbGet<StateRecord>(STORE_SAVE_STATES, recordId(cart, slot));
+    const rec = await idbGet<StateRecord>(STORE_SAVE_STATES, recordId(engine, slot));
     return !!rec;
   } catch {
     return false;
@@ -109,12 +150,13 @@ export interface SlotInfo {
   label?: string; // user-entered short name for the slot
 }
 
-/** Enumerate every save slot that has data for `cart`. Empty slots are
- *  simply absent from the returned array. Async because the `save-states`
- *  store is in IndexedDB. Filters out the private auto-snapshot slot. */
-export async function listSlots(cart: Cartridge): Promise<SlotInfo[]> {
+/** Enumerate every save slot that has data for `engine`'s cart. Empty
+ *  slots are simply absent from the returned array. Async because the
+ *  `save-states` store is in IndexedDB. Filters out the private
+ *  auto-snapshot slot. */
+export async function listSlots(engine: SaveStateEngine): Promise<SlotInfo[]> {
   try {
-    const recs = await idbGetAllByIndex<StateRecord>(STORE_SAVE_STATES, "cartId", cartIdOf(cart));
+    const recs = await idbGetAllByIndex<StateRecord>(STORE_SAVE_STATES, "cartId", engineCartId(engine));
     return recs
       .filter((r) => r.slot >= 0)
       .map<SlotInfo>((r) => ({
@@ -137,26 +179,26 @@ export async function listSlots(cart: Cartridge): Promise<SlotInfo[]> {
 // the same IDB store as user slots (under a reserved negative slot number)
 // so we get quota + cart-keying for free.
 
-export async function saveAutoState(gb: GameBoy): Promise<boolean> {
-  return saveStateTo(gb, AUTO_SLOT);
+export async function saveAutoState(engine: SaveStateEngine): Promise<boolean> {
+  return saveStateTo(engine, AUTO_SLOT);
 }
 
-export async function loadAutoState(gb: GameBoy): Promise<boolean> {
-  return loadStateFrom(gb, AUTO_SLOT);
+export async function loadAutoState(engine: SaveStateEngine): Promise<boolean> {
+  return loadStateFrom(engine, AUTO_SLOT);
 }
 
-export async function hasAutoState(cart: Cartridge): Promise<boolean> {
-  return hasState(cart, AUTO_SLOT);
+export async function hasAutoState(engine: SaveStateEngine): Promise<boolean> {
+  return hasState(engine, AUTO_SLOT);
 }
 
-export async function clearAutoState(cart: Cartridge): Promise<void> {
-  return clearSlot(cart, AUTO_SLOT);
+export async function clearAutoState(engine: SaveStateEngine): Promise<void> {
+  return clearSlot(engine, AUTO_SLOT);
 }
 
 /** Forget the stored blob, timestamp, and thumbnail for one slot. */
-export async function clearSlot(cart: Cartridge, slot: number): Promise<void> {
+export async function clearSlot(engine: SaveStateEngine, slot: number): Promise<void> {
   try {
-    await idbDelete(STORE_SAVE_STATES, recordId(cart, slot));
+    await idbDelete(STORE_SAVE_STATES, recordId(engine, slot));
   } catch {
     /* ignore */
   }
@@ -166,9 +208,9 @@ export async function clearSlot(cart: Cartridge, slot: number): Promise<void> {
  *  empty string or null clears the label. Returns false if the slot is
  *  empty (nothing to attach the label to). Trims + caps length so a
  *  huge string doesn't bloat the record. */
-export async function setSlotLabel(cart: Cartridge, slot: number, label: string | null): Promise<boolean> {
+export async function setSlotLabel(engine: SaveStateEngine, slot: number, label: string | null): Promise<boolean> {
   try {
-    const rec = await idbGet<StateRecord>(STORE_SAVE_STATES, recordId(cart, slot));
+    const rec = await idbGet<StateRecord>(STORE_SAVE_STATES, recordId(engine, slot));
     if (!rec) return false;
     const trimmed = label?.trim().slice(0, 60);
     if (trimmed) rec.label = trimmed;

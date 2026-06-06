@@ -21,7 +21,7 @@ import { closeCheats, openCheats } from "./cheats.js";
 import { closeDebugger, openDebugger } from "./debugger.js";
 import { closeRecents, openRecents } from "./library.js";
 import { closeMore, openMore } from "./more.js";
-import { closePrinter, onPagePrinted, openPrinter } from "./printer.js";
+import { closePrinter, onPagePrinted, openPrinter, refreshPrinterTrigger } from "./printer.js";
 import { closeSettings, openSettings } from "./settings.js";
 import { closeSlots, doLoadState, doSaveState, openSlots } from "./slots.js";
 
@@ -52,6 +52,7 @@ export {
   openPrinter,
   closePrinter,
   onPagePrinted,
+  refreshPrinterTrigger,
   openMore,
   closeMore
 };

@@ -58,6 +58,13 @@ export class GameBoy {
   /** Called after each VBlank with the completed framebuffer. */
   onFrame: ((framebuffer: Uint8ClampedArray<ArrayBuffer>) => void) | null = null;
 
+  /** Shortcut to the PPU's framebuffer. Mirrors `Gba.framebuffer` so
+   *  engine-agnostic UI code can read the rendered pixels through the
+   *  same accessor on either core. */
+  get framebuffer(): Uint8ClampedArray<ArrayBuffer> {
+    return this.ppu.framebuffer;
+  }
+
   /**
    * Called at the end of every `runFrame` with the APU's accumulated sample
    * buffer. Decoupled from VBlank so audio keeps flowing even when the LCD
@@ -66,9 +73,9 @@ export class GameBoy {
    */
   onAudioFrame: ((left: Float32Array, right: Float32Array, count: number) => void) | null = null;
 
-  constructor(romData: Uint8Array, bootRom: Uint8Array | null = null) {
+  constructor(romData: Uint8Array, bootRom: Uint8Array | null = null, opts?: { skipLogoCheck?: boolean }) {
     const preBoot = bootRom !== null;
-    this.cart = new Cartridge(romData);
+    this.cart = new Cartridge(romData, opts);
     // Always emulate a CGB console so DMG carts get CGB "compatibility mode"
     // colourisation just like they do on real hardware.
     this.ppu = new PPU(this.interrupts, /* cgb */ true, /* cgbGame */ this.cart.cgb, preBoot);

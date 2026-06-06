@@ -3,7 +3,11 @@ import { hex2 } from "./format.js";
 import type { Pane } from "./pane.js";
 
 /**
- * Tile / VRAM pane — three sub-views:
+ * Tile / VRAM pane for the Game Boy / Game Boy Color engine — three
+ * sub-views. The Game Boy Advance equivalent (`./tile-pane-gba.ts`)
+ * is a simpler single-canvas dump of the 96 KiB GBA VRAM with a
+ * 4bpp / 8bpp toggle and palette-bank picker (per-BG-map and per-OBJ
+ * sprite views aren't ported yet).
  *
  *   1. **Tile data**: all 384 tiles in VRAM bank 0, plus bank 1 on CGB.
  *      Rendered to a canvas as a 16×24 grid of 8×8 tiles (scaled 2×

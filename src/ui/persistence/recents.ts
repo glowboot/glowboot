@@ -1,5 +1,6 @@
 import type { Cartridge } from "../../gb";
-import { cartIdOf } from "./cart-id.js";
+import { type Gba, parseGbaHeader } from "../../gba";
+import { cartIdOf, cartIdOfGba } from "./cart-id.js";
 import { idbDelete, idbGet, idbGetAll, idbPut, openDb, STORE_ROMS } from "./storage.js";
 
 /**
@@ -30,6 +31,10 @@ export interface RecentEntry {
  *  (rom-loader, cart-info popover) can reach it as `Recents.idFor(cart)`
  *  without a second import line. */
 export const idFor = cartIdOf;
+/** GBA equivalent of {@link idFor}. Same convenience re-export so the
+ *  GBA load path can stamp thumbnails / play-time against a stable id
+ *  without importing from `cart-id.js` itself. */
+export const idForGba = cartIdOfGba;
 
 /** Record `cart` + its bytes as the most-recently played ROM. Trims the
  *  store to at most MAX_ENTRIES newest entries after insert.
@@ -40,12 +45,28 @@ export const idFor = cartIdOf;
  *  re-loaded (either on first launch this session or when bumping the
  *  library timestamp after picking a card). */
 export async function remember(cart: Cartridge, romBytes: Uint8Array, filename: string): Promise<void> {
+  const id = idFor(cart);
+  const title = cart.title || filename.replace(/\.[^.]+$/, "");
+  return rememberRaw(id, title, romBytes, filename);
+}
+
+/** GBA equivalent of {@link remember}. Cart IDs are `gba:`-prefixed so
+ *  GBA and GB entries never collide in the shared ROMs store. The
+ *  library popover dispatches launches based on the entry's `filename`
+ *  extension so both kinds round-trip through the right loader. */
+export async function rememberGba(gba: Gba, romBytes: Uint8Array, filename: string): Promise<void> {
+  const id = cartIdOfGba(gba);
+  const header = parseGbaHeader(romBytes);
+  const title = header.title || filename.replace(/\.[^.]+$/, "");
+  return rememberRaw(id, title, romBytes, filename);
+}
+
+async function rememberRaw(id: string, title: string, romBytes: Uint8Array, filename: string): Promise<void> {
   try {
-    const id = idFor(cart);
     const existing = await idbGet<RecentEntry>(STORE_ROMS, id);
     const entry: RecentEntry = {
       id,
-      title: cart.title || filename.replace(/\.[^.]+$/, ""),
+      title,
       filename,
       size: romBytes.byteLength,
       lastPlayedAt: Date.now(),

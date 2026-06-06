@@ -7,37 +7,50 @@
  * the right experience is the OS share sheet — Photos / Messages /
  * AirDrop / Files — surfaced via the Web Share API.
  *
- * Returns `true` when the share sheet handled the blob (or the user
- * dismissed it), `false` when the caller should run its own download
- * path. Desktop browsers always return `false` because their users
- * already expect a file in Downloads.
+ * Result codes:
+ *   "shared"      — user picked an action in the share sheet (file is
+ *                   in their hands)
+ *   "cancelled"   — user dismissed the share sheet without picking
+ *                   anything (toast should say so rather than lie)
+ *   "unsupported" — share isn't available or we're on desktop; caller
+ *                   should run its own download path
  */
 
-export async function saveBlobNative(blob: Blob, filename: string): Promise<boolean> {
+export type ShareResult = "shared" | "cancelled" | "unsupported";
+
+/** Detect iOS / iPadOS — the only platform where `<a download>` is
+ *  unreliable enough that we need to route through Web Share instead.
+ *  Android Chrome, desktop browsers (incl. DevTools mobile emulation),
+ *  and even macOS Safari all handle `<a download>` fine. A `(pointer:
+ *  coarse)` media query is too broad — DevTools' device toolbar reports
+ *  coarse on a desktop machine where downloads work normally, and the
+ *  Web Share menu on macOS is a worse UX than a plain download. */
+function isIosLike(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent ?? "";
+  if (/iP(hone|ad|od)/.test(ua)) return true;
+  // iPadOS 13+ identifies as desktop Mac in the UA, but still has touch.
+  if (navigator.platform === "MacIntel" && (navigator.maxTouchPoints ?? 0) > 1) return true;
+  return false;
+}
+
+export async function saveBlobNative(blob: Blob, filename: string): Promise<ShareResult> {
   if (
     typeof navigator === "undefined" ||
     typeof navigator.share !== "function" ||
     typeof navigator.canShare !== "function"
   ) {
-    return false;
+    return "unsupported";
   }
-  // A coarse pointer is the cleanest signal that we're on a phone or
-  // tablet where a system share sheet is the right answer; on desktop
-  // even a Safari that supports `navigator.share` routes through an
-  // awkward sheet UI that's worse than a plain download.
-  if (typeof matchMedia === "function" && !matchMedia("(pointer: coarse)").matches) return false;
+  if (!isIosLike()) return "unsupported";
   try {
     const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
-    if (!navigator.canShare({ files: [file] })) return false;
+    if (!navigator.canShare({ files: [file] })) return "unsupported";
     await navigator.share({ files: [file], title: filename });
-    return true;
+    return "shared";
   } catch (err) {
-    // AbortError = user cancelled the sheet. We still return `true`
-    // because the user's intent was "decide what to do with this
-    // file" and they decided "not now" — kicking off a download
-    // afterwards would override their choice.
-    if (err instanceof DOMException && err.name === "AbortError") return true;
+    if (err instanceof DOMException && err.name === "AbortError") return "cancelled";
     console.warn("[saveBlobNative] web share failed:", err);
-    return false;
+    return "unsupported";
   }
 }

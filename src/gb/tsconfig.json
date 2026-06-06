@@ -1,0 +1,45 @@
+// No-DOM typecheck for the engine. Restricts `src/gb/` to non-browser
+// JS — any attempted use of `document`, `window`, `fetch`,
+// `localStorage`, etc. fails type-checking, so the pure-engine contract
+// (no DOM / network / storage deps) is enforced at the type level
+// instead of relying on convention.
+//
+// Lives next to the engine code so VS Code / TS Server auto-picks it
+// for files under `src/gb/` and the no-DOM lib applies inside the
+// editor too, not just under `npm run typecheck`.
+//
+// Standalone — does not extend the root tsconfig.json. The engine is
+// host-agnostic and meant to be embeddable, so its typecheck
+// configuration shouldn't depend on whatever the surrounding browser
+// shell happens to need (DOM lib, rootDir/outDir for Vite, sourcemaps,
+// etc.). Compiler options below are the strictness + module settings
+// that matter for the engine; they're the same as the root config
+// minus `outDir`/`rootDir`/`sourceMap` (irrelevant under `noEmit`) and
+// the DOM lib (the whole point of this file).
+//
+// Used by `npm run typecheck`, which invokes
+// `tsc -p src/gb/tsconfig.json --noEmit` as the second pass to run
+// the no-DOM guard alongside the regular UI typecheck.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": [],
+    "strict": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true
+  },
+  // `globals.d.ts` is intentionally included here (unlike the root
+  // tsconfig which excludes it to avoid colliding with lib.dom.d.ts).
+  // The engine typecheck runs without DOM types, so the shim's minimal
+  // `console` / `crypto` declarations are exactly what we want.
+  "include": ["**/*.ts"],
+  "exclude": ["**/*.test.ts"]
+}

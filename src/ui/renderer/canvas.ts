@@ -3,14 +3,21 @@ import type { ColorGrade } from "./shaders.js";
 import { TemporalBlender } from "./temporal.js";
 
 /**
- * Renders the PPU framebuffer to an HTML `<canvas>` element via a plain
- * `putImageData`. Shares the `TemporalBlender` with the WebGL renderer
- * so both paths respect the Pixel-response slider uniformly.
+ * Renders a framebuffer to an HTML `<canvas>` element via plain
+ * `putImageData`. Shares the `TemporalBlender` with the WebGL
+ * renderer so both paths respect the Pixel-response slider uniformly.
+ *
+ * Resolution-parameterised: the constructor takes `inputWidth` /
+ * `inputHeight` (defaulting to the Game Boy's 160×144) so the same
+ * class serves Game Boy carts and GBA carts (240×160) without a
+ * second renderer implementation. The canvas backing buffer is sized
+ * to the framebuffer dimensions; CSS scales it to whatever the
+ * surrounding `.canvas-wrap` exposes.
  *
  * Visual knobs (see the Settings popover wiring for user-facing controls):
  *  - **Integer scaling**: sizes the canvas to the largest whole-number
- *    multiple of 160×144 that fits its container so every on-screen pixel
- *    covers the same number of source pixels.
+ *    multiple of input-w × input-h that fits its container so every
+ *    on-screen pixel covers the same number of source pixels.
  *  - **Pixel response**: temporal blend applied before the blit (see
  *    `TemporalBlender`). 0 = off, higher = slower LCD.
  *
@@ -22,31 +29,36 @@ export class CanvasRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private imageData: ImageData | null = null;
+  private readonly inputWidth: number;
+  private readonly inputHeight: number;
 
   private _integerScale = false;
   private resizeObserver: ResizeObserver | null = null;
 
-  private readonly blender = new TemporalBlender(SCREEN_WIDTH * SCREEN_HEIGHT * 4);
+  private readonly blender: TemporalBlender;
 
   /** Current-frame weight for the temporal blend — 1.0 = off. Stored
    *  pre-converted (slider "response strength" becomes α = 1 − strength)
    *  so the render hot path doesn't branch or recompute. */
   private blendAlpha = 1;
 
-  constructor(canvas: HTMLCanvasElement) {
-    canvas.width = SCREEN_WIDTH;
-    canvas.height = SCREEN_HEIGHT;
+  constructor(canvas: HTMLCanvasElement, inputWidth: number = SCREEN_WIDTH, inputHeight: number = SCREEN_HEIGHT) {
+    this.inputWidth = inputWidth;
+    this.inputHeight = inputHeight;
+    canvas.width = inputWidth;
+    canvas.height = inputHeight;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Could not get 2D context from canvas");
     this.canvas = canvas;
     this.ctx = ctx;
+    this.blender = new TemporalBlender(inputWidth * inputHeight * 4);
   }
 
   render(framebuffer: Uint8ClampedArray<ArrayBuffer>): void {
     const src = this.blender.apply(framebuffer, this.blendAlpha);
     if (!this.imageData || this.imageData.data !== src) {
-      this.imageData = new ImageData(src, SCREEN_WIDTH, SCREEN_HEIGHT);
+      this.imageData = new ImageData(src, this.inputWidth, this.inputHeight);
     }
     this.ctx.putImageData(this.imageData, 0, 0);
   }

@@ -4,11 +4,15 @@ import { KEYS, lsGet, lsSet } from "../local-storage.js";
 /**
  * Settings export / import — user preferences only.
  *
- * Dumps the 13 `gb-*` preference keys from `localStorage` into a single
- * JSON document the user can download, carry to another machine, and
- * import back. Deliberately does **not** touch game progress (save RAM,
- * save states, cheats, library ROM bytes + thumbnails) which lives in
- * IndexedDB and needs its own larger backup tool.
+ * Dumps every `gb-*` preference key in `PREF_KEYS` from `localStorage`
+ * into a single JSON document the user can download, carry to another
+ * machine, and import back. Deliberately does **not** touch game
+ * progress (save RAM, save states, cheats, library ROM bytes +
+ * thumbnails) which lives in IndexedDB and needs its own larger backup
+ * tool. The `gb-` key prefix is historical (predates GBA support) and
+ * is preserved verbatim because it's baked into user bundles in the
+ * wild — the prefs themselves apply to both engines uniformly (volume,
+ * audio mode, theme, key bindings, etc.).
  *
  * Export format:
  *   {
@@ -27,7 +31,7 @@ import { KEYS, lsGet, lsSet } from "../local-storage.js";
  *  match what the various settings modules read. Cache-only keys
  *  (e.g. `KEYS.CHEAT_INDEX_CACHE`) and per-cart keys (symbols prefix)
  *  are intentionally excluded. */
-export const PREF_KEYS = [
+const PREF_KEYS = [
   KEYS.THEME,
   KEYS.COLOR_CORRECTION,
   KEYS.INTEGER_SCALE,
@@ -38,7 +42,6 @@ export const PREF_KEYS = [
   KEYS.AUDIO_RUMBLE,
   KEYS.RUMBLE_PRESET,
   KEYS.RUMBLE_STRENGTH,
-  KEYS.REWIND_CAPACITY,
   KEYS.LINK_CABLE_MODE,
   KEYS.LINK_ROOM_CODE,
   KEYS.VOLUME,
@@ -67,7 +70,7 @@ interface SettingsBundle {
 
 /** Serialise the current preferences into a JSON string. Missing keys are
  *  simply absent from the output — there's no attempt to fill defaults. */
-export function exportSettings(): string {
+function exportSettings(): string {
   const prefs: Record<string, string> = {};
   for (const key of PREF_KEYS) {
     const v = lsGet(key);
@@ -112,7 +115,8 @@ export async function downloadSettings(): Promise<void> {
   const blob = new Blob([exportSettings()], { type: "application/json" });
   const stamp = new Date().toISOString().slice(0, 10);
   const filename = `gameboy-settings-${stamp}.json`;
-  if (await saveBlobNative(blob, filename)) return;
+  const share = await saveBlobNative(blob, filename);
+  if (share === "shared" || share === "cancelled") return;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

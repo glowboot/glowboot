@@ -4,9 +4,13 @@ import { confirmAction } from "../hud/modal.js";
 import { errorToast } from "../hud/toast.js";
 import { KEYS, lsGet, lsSet } from "../persistence/local-storage.js";
 import * as Recents from "../persistence/recents.js";
-import { startEmulator } from "../rom-loader.js";
+import { handleGbaRomFile, startEmulator } from "../rom-loader.js";
 import { state } from "../state.js";
 import { createPopover } from "./helper.js";
+
+/** Matches the GBA dispatch in `rom-loader.ts`. Kept inline so this
+ *  popover doesn't have to import the regex itself. */
+const GBA_FILENAME_RE = /\.gba$/i;
 
 /**
  * Library popover — grid of cards for every previously-played ROM with
@@ -159,9 +163,24 @@ function renderGrid(container: HTMLElement): void {
         errorToast("ROM missing");
         return;
       }
-      await startEmulator(bytes, item.filename, false);
-      // Bump timestamp without re-writing the bytes.
-      if (state.gb) await Recents.remember(state.gb.cart, bytes, item.filename);
+      // Library is engine-mixed: filename extension routes the click to
+      // the right loader. `.gba` flows through the GBA path; everything
+      // else falls through to `startEmulator` (GB / GBC). Both loaders
+      // receive `rememberInRecents = false` because we bump the
+      // timestamp below explicitly instead of re-writing the ROM bytes.
+      if (GBA_FILENAME_RE.test(item.filename)) {
+        // Re-wrap into a fresh ArrayBuffer-backed Uint8Array so the
+        // synthetic File satisfies BlobPart (its generic narrows to
+        // ArrayBuffer, while IDB-returned bytes are typed against the
+        // wider ArrayBufferLike).
+        const fileBytes = new Uint8Array(bytes);
+        const file = new File([fileBytes], item.filename, { type: "application/octet-stream" });
+        await handleGbaRomFile(file, false);
+        if (state.gba) await Recents.rememberGba(state.gba, fileBytes, item.filename);
+      } else {
+        await startEmulator(bytes, item.filename, false);
+        if (state.gb) await Recents.remember(state.gb.cart, bytes, item.filename);
+      }
     });
     container.appendChild(card);
   }

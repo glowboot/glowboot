@@ -3,10 +3,11 @@
  * served via jsdelivr's CDN for the actual file fetches.
  *
  * Two-step flow:
- *   1. `fetchIndex()` — one-shot listing of every .cht filename in the
- *      Game Boy + Game Boy Color directories, pulled through GitHub's
- *      Contents API and cached in localStorage for a week. Two network
- *      calls total (one per platform directory) on the cold path.
+ *   1. `fetchIndex(platform)` — one-shot listing of every .cht filename
+ *      in the platform's libretro directories: GB + GBC for `"gb"` (two
+ *      calls), Game Boy Advance for `"gba"` (one call). Pulled through
+ *      GitHub's Contents API and cached in localStorage for a week,
+ *      keyed per-platform so the two engines' caches don't interfere.
  *   2. `fetchCht(entry)` — pulls an individual .cht via jsdelivr so we
  *      don't burn GitHub API quota on bulk downloads.
  *
@@ -19,7 +20,19 @@
 
 const GB_DIR = "Nintendo - Game Boy";
 const GBC_DIR = "Nintendo - Game Boy Color";
-const BASE_DIRS = [GB_DIR, GBC_DIR];
+const GBA_DIR = "Nintendo - Game Boy Advance";
+const GB_DIRS = [GB_DIR, GBC_DIR];
+const GBA_DIRS = [GBA_DIR];
+
+/** Which platform's directories to fetch. The GB/GBC indexes share a
+ *  cache, the GBA index is separate — the file formats differ enough
+ *  (GBA codes are CodeBreaker, GB codes are Game Genie + Game Shark)
+ *  that mixing them in one search would confuse users. */
+export type Platform = "gb" | "gba";
+
+function dirsForPlatform(platform: Platform): readonly string[] {
+  return platform === "gba" ? GBA_DIRS : GB_DIRS;
+}
 
 const GH_API = "https://api.github.com/repos/libretro/libretro-database/contents/cht";
 const CDN_URL = "https://cdn.jsdelivr.net/gh/libretro/libretro-database@master/cht";
@@ -38,16 +51,18 @@ interface CachedIndex {
 }
 
 /**
- * Fetches (or returns cached) list of every .cht filename across the two
- * Game Boy directories. Safe to call repeatedly — cache is consulted first.
+ * Fetches (or returns cached) list of every .cht filename across the
+ * platform's directories. Safe to call repeatedly — cache is consulted
+ * first. GB and GBA caches are keyed separately so a recent GB lookup
+ * doesn't shadow a fresh GBA fetch.
  */
-export async function fetchIndex(): Promise<IndexEntry[]> {
-  const cached = loadCache();
+export async function fetchIndex(platform: Platform = "gb"): Promise<IndexEntry[]> {
+  const cached = loadCache(platform);
   if (cached && Date.now() - cached.ts < CACHE_TTL && cached.entries.length > 0) {
     return cached.entries;
   }
   const entries: IndexEntry[] = [];
-  for (const dir of BASE_DIRS) {
+  for (const dir of dirsForPlatform(platform)) {
     const url = `${GH_API}/${encodeURIComponent(dir)}`;
     const res = await fetch(url, { headers: { Accept: "application/vnd.github.v3+json" } });
     if (!res.ok) throw new Error(`GitHub ${res.status} for "${dir}"`);
@@ -57,7 +72,7 @@ export async function fetchIndex(): Promise<IndexEntry[]> {
       entries.push({ dir, filename: it.name.slice(0, -".cht".length) });
     }
   }
-  saveCache({ ts: Date.now(), entries });
+  saveCache(platform, { ts: Date.now(), entries });
   return entries;
 }
 
@@ -99,8 +114,12 @@ function normalise(s: string): string {
     .trim();
 }
 
-function loadCache(): CachedIndex | null {
-  const raw = lsGet(KEYS.CHEAT_INDEX_CACHE);
+function cacheKey(platform: Platform): string {
+  return platform === "gba" ? `${KEYS.CHEAT_INDEX_CACHE}-gba` : KEYS.CHEAT_INDEX_CACHE;
+}
+
+function loadCache(platform: Platform): CachedIndex | null {
+  const raw = lsGet(cacheKey(platform));
   if (!raw) return null;
   try {
     return JSON.parse(raw) as CachedIndex;
@@ -109,6 +128,6 @@ function loadCache(): CachedIndex | null {
   }
 }
 
-function saveCache(c: CachedIndex): void {
-  lsSet(KEYS.CHEAT_INDEX_CACHE, JSON.stringify(c));
+function saveCache(platform: Platform, c: CachedIndex): void {
+  lsSet(cacheKey(platform), JSON.stringify(c));
 }

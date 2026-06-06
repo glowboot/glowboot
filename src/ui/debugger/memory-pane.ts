@@ -4,8 +4,11 @@ import { hex2, hex4, regionOf } from "./format.js";
 import type { Pane } from "./pane.js";
 
 /**
- * Memory viewer — hex grid over the full Game Boy address space plus
- * an inline editor.
+ * Memory viewer for the Game Boy / Game Boy Color engine — hex grid
+ * over the full 64 KiB address space plus an inline editor. The Game
+ * Boy Advance equivalent (`./memory-pane-gba.ts`) is segmented (BIOS
+ * / EWRAM / IWRAM / I/O / Palette / VRAM / OAM / ROM / SRAM) because
+ * the 4 GiB GBA address space is too sparse for a single scroller.
  *
  * Layout is a `<table>` of rows, 16 bytes per row, with an address
  * gutter, 16 hex-byte columns, and an ASCII sidebar. The full

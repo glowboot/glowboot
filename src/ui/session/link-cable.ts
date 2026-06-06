@@ -3,10 +3,13 @@ import { toast } from "../hud/toast.js";
 import { dispatchLinkStatus } from "./link-status.js";
 
 /**
- * Link-cable implementation over `BroadcastChannel`. Two tabs on the
- * same origin (e.g. the deployed glowboot.pages.dev) can pair up and
- * exchange serial bytes, which is enough to play 2-player Tetris or
- * trade Pokémon between two copies of the same ROM.
+ * Game Boy / Game Boy Color link-cable implementation over
+ * `BroadcastChannel`. Two tabs on the same origin (e.g. the deployed
+ * glowboot.pages.dev) can pair up and exchange serial bytes, which is
+ * enough to play 2-player Tetris or trade Pokémon between two copies
+ * of the same ROM. The Game Boy Advance equivalent
+ * (`./link-cable-gba.ts`) does halfword transfers in Multi-Player mode
+ * with a 4-slot roster.
  *
  * Protocol is deliberately minimal — a single channel carries every
  * message type, with UUIDs scoping "is this for me?" and "which

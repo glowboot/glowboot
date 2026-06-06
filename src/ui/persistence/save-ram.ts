@@ -4,8 +4,11 @@ import { idbDelete, idbGet, idbPut, STORE_SAVE_RAM } from "./storage.js";
 
 /**
  * Persist battery-backed external RAM (and, if applicable, the MBC3
- * real-time-clock sidecar) to IndexedDB so in-game saves survive page
- * reloads.
+ * real-time-clock sidecar) for the Game Boy / Game Boy Color engine
+ * to IndexedDB so in-game saves survive page reloads. The Game Boy
+ * Advance equivalent lives at `./save-ram-gba.ts` and persists SRAM /
+ * Flash / EEPROM into the same `save-ram` IDB store (cart-id
+ * namespaces keep them disjoint — see `cart-id.ts`).
  *
  * Stored as one record per cart in the shared `save-ram` object store,
  * keyed by a stable cart identifier (sanitised title + 16-bit global

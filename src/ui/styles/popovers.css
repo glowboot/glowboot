@@ -950,15 +950,23 @@ body.is-touch.popover-active .popover-close {
 }
 
 /* ─── Channel mutes ─── */
+/* Tight horizontal strip — six buttons (P1/P2/W/N/DSA/DSB) need to fit
+   inside the settings popover without forcing a horizontal scroll on
+   narrow phone viewports. Padding stays generous enough for a thumb
+   while min-width compresses single-char labels (W, N) to their text
+   width. `flex-shrink: 1` lets the strip soak up extra-tight viewports
+   without overflowing its row. */
 .mute-toggles {
   display: flex;
-  gap: 4px;
+  gap: 3px;
+  flex-shrink: 1;
 }
 .mute-btn {
   all: unset;
   cursor: pointer;
-  min-width: 28px;
-  padding: 4px 8px;
+  width: 26px;
+  padding: 4px 0;
+  box-sizing: border-box;
   text-align: center;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -976,6 +984,27 @@ body.is-touch.popover-active .popover-close {
   border-color: var(--danger-border);
   color: var(--danger-text);
   text-decoration: line-through;
+}
+/* Direct-Sound mute only applies to GBA carts — the streamed-PCM
+   audio path doesn't exist on Game Boy hardware. Hide the button
+   when a GB cart is loaded so the popover doesn't suggest a knob
+   that wouldn't do anything; `body.is-gba` flips it back on. */
+.mute-btn-ds {
+  display: none;
+}
+body.is-gba .mute-btn-ds {
+  display: inline-block;
+}
+
+/* Solar brightness is the live ambient-light value the Boktai trilogy's
+   GPIO solar sensor samples — only GBA carts can have that peripheral.
+   Same hide pattern as `.mute-btn-ds`: GB-only and no-cart states keep
+   the row out of view rather than showing a slider that does nothing. */
+.solar-brightness-row {
+  display: none;
+}
+body.is-gba .solar-brightness-row {
+  display: flex;
 }
 
 /* ═════════ Cartridge-info popover ═════════
@@ -1319,6 +1348,22 @@ body.is-touch .cheats-add button[type="submit"] {
   text-decoration: underline;
 }
 
+/* GBA cheats popover info banner — sets expectations for the limited
+   raw-code-only entry path. Same monospace key + dim accent colour as
+   the libretro-DB link in the GB path so the two popovers visually rhyme. */
+.cheats-gba-hint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--accent-dim);
+  padding: 8px 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent-dim) 60%, transparent);
+  border-radius: 6px;
+}
+.cheats-gba-hint code {
+  font-family: "JetBrains Mono", monospace;
+  color: var(--accent);
+}
+
 /* Online-search sub-panel: input + status line + scrollable list of
    ranked matches. Same glass aesthetic as the enclosing popover. */
 .cheats-search {
@@ -1441,6 +1486,40 @@ body.is-touch .cheats-add button[type="submit"] {
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 6px;
 }
+/* Width selector for the GBA scanner — same chip shape as the value
+   input above, just a different control. Reset native appearance so
+   the picker doesn't read as raw OS chrome inside the popover. */
+.cheats-scanner-width {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 3px 22px 3px 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4)
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path fill='none' stroke='%23ffffffb3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M1 1l4 4 4-4'/></svg>")
+    no-repeat right 6px center / 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cheats-scanner-width:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Width tag — shown in the active-scan status line instead of the
+   selector (width is fixed once a scan starts). Read-only chip. */
+.cheats-scanner-width-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.85);
+}
 .cheats-scanner-btn,
 .cheats-scanner-reset {
   all: unset;
@@ -1485,6 +1564,14 @@ body.is-touch .cheats-add button[type="submit"] {
   max-height: 200px;
   overflow-y: auto;
   padding-right: 2px;
+}
+/* GBA rows carry 8-char addresses + wider values + the same 5-cell
+   row layout. The 180 px GB minmax packs them two-up at typical
+   popover widths and the rightmost cells overflow into a horizontal
+   scroll. Bumping the floor to 360 px keeps one row per line on
+   narrow viewports and only re-enables two-up on extra-wide popovers. */
+.cheats-scanner-list--wide {
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
 }
 .cheats-scanner-list-row {
   display: flex;
@@ -1827,7 +1914,8 @@ body.is-touch .cheats-add button[type="submit"] {
 .slots-import,
 .bindings-reset,
 .settings-io-btn,
-.cheats-import {
+.cheats-import,
+.cart-info-save-btn {
   all: unset;
   cursor: pointer;
   padding: 4px 10px;
@@ -1844,9 +1932,17 @@ body.is-touch .cheats-add button[type="submit"] {
 .slots-import:hover,
 .bindings-reset:hover,
 .settings-io-btn:hover,
-.cheats-import:hover {
+.cheats-import:hover,
+.cart-info-save-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
+}
+/* The three save-data buttons share a row that hugs the right edge
+   like the other cart-info-row controls. */
+.cart-info-pop .cart-info-save-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
 }
 .cheats-import {
   padding: 6px 12px;
@@ -2264,6 +2360,20 @@ body.is-touch .cheat-delete {
   background: rgba(240, 240, 100, 0.1);
   color: #f0f064;
 }
+/* GBA-only segments — colours picked to read distinctly from the GB
+   region set above while keeping the same "tinted chip" pattern. */
+.mem-region-bios {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.92);
+}
+.mem-region-iwram {
+  background: rgba(120, 200, 255, 0.14);
+  color: #78c8ff;
+}
+.mem-region-pal {
+  background: rgba(220, 160, 255, 0.16);
+  color: #dca0ff;
+}
 
 /* ── Palette pane ── */
 .debugger-pane-palette {
@@ -2313,6 +2423,41 @@ body.is-touch .cheat-delete {
   border-radius: 3px;
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
+/* GBA palette grids — 256 entries per bank, laid out 16 × 16. Each
+   swatch is a small fixed-size cell with a hover outline so the user
+   can tell which entry their tooltip belongs to. Index-0 cells get a
+   subtle diagonal hint marking the "transparent" colour of each
+   4bpp 16-slot row. */
+.palette-gba-grid {
+  display: grid;
+  grid-template-columns: repeat(16, 16px);
+  grid-auto-rows: 16px;
+  gap: 1px;
+  padding: 2px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+  width: fit-content;
+}
+.palette-gba-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  outline: 1px solid transparent;
+  cursor: help;
+  transition: outline-color 80ms ease;
+}
+.palette-gba-swatch:hover {
+  outline-color: rgba(255, 255, 255, 0.7);
+}
+.palette-gba-swatch.is-transparent {
+  background-image: linear-gradient(
+    135deg,
+    transparent 45%,
+    rgba(255, 255, 255, 0.25) 45%,
+    rgba(255, 255, 255, 0.25) 55%,
+    transparent 55%
+  );
+}
 
 /* ── Tile pane ── */
 .debugger-pane-tile {
@@ -2351,6 +2496,40 @@ body.is-touch .cheat-delete {
 .tile-grid-wrap canvas {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 2px;
+}
+/* Tile-pane toolbar (GBA) — three picker selects laid out in a row
+   above the canvas. The labels are stacked above each select so a
+   narrow popover doesn't push the controls onto two lines. */
+.tile-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.tile-toolbar-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tile-toolbar-field select {
+  padding: 2px 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+.tile-toolbar-field select:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tile-grid-canvas {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  background: #000;
 }
 
 .oam-table {

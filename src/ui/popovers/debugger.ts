@@ -1,13 +1,22 @@
 import { audioPane } from "../debugger/audio-pane.js";
+import { audioPaneGba } from "../debugger/audio-pane-gba.js";
 import { breakpointsPane } from "../debugger/breakpoints-pane.js";
+import { breakpointsPaneGba } from "../debugger/breakpoints-pane-gba.js";
 import { callStackPane } from "../debugger/callstack-pane.js";
+import { callStackPaneGba } from "../debugger/callstack-pane-gba.js";
 import { cpuPane } from "../debugger/cpu-pane.js";
+import { cpuPaneGba } from "../debugger/cpu-pane-gba.js";
 import { disasmPane, scrollDisasmToPc } from "../debugger/disasm-pane.js";
+import { disasmPaneGba, scrollGbaDisasmToPc } from "../debugger/disasm-pane-gba.js";
 import { memoryPane } from "../debugger/memory-pane.js";
+import { memoryPaneGba } from "../debugger/memory-pane-gba.js";
 import { palettePane } from "../debugger/palette-pane.js";
+import { palettePaneGba } from "../debugger/palette-pane-gba.js";
 import type { Pane } from "../debugger/pane.js";
 import { symbolsPane } from "../debugger/symbols-pane.js";
+import { symbolsPaneGba } from "../debugger/symbols-pane-gba.js";
 import { tilePane } from "../debugger/tile-pane.js";
+import { tilePaneGba } from "../debugger/tile-pane-gba.js";
 import { debuggerPop, debuggerTrigger } from "../dom.js";
 import { frameAdvance, stepFrameBack, stepInstruction, togglePause } from "../session/actions.js";
 import { state } from "../state.js";
@@ -17,10 +26,16 @@ import { state } from "../state.js";
  * bar along the bottom. Panes cover CPU registers, the memory map
  * (with editor + watchpoints), live disassembly with PC tracking and
  * a breakpoint gutter, palette + tile viewers, audio scopes, the
- * synthesised call stack, and an `.sym`-loaded symbols pane.
+ * synthesised call stack, and a symbol-file viewer.
  *
- * Persistence: active-tab choice survives page reloads (sessionStorage)
- * so the user lands back where they were last looking.
+ * Two parallel pane sets — `GB_PANES` (Game Boy / Game Boy Color,
+ * imported from `../debugger/*-pane.ts`) and `GBA_PANES` (Game Boy
+ * Advance, `../debugger/*-pane-gba.ts`) — share the same `Pane`
+ * contract but render engine-specific state. `currentEngine()` picks
+ * which set is active based on whether `state.gb` or `state.gba` is
+ * live. The active-tab choice is persisted per engine (separate
+ * sessionStorage keys) so reopening the debugger after a GB ↔ GBA
+ * cart swap lands you on the right tab for each.
  *
  * Lifecycle: the pane DOM is built once the first time a pane becomes
  * active (Pane.mount). Subsequent visibility toggles hide/show without
@@ -28,7 +43,7 @@ import { state } from "../state.js";
  * only the active pane's `refresh` to keep work bounded.
  */
 
-const PANES: readonly Pane[] = [
+const GB_PANES: readonly Pane[] = [
   cpuPane,
   disasmPane,
   memoryPane,
@@ -39,7 +54,46 @@ const PANES: readonly Pane[] = [
   callStackPane,
   symbolsPane
 ];
-const ACTIVE_TAB_KEY = "gb-debugger-active-tab";
+// GBA panes: full Phase 1-4 set — CPU, Disasm, Memory, Palette, Tiles,
+// Audio, Breakpoints, Call stack, Symbols.
+const GBA_PANES: readonly Pane[] = [
+  cpuPaneGba,
+  disasmPaneGba,
+  memoryPaneGba,
+  palettePaneGba,
+  tilePaneGba,
+  audioPaneGba,
+  breakpointsPaneGba,
+  callStackPaneGba,
+  symbolsPaneGba
+];
+const ACTIVE_TAB_KEY_GB = "gb-debugger-active-tab";
+const ACTIVE_TAB_KEY_GBA = "gba-debugger-active-tab";
+
+type Engine = "gb" | "gba";
+
+function currentEngine(): Engine | null {
+  if (state.gba) return "gba";
+  if (state.gb) return "gb";
+  return null;
+}
+
+function panesForEngine(engine: Engine): readonly Pane[] {
+  return engine === "gba" ? GBA_PANES : GB_PANES;
+}
+
+function activeTabKey(engine: Engine): string {
+  return engine === "gba" ? ACTIVE_TAB_KEY_GBA : ACTIVE_TAB_KEY_GB;
+}
+
+/** Re-anchor whichever disasm pane is active to its engine's PC.
+ *  Called after every Step / Continue so stepping always brings the
+ *  user back to the live code. No-op when no engine is loaded. */
+function scrollDisasmToPcAny(): void {
+  const eng = currentEngine();
+  if (eng === "gba") scrollGbaDisasmToPc();
+  else if (eng === "gb") scrollDisasmToPc();
+}
 
 interface MountedPane {
   pane: Pane;
@@ -56,20 +110,26 @@ interface ControlRefs {
 }
 
 let mountedPanes: MountedPane[] = [];
-let activeId: string = PANES[0]!.id;
+let activeId: string = GB_PANES[0]!.id;
 let refreshRaf = 0;
-let built = false;
+/** Which engine's pane set is currently built into the DOM. `null`
+ *  before first build or after a teardown. Compared against
+ *  `currentEngine()` on every open to detect a cart swap (GB ↔ GBA)
+ *  that needs a rebuild. */
+let builtForEngine: Engine | null = null;
 let controlRefs: ControlRefs | null = null;
 
 export function openDebugger(): void {
   if (!debuggerPop) return;
-  if (!built) build();
+  const eng = currentEngine();
+  if (eng !== null && eng !== builtForEngine) build(eng);
+  else if (builtForEngine === null && eng !== null) build(eng);
   debuggerPop.classList.add("open");
   debuggerTrigger?.setAttribute("aria-expanded", "true");
   // Auto-pause on open so live CPU / memory / audio values aren't a
   // blur. The user can press Space or click ▶ to resume if they want
   // to watch state evolve.
-  if (state.gb && !state.paused) void togglePause();
+  if ((state.gb || state.gba) && !state.paused) void togglePause();
   startRefreshLoop();
 }
 
@@ -93,9 +153,10 @@ window.addEventListener("resize", () => {
   }
 });
 
-function build(): void {
+function build(engine: Engine): void {
   if (!debuggerPop) return;
   debuggerPop.innerHTML = "";
+  const panes = panesForEngine(engine);
 
   const layout = document.createElement("div");
   layout.className = "debugger-layout";
@@ -110,7 +171,7 @@ function build(): void {
   const paneHost = document.createElement("div");
   paneHost.className = "debugger-pane-host";
 
-  mountedPanes = PANES.map((pane) => {
+  mountedPanes = panes.map((pane) => {
     const container = document.createElement("div");
     container.className = "debugger-pane-container";
     container.id = `debugger-panel-${pane.id}`;
@@ -144,7 +205,7 @@ function build(): void {
     const key = e.key;
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(key)) return;
     e.preventDefault();
-    const ids = PANES.map((p) => p.id);
+    const ids = panes.map((p) => p.id);
     const idx = ids.indexOf(activeId);
     let next = idx;
     if (key === "ArrowLeft") next = (idx - 1 + ids.length) % ids.length;
@@ -161,13 +222,13 @@ function build(): void {
 
   debuggerPop.appendChild(buildControls());
 
-  // Flip `built` before the first `setActive` — the guard inside that
-  // function bails when `!built`, so calling it before would silently
-  // skip the initial tab activation and leave every pane hidden.
-  built = true;
+  // Flip `builtForEngine` before the first `setActive` — the guard
+  // inside that function bails when `builtForEngine === null`, so
+  // calling it before would silently skip the initial tab activation.
+  builtForEngine = engine;
 
-  const stored = sessionStorage.getItem(ACTIVE_TAB_KEY);
-  const initial = stored && PANES.some((p) => p.id === stored) ? stored : PANES[0]!.id;
+  const stored = sessionStorage.getItem(activeTabKey(engine));
+  const initial = stored && panes.some((p) => p.id === stored) ? stored : panes[0]!.id;
   setActive(initial);
 }
 
@@ -176,12 +237,12 @@ function buildControls(): HTMLElement {
   bar.className = "debugger-controls";
 
   // Every control-bar action also re-anchors the disasm view on PC
-  // so the user's scroll position follows the step. `scrollDisasmToPc`
-  // is a no-op on panes other than disasm, so it's cheap to call
-  // unconditionally.
+  // so the user's scroll position follows the step. The Any helper
+  // picks the GB or GBA disasm pane based on the active engine; both
+  // are no-ops if the disasm pane hasn't been mounted yet.
   const afterAction = (): void => {
     refreshActive();
-    scrollDisasmToPc();
+    scrollDisasmToPcAny();
   };
 
   // Label is rewritten on every `updateStatus` tick to reflect the
@@ -226,10 +287,10 @@ function ctrlBtn(label: string, title: string, onClick: () => void): HTMLButtonE
 }
 
 function setActive(id: string): void {
-  if (!built) return;
+  if (builtForEngine === null) return;
   activeId = id;
   try {
-    sessionStorage.setItem(ACTIVE_TAB_KEY, id);
+    sessionStorage.setItem(activeTabKey(builtForEngine), id);
   } catch {
     /* ignore */
   }
@@ -279,8 +340,8 @@ function refreshActive(): void {
 
 function updateStatus(): void {
   if (!controlRefs) return;
-  const gb = state.gb;
-  if (!gb) {
+  const engineActive = state.gb !== null || state.gba !== null;
+  if (!engineActive) {
     controlRefs.status.textContent = "No ROM";
     // No ROM = all actions meaningless. Disable everything except the
     // status indicator itself.

@@ -20,24 +20,28 @@
  * Usage:
  *   const audio = new AudioOutput();
  *   await audio.resume(); // must be called inside a user-gesture handler
- *   // In the per-frame callback:
- *   audio.schedule(gb.apu.outLeft, gb.apu.outRight, gb.apu.outPos);
- *   gb.apu.outPos = 0;
+ *   // Engine-side: both GameBoy and Gba fire `onAudioFrame(left, right,
+ *   // count)` once per emulated frame with their APU's stereo buffer:
+ *   engine.onAudioFrame = (left, right, count) => audio.schedule(left, right, count);
+ *
+ * The schedule signature is engine-agnostic; the same `AudioOutput`
+ * instance serves both the Game Boy and Game Boy Advance engines.
  */
 export type AudioMode = "studio" | "gb-speaker" | "warm-headphones" | "bright" | "boombox" | "cassette" | "hall-reverb";
 
-// Sorted alphabetically by display name to match the render-mode
-// dropdown convention. Ids mirror their display names (kebab-case)
-// for a uniform pattern; "studio" is the no-op pass-through default,
-// using the listening-context metaphor the other names follow
-// (studio reference monitors = flat frequency response, no colour).
+// "Original" — the no-op pass-through default — sits first; the rest
+// are sorted alphabetically. The internal id stays as "studio" so
+// existing `gb-audio-mode=studio` localStorage values keep working;
+// only the user-visible label changed to "Original" to mirror the
+// matching render-mode label and make the no-post-processor option
+// obvious in the UI.
 export const AUDIO_MODES: readonly { id: AudioMode; name: string }[] = [
+  { id: "studio", name: "Original" },
   { id: "boombox", name: "Boombox" },
   { id: "bright", name: "Bright & crisp" },
   { id: "cassette", name: "Cassette tape" },
   { id: "gb-speaker", name: "Game Boy speaker" },
   { id: "hall-reverb", name: "Hall reverb" },
-  { id: "studio", name: "Studio" },
   { id: "warm-headphones", name: "Warm headphones" }
 ];
 
@@ -294,10 +298,12 @@ export class AudioOutput {
   }
 
   /** Line-out / headphones EQ: warmer bass + tame the harsh upper
-   *  midrange of square waves + roll off the brittle top. The Game Boy's
-   *  spectrum sits almost entirely between 100 Hz and 4 kHz, so subtle
-   *  shelves at the spectrum edges are inaudible — the cut needs to
-   *  land inside the band. */
+   *  midrange of square waves + roll off the brittle top. The Game Boy
+   *  PSG sits almost entirely between 100 Hz and 4 kHz, so subtle
+   *  shelves at the spectrum edges are inaudible there — the cut needs
+   *  to land inside the band. GBA carts whose music is driven by the
+   *  Direct Sound FIFOs do have content above 4 kHz, so the highshelf
+   *  audibly affects them; the shape was tuned for both cases. */
   private buildWarmHeadphonesGraph(ctx: BaseAudioContext): AudioModeGraph {
     const lowShelf = ctx.createBiquadFilter();
     lowShelf.type = "lowshelf";
@@ -567,11 +573,15 @@ function rms(samples: Float32Array): number {
 
 /** Generate a band-limited noise reference signal for `calibrateLoudness`.
  *  Two pole low-pass filters approximate a 1/f-ish spectrum focused on
- *  the GB band (~80 Hz to ~5 kHz at 44.1 kHz). RMS-normalised to 0.3
- *  so peaks hit the soft-clip nonlinearity at roughly the same drive
- *  level real GB content does — a calibration signal that stays below
- *  every saturator's threshold would systematically under-measure the
- *  modes that use soft-clip. */
+ *  the Game Boy PSG band (~80 Hz to ~5 kHz at 44.1 kHz). GBA Direct
+ *  Sound content has wider spectrum, but the loudness trim only needs
+ *  to align modes against each other — the same calibration signal
+ *  passes through every chain, so the inter-mode ratio holds for any
+ *  reasonable input distribution. RMS-normalised to 0.3 so peaks hit
+ *  the soft-clip nonlinearity at roughly the same drive level real
+ *  emulator output does — a calibration signal that stays below every
+ *  saturator's threshold would systematically under-measure the modes
+ *  that use soft-clip. */
 function makeCalibrationSignal(length: number): Float32Array {
   const buf = new Float32Array(length);
   let lp1 = 0;

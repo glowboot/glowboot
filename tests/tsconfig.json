@@ -1,0 +1,19 @@
+{
+  // Per-directory tsconfig so VSCode / TS Server picks the right
+  // compiler options for `tests/*.ts` ROM-runner scripts. The root
+  // `tsconfig.json` is scoped to `src/` for the build output and
+  // doesn't include this directory, so without this file the IDE
+  // falls back to default options and surfaces phantom errors
+  // (e.g. `Property 'joypad' does not exist on type 'Gba'`).
+  //
+  // Wired into `npm run typecheck` as the fourth tsc pass.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // Parent's rootDir is `src/`; widen to the repo root so tests
+    // can import from src/ without "input outside rootDir" errors.
+    "rootDir": ".."
+  },
+  "include": ["**/*.ts", "../src/gba/**/*.ts", "../src/gb/**/*.ts"],
+  "exclude": ["../src/gb/globals.d.ts", "../src/gba/globals.d.ts", "../src/**/*.test.ts"]
+}

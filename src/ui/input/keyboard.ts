@@ -11,7 +11,11 @@ import { state } from "../state.js";
  * Global keyboard routing:
  *   - digit 0-9 (plain / Shift) → save-state slots
  *   - bound hotkeys (pause / turbo / rewind / screenshot / record / reset)
- *   - anything else that matches a bound Game Boy button → joypad
+ *   - anything that matches a bound joypad button (the eight shared
+ *     D-pad + A/B/Start/Select keys) → the active engine's joypad
+ *   - GBA-only shoulders L / R → `state.gba.joypad` when a GBA cart
+ *     is loaded; ignored under a GB cart so the same key can stay
+ *     bound across sessions without surprises
  *
  * Hotkeys are intentionally limited to in-game actions. Popover-opening
  * shortcuts (Settings / Library / Slots / Cheats / Debugger / Printer)
@@ -92,11 +96,23 @@ window.addEventListener("keydown", (e) => {
   const action = BindingsUI.codeToHotkey[e.code];
   if (action && dispatchHotkey(action, e)) return;
 
-  // Joypad — fall through to last.
+  // Joypad — fall through to last. Dispatch to whichever engine is
+  // active (only one of state.gb / state.gba is non-null at a time).
   const btn = BindingsUI.codeToButton[e.code];
   if (btn) {
     e.preventDefault();
     state.gb?.joypad.press(btn);
+    state.gba?.joypad.press(btn);
+  }
+
+  // GBA shoulders — only meaningful when a GBA cart is loaded. The key
+  // routing happens after GB-button dispatch so a code bound to both
+  // (e.g. user deliberately overlapped) still feeds the engine that
+  // can use either.
+  const shoulder = BindingsUI.codeToShoulder[e.code];
+  if (shoulder && state.gba) {
+    e.preventDefault();
+    state.gba.joypad.press(shoulder);
   }
 });
 
@@ -116,5 +132,11 @@ window.addEventListener("keyup", (e) => {
   if (btn) {
     e.preventDefault();
     state.gb?.joypad.release(btn);
+    state.gba?.joypad.release(btn);
+  }
+  const shoulder = BindingsUI.codeToShoulder[e.code];
+  if (shoulder && state.gba) {
+    e.preventDefault();
+    state.gba.joypad.release(shoulder);
   }
 });

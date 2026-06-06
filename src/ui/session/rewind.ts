@@ -3,6 +3,7 @@ import { formatTime } from "../format.js";
 import { announce } from "../hud/announce.js";
 import { audio, renderer, state } from "../state.js";
 import { startPacing, stopPacing } from "./pacing.js";
+import { pauseGbaSession, resumeGbaSession } from "./runtime-gba.js";
 
 /**
  * `Backspace`-held rewind scrubber. Stops normal emulation and walks the
@@ -28,11 +29,15 @@ let lastStepAt = 0;
 let rewindStartElapsedMs = 0;
 
 export function startRewind(): void {
-  const gb = state.gb;
+  const engine = state.gb ?? state.gba;
   const rewinder = state.rewinder;
-  if (state.rewinding || !gb || !rewinder) return;
+  if (state.rewinding || !engine || !rewinder) return;
   state.rewinding = true;
+  // Halt whichever engine is running. Each pacer is a no-op when its
+  // engine isn't the active one, so calling both is safe and avoids
+  // branching here.
   stopPacing();
+  pauseGbaSession();
   void audio.suspend();
   rewinder.stop();
   overlayRewind?.classList.add("active");
@@ -46,7 +51,7 @@ export function startRewind(): void {
 }
 
 function stepRewindLoop(): void {
-  if (!state.rewinding || !state.gb) return;
+  if (!state.rewinding || (!state.gb && !state.gba)) return;
   const now = performance.now();
   if (now - lastStepAt >= STEP_MS) {
     const restored = state.rewinder?.step();
@@ -62,8 +67,9 @@ function stepRewindLoop(): void {
       // Render the captured framebuffer from the snapshot rather than
       // the engine's live one — loadState restores VRAM/OAM/regs but
       // not the pre-rendered pixel buffer, so the live framebuffer
-      // would still show the pre-rewind frame. Using the captured copy
-      // gives the user a real preview of where in history they landed.
+      // would still show the pre-rewind frame. Both GB and GBA flow
+      // through the renderer abstraction, which is sized to the
+      // active engine's framebuffer.
       renderer.render(restored.meta.framebuffer);
       // Surface the scrub distance in the overlay so the user can
       // judge when to let go. One decimal keeps the label steady at
@@ -80,7 +86,8 @@ function stepRewindLoop(): void {
 
 export async function endRewind(): Promise<void> {
   const gb = state.gb;
-  if (!state.rewinding || !gb) return;
+  const gba = state.gba;
+  if (!state.rewinding || (!gb && !gba)) return;
   cancelAnimationFrame(state.rewindRaf);
   state.rewinding = false;
   overlayRewind?.classList.remove("active");
@@ -90,6 +97,7 @@ export async function endRewind(): Promise<void> {
   if (statusEl) statusEl.textContent = state.paused ? "Paused" : "Running";
   if (!state.paused) {
     await audio.resume();
-    startPacing(gb);
+    if (gb) startPacing(gb);
+    else if (gba) resumeGbaSession();
   }
 }

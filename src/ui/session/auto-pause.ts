@@ -24,9 +24,13 @@ function enabled(): boolean {
   return lsGet(KEYS.AUTO_PAUSE) !== "0";
 }
 
+function activeEngine(): boolean {
+  return state.gb !== null || state.gba !== null;
+}
+
 window.addEventListener("blur", () => {
   if (!enabled()) return;
-  if (!state.gb || state.paused) return;
+  if (!activeEngine() || state.paused) return;
   state.autoPausedOnBlur = true;
   void togglePause();
 });
@@ -34,6 +38,6 @@ window.addEventListener("blur", () => {
 window.addEventListener("focus", () => {
   if (!state.autoPausedOnBlur) return;
   state.autoPausedOnBlur = false;
-  if (!state.gb || !state.paused) return;
+  if (!activeEngine() || !state.paused) return;
   void togglePause();
 });

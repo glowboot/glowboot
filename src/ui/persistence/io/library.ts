@@ -86,7 +86,7 @@ function jsonToRecord(rec: Record<string, unknown>): Record<string, unknown> {
 /** Serialise every IDB store into a single JSON string. Async because it
  *  has to wait on IDB reads; the result is held fully in memory before
  *  download, which is fine for the sizes this app deals with. */
-export async function exportLibrary(): Promise<string> {
+async function exportLibrary(): Promise<string> {
   await openDb();
   const [roms, saveRam, saveStates, cheats, printouts] = await Promise.all([
     idbGetAll<Record<string, unknown>>(STORE_ROMS),
@@ -119,7 +119,8 @@ export async function downloadLibrary(): Promise<void> {
   const blob = new Blob([json], { type: "application/json" });
   const stamp = new Date().toISOString().slice(0, 10);
   const filename = `gameboy-library-${stamp}.json`;
-  if (await saveBlobNative(blob, filename)) return;
+  const share = await saveBlobNative(blob, filename);
+  if (share === "shared" || share === "cancelled") return;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

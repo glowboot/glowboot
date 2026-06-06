@@ -22,7 +22,7 @@
  * The stack is process-global, mirroring the breakpoint registry.
  */
 
-export type FrameKind = "call" | "rst" | "irq";
+type FrameKind = "call" | "rst" | "irq";
 
 export interface CallFrame {
   /** Address of the CALL/RST/IRQ instruction itself (where the push happened). */

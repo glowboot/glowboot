@@ -3,10 +3,13 @@ import { toast } from "../hud/toast.js";
 import { dispatchLinkStatus } from "./link-status.js";
 
 /**
- * Remote link-cable implementation. Two peers connect a WebSocket to a
- * room-coded relay (separate repo / Worker; URL comes in via
- * `VITE_LINK_RELAY_URL`); the relay pairs them and forwards messages
- * verbatim. We use the WebSocket for signalling only — once
+ * Remote link-cable implementation for the Game Boy / Game Boy Color
+ * engine. The Game Boy Advance equivalent (`./webrtc-link-gba.ts`)
+ * is the same shape but ships 16-bit halfwords + a 4-slot
+ * Multi-Player result instead of single bytes. Two peers connect a
+ * WebSocket to a room-coded relay (separate repo / Worker; URL comes
+ * in via `VITE_LINK_RELAY_URL`); the relay pairs them and forwards
+ * messages verbatim. We use the WebSocket for signalling only — once
  * the peers exchange SDP offer/answer + ICE candidates, an
  * `RTCDataChannel` opens and serial bytes flow peer-to-peer over UDP.
  *

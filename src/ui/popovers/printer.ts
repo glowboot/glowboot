@@ -286,8 +286,13 @@ async function saveCanvas(canvas: HTMLCanvasElement, record: StoredPrintout, ind
   const safeTitle = cartTitle.replace(/[^A-Za-z0-9_.-]/g, "_") || "gameboy";
   const stamp = new Date(record.savedAt).toISOString().replace(/[:.]/g, "-");
   const filename = `${safeTitle}-print${index + 1}-${stamp}.png`;
-  if (await saveBlobNative(blob, filename)) {
+  const share = await saveBlobNative(blob, filename);
+  if (share === "shared") {
     toast("Print ready to share");
+    return;
+  }
+  if (share === "cancelled") {
+    toast("Print cancelled");
     return;
   }
   const url = URL.createObjectURL(blob);
