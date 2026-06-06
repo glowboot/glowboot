@@ -1,7 +1,7 @@
 import { cheatsPop } from "../dom.js";
 import { closeCartInfo, closeCheats, closeRecents, closeSettings, closeSlots, openCheats } from "../popovers";
 import { resetCart } from "../rom-loader.js";
-import { cycleSpeed, takeScreenshot, togglePause, toggleRecording } from "../session/actions.js";
+import { cycleSpeed, takeScreenshot, togglePause, toggleRecording, translateScreen } from "../session/actions.js";
 import { endRewind, startRewind } from "../session/rewind.js";
 
 /**
@@ -31,6 +31,9 @@ function dispatch(action: string): void {
       return;
     case "record":
       toggleRecording();
+      return;
+    case "translate":
+      translateScreen();
       return;
     case "reset":
       void resetCart();

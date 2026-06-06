@@ -2,7 +2,7 @@ import { inTextInput, inUiControl, slotFromCode } from "../format.js";
 import { toggleShortcutHint } from "../hud/shortcut-hint.js";
 import { doLoadState, doSaveState } from "../popovers";
 import { resetCart } from "../rom-loader.js";
-import { cycleSpeed, takeScreenshot, togglePause, toggleRecording } from "../session/actions.js";
+import { cycleSpeed, takeScreenshot, togglePause, toggleRecording, translateScreen } from "../session/actions.js";
 import { endRewind, startRewind } from "../session/rewind.js";
 import * as BindingsUI from "../settings";
 import { state } from "../state.js";
@@ -36,7 +36,11 @@ function dispatchHotkey(action: string, e: KeyboardEvent): boolean {
   switch (action) {
     case "screenshot":
       e.preventDefault();
-      void takeScreenshot();
+      takeScreenshot();
+      return true;
+    case "translate":
+      e.preventDefault();
+      translateScreen();
       return true;
     case "record":
       e.preventDefault();

@@ -3,6 +3,9 @@ import { parseGbaHeader } from "../../gba";
 import { canvas, consoleEl, fsBtn, overlayFlash, recBadge, speedEl, statusEl, touchSpeedLabelEl } from "../dom.js";
 import { announce } from "../hud/announce.js";
 import { toast } from "../hud/toast.js";
+import { defaultTranslateTarget } from "../ocr/languages.js";
+import { openTranslateOverlay } from "../ocr/translate-overlay.js";
+import { KEYS, lsGet } from "../persistence/local-storage.js";
 import { audio, renderer, setPaused, state } from "../state.js";
 import { startPacing, stopPacing } from "./pacing.js";
 import { flushPlayTime, startPlayTimer } from "./play-time.js";
@@ -248,6 +251,43 @@ export function takeScreenshot(): void {
     () => {
       if (pausedForModal && state.paused) void togglePause();
     }
+  );
+}
+
+/** Pause the emulator only while the (main-thread) OCR/translation runs,
+ *  so the inference doesn't stutter the render loop. Tracks whether *we*
+ *  paused so a pre-existing manual pause survives, and so overlapping
+ *  triggers don't resume prematurely. */
+let pausedForTranslate = false;
+function setTranslateBusy(busy: boolean): void {
+  if (busy) {
+    if (!state.paused) {
+      pausedForTranslate = true;
+      void togglePause();
+    }
+  } else if (pausedForTranslate) {
+    pausedForTranslate = false;
+    if (state.paused) void togglePause();
+  }
+}
+
+/** Read + translate the on-screen text into the user's target language,
+ *  shown in an overlay panel. Each press captures the CURRENT frame and
+ *  (re)opens the overlay, so triggering again after the screen changes
+ *  re-translates the new screen. The emulator is paused only during the
+ *  compute (see `setTranslateBusy`); reading the result runs unpaused. */
+export function translateScreen(): void {
+  const fb = state.gb ? state.gb.ppu.framebuffer : state.gba ? state.gba.framebuffer : null;
+  if (!fb) return;
+  const width = state.gb ? 160 : 240;
+  const height = state.gb ? 144 : 160;
+  const target = (lsGet(KEYS.TRANSLATE_TARGET) ?? "").trim() || defaultTranslateTarget();
+  openTranslateOverlay(
+    new Uint8ClampedArray(fb.subarray(0, width * height * 4)),
+    width,
+    height,
+    target,
+    setTranslateBusy
   );
 }
 

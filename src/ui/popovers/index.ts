@@ -113,6 +113,10 @@ function activeEntry(): PopoverEntry | null {
 function openEntry(entry: PopoverEntry): void {
   if (!entry.pop) return;
   previousFocus = document.activeElement as HTMLElement | null;
+  // Let transient docked overlays (e.g. the translate overlay) dismiss
+  // themselves so they don't float above the popover. Listener is in
+  // translate-overlay.ts.
+  window.dispatchEvent(new Event("gb-popover-open"));
   entry.open();
   // Wait for the popover's render() to finish before querying for
   // focusable children — most popovers rebuild their DOM inside open().

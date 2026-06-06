@@ -44,6 +44,8 @@ import {
   touchScaleSlider,
   touchSelect,
   touchSpacingSlider,
+  translateDownloadBtn,
+  translateTargetSelect,
   volumeSlider
 } from "../dom.js";
 import { confirmAction } from "../hud/modal.js";
@@ -57,6 +59,18 @@ import {
   saveTouchLayout,
   type TouchLayout
 } from "../input/touch-layout.js";
+import { defaultTranslateTarget, languageName, READ_ORIGINAL, TRANSLATE_LANGUAGES } from "../ocr/languages.js";
+import {
+  clearMtDownloaded,
+  isMtDownloaded,
+  isMtLanguageSupported,
+  isMtSupported,
+  MT_DOWNLOADED_EVENT,
+  MT_MODEL_SIZE_MB,
+  type MtProgress,
+  prepareMt
+} from "../ocr/mt.js";
+import { translateAvailability } from "../ocr/translate.js";
 import { downloadLibrary, importLibrary } from "../persistence/io/library.js";
 import { downloadSettings, importSettings } from "../persistence/io/settings.js";
 import { KEYS, lsGet, lsRemove, lsSet } from "../persistence/local-storage.js";
@@ -635,6 +649,111 @@ function loadGrade(): ColorGrade {
   }
   onSectionReset("behavior", () => {
     if (el) el.checked = true;
+  });
+}
+
+// ─── Translate-screen target language ────────────────────────────────────
+// Target language for the on-screen translate overlay (Translate hotkey).
+// Options are built from the shared TRANSLATE_LANGUAGES list (the Chrome
+// Translator API set) so the dropdown and the overlay's label can't drift.
+// translate-overlay.ts reads `gb-translate-target` at trigger time, so this
+// block only manages the dropdown state. Defaults to Portuguese.
+{
+  const el = translateTargetSelect;
+  const dl = translateDownloadBtn;
+
+  // A small download button sits next to the dropdown and appears ONLY
+  // when the selected language needs an offline model — i.e. a non-Chromium
+  // browser (no built-in Translator API) where that language isn't
+  // downloaded yet. Chrome/Edge (built-in) and already-downloaded languages
+  // show no button; "Don't translate" shows none either.
+  function hideDl(): void {
+    if (!dl) return;
+    dl.hidden = true;
+    dl.disabled = false;
+    dl.classList.remove("downloading");
+    dl.style.removeProperty("--dl-progress");
+  }
+  function showDl(code: string): void {
+    if (!dl) return;
+    dl.hidden = false;
+    dl.disabled = false;
+    dl.classList.remove("downloading");
+    dl.style.removeProperty("--dl-progress");
+    dl.textContent = "⤓";
+    const label = `Download ${languageName(code)} for offline translation (~${MT_MODEL_SIZE_MB} MB)`;
+    dl.title = label;
+    dl.setAttribute("aria-label", label);
+  }
+  function startDownload(code: string): void {
+    if (!dl) return;
+    dl.disabled = true;
+    dl.classList.add("downloading");
+    dl.style.setProperty("--dl-progress", "0%");
+    dl.title = `Downloading ${languageName(code)}…`;
+    void prepareMt(code, (p: MtProgress) => {
+      if (el?.value === code && p.status === "progress" && typeof p.progress === "number") {
+        const pct = Math.round(p.progress);
+        dl.style.setProperty("--dl-progress", `${pct}%`);
+        dl.title = `Downloading ${languageName(code)}… ${pct}%`;
+      }
+    })
+      .then(() => {
+        if (el?.value === code) void refreshAvailability(); // downloaded → button hides
+      })
+      .catch((err: unknown) => {
+        console.warn("[MT] download failed:", err);
+        if (el?.value !== code) return;
+        dl.classList.remove("downloading");
+        dl.style.removeProperty("--dl-progress");
+        dl.disabled = false;
+        dl.textContent = "⚠";
+        dl.title = "Download failed — click to retry";
+      });
+  }
+  async function refreshAvailability(): Promise<void> {
+    if (!el || !dl) return;
+    hideDl();
+    const value = el.value;
+    if (value === READ_ORIGINAL) return;
+    const state = await translateAvailability(value);
+    if (el.value !== value) return; // selection changed mid-await; a newer call will render
+    const apiOk = state === "available" || state === "downloadable" || state === "downloading";
+    // Show the button only when there's an offline model to fetch and it
+    // isn't fetched yet, and the browser can't translate natively.
+    if (!apiOk && isMtLanguageSupported(value) && isMtSupported() && !isMtDownloaded(value)) showDl(value);
+  }
+
+  if (el) {
+    el.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = READ_ORIGINAL;
+    none.textContent = "Don't translate — read aloud";
+    el.appendChild(none);
+    for (const lang of TRANSLATE_LANGUAGES) {
+      const opt = document.createElement("option");
+      opt.value = lang.code;
+      opt.textContent = lang.name;
+      el.appendChild(opt);
+    }
+    el.value = INIT_LS[KEYS.TRANSLATE_TARGET] ?? defaultTranslateTarget();
+    el.addEventListener("change", () => {
+      lsSet(KEYS.TRANSLATE_TARGET, el.value);
+      void refreshAvailability();
+    });
+    void refreshAvailability();
+  }
+  dl?.addEventListener("click", () => {
+    if (el && isMtLanguageSupported(el.value)) startDownload(el.value);
+  });
+  // A model may also be downloaded from the translate overlay's inline
+  // button — refresh so the indicator stops offering a download.
+  window.addEventListener(MT_DOWNLOADED_EVENT, () => void refreshAvailability());
+
+  onSectionReset("behavior", () => {
+    if (el) el.value = defaultTranslateTarget();
+    clearMtDownloaded();
+    void refreshAvailability();
   });
 }
 

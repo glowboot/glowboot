@@ -18,6 +18,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   from a version-pinned CDN — neither touches the main bundle or first
   page load; both are fetched only on first use and cached after, and a
   delivery failure only disables Enhance.
+- **Translate the screen (experimental)** — a Translate hotkey (or the
+  touch-toolbar button) reads the on-screen text (PaddleOCR PP-OCRv5),
+  translates it into your chosen language, and can read it aloud, in a
+  non-blocking overlay. Three-tier, capability-detected routing: the
+  Chromium **Translator API** (Chrome/Edge, instant, no download) → an
+  **offline per-language Opus-MT model** via transformers.js (opt-in,
+  ~100 MB/language, downloadable from Settings or inline, cached, any
+  browser) → **read-aloud** fallback (Web Speech API). 19 languages are
+  available offline (so they work in every browser); a "Don't translate —
+  read aloud" mode works everywhere. Everything is on-device — no server,
+  no API key, no text or image leaves the browser. The runtime libraries
+  load from a version-pinned CDN and the models from our own Hugging Face
+  repos; neither touches the main bundle.
 
 ## [1.1.0] — 2026-06-06
 
