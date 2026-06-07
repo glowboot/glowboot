@@ -126,7 +126,16 @@ export const KEYS = {
   SETTINGS_COLLAPSED: "gb-settings-collapsed",
 
   // ─── Cheats ────────────────────────────────────────────────────────
-  CHEAT_INDEX_CACHE: "gb-cht-index"
+  CHEAT_INDEX_CACHE: "gb-cht-index",
+
+  // ─── AI ────────────────────────────────────────────────────────────
+  /** Target language (BCP-47) for the on-screen translate overlay.
+   *  Browser-language default when unset. */
+  TRANSLATE_TARGET: "gb-translate-target",
+  /** JSON array of target-language codes whose offline Opus-MT model the
+   *  user has downloaded (~100 MB each) — enables translation in browsers
+   *  without the Chromium Translator API. */
+  MT_DOWNLOADED: "gb-mt-downloaded"
 } as const;
 
 /** Symbols-pane keys are per-cart and use a shared prefix; the cart

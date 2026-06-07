@@ -40,7 +40,15 @@ device, works on desktop and phones.
 - **Speed it up or slow it down** — cycle between slow-motion, normal,
   2×, and 4× speed.
 - **Record gameplay** — save a screenshot (PNG) or a video of what's on
-  screen.
+  screen. Screenshots open a preview where you can **enhance with AI** —
+  a neural upscaler renders a 4× version with cleaned-up edges and
+  gradients, shown as a before/after you can drag-compare.
+- **Translate the screen (experimental)** — press the Translate hotkey (or
+  tap the Translate button in the touch toolbar) to read the on-screen
+  text, translate it into your language, and optionally hear it read aloud. Everything runs on-device: no server, no API key.
+  Chrome/Edge translate instantly with the built-in translator; other
+  browsers can opt into a small on-device translation model. Where
+  translation isn't available it falls back to reading the text aloud.
 - **Cheats** — paste Game Genie or Game Shark codes on Game Boy,
   GameShark or CodeBreaker codes on Game Boy Advance, or search an
   online database by game title.
@@ -983,6 +991,7 @@ src/
     │   ├── pacing.ts         #     requestAnimationFrame-driven frame pacer
     │   ├── play-time.ts      #     Cumulative play-time tracker + 30 s flush interval
     │   ├── screenshot.ts     #     canvas.toBlob → PNG download
+    │   ├── screenshot-preview.ts # Screenshot modal + AI-enhance before/after flow
     │   ├── recording.ts      #     MediaRecorder-based canvas + audio video capture
     │   ├── patches.ts        #     IPS / BPS patch application
     │   └── palettes.ts       #     DMG palette presets + localStorage persistence
@@ -992,6 +1001,15 @@ src/
     │   ├── webgl.ts          #     WebGL shader renderer + FBO plumbing
     │   ├── shaders.ts        #     VERT_SRC, GRADE_*, all FRAG_* shader sources, registry
     │   └── temporal.ts       #     Pixel-response temporal blender (shared by both)
+    ├── upscale/              #   AI screenshot upscaler
+    │   └── upscaler.ts       #     PixelPerfect ×4 ESRGAN via ONNX Runtime Web (lazy; model + runtime fetched on first use)
+    ├── ocr/                  #   AI "translate the screen" (read → translate → speak), all on-device
+    │   ├── ocr.ts            #     On-screen text recognition (PaddleOCR PP-OCRv5 via ppu-paddle-ocr; lib from CDN, models from our HF)
+    │   ├── translate.ts      #     Chromium Translator API backend (Chrome/Edge) + availability detection
+    │   ├── mt.ts             #     Offline backend — per-language Opus-MT via transformers.js (opt-in; models from our HF)
+    │   ├── narrate.ts        #     Text-to-speech via the Web Speech API (voice selection)
+    │   ├── languages.ts      #     Supported target languages (kept in sync with mt.ts model map)
+    │   └── translate-overlay.ts # Overlay flow + three-tier routing (API → offline → read-aloud)
     ├── styles/               #   Stylesheets, imported by main.ts in cascade order
     │   ├── base.css          #     Reset, layout, header, responsive ladder, toast
     │   ├── themes.css        #     Aurora / Caustics / Starfield animated backgrounds
@@ -1211,6 +1229,21 @@ entirely.
   hosted on GitHub (mirrored via jsdelivr) as a single JSON fetch —
   no auth, no cookies. Pasting Game Genie / Game Shark codes by hand,
   or importing a `.cht` file, never touches the network.
+- **AI screenshot enhancer.** The first time you click "Enhance with
+  AI" on a screenshot, the browser downloads the upscaler model (~32 MB,
+  from a Hugging Face repo) and the ONNX runtime (from the jsdelivr CDN).
+  No image data leaves your device — the upscale runs entirely in your
+  browser. Both downloads are one-time and cached; if either fails,
+  Enhance is simply unavailable and the rest of the app is unaffected.
+- **Translate the screen.** The text-recognition model and, where used,
+  the offline translation model are downloaded from our own Hugging Face
+  repos on first use and cached (the runtimes load from a pinned CDN);
+  translation otherwise uses your browser's built-in translator
+  (Chrome/Edge). The captured frame and the recognised/translated text
+  **never leave your device** — recognition, translation, and text-to-
+  speech all run locally. No server, no API key. If a download fails, the
+  feature degrades to reading the text aloud, or is simply unavailable; the
+  rest of the app is unaffected.
 
 That's the entire list. The webcam stream (when you load the Game
 Boy Camera cart), the link-cable bytes (when paired), and every byte
@@ -1303,6 +1336,35 @@ fleroviux. Same authorship caveat applies: every line under
 `src/gba/` is original TypeScript, but the design decisions and the
 list of "things you didn't know existed until they hit your test
 suite" came from those projects. Thank you to their authors.
+
+The **AI screenshot upscaler** runs the
+[PixelPerfectV4](https://openmodeldb.info/models/4x-PixelPerfectV4)
+sprite-upscaling model (ESRGAN architecture, WTFPL), converted to ONNX
+and quantised to fp16; Real-ESRGAN, the architecture it builds on, is by
+Xintao Wang et al. (BSD-3-Clause). The model is hosted off-repo on
+Hugging Face (it exceeds Cloudflare Pages' 25 MiB per-file limit) and
+fetched at runtime; `VITE_UPSCALE_MODEL_URL` overrides the source.
+Inference uses
+[ONNX Runtime Web](https://onnxruntime.ai/) (Microsoft, MIT), loaded at
+runtime from a version-pinned CDN. A delivery failure for either only
+disables Enhance — the emulator is unaffected.
+
+The **translate-the-screen** feature stands on several open-source
+projects. The runtime libraries load from a version-pinned CDN (never
+bundled); the model files are mirrored on our own Hugging Face org (via a
+maintainer-only mirror script) so the feature doesn't depend on third-party
+hosts. Text recognition uses
+[PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) (PP-OCRv5,
+Apache-2.0) via
+[ppu-paddle-ocr](https://github.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr);
+offline translation uses the
+[Helsinki-NLP Opus-MT](https://github.com/Helsinki-NLP/Opus-MT) models
+(Jörg Tiedemann et al., CC-BY-4.0), ONNX-converted by
+[Xenova](https://huggingface.co/Xenova) and run through
+[transformers.js](https://github.com/huggingface/transformers.js) (Hugging
+Face, Apache-2.0). In Chrome/Edge it uses the browser's built-in on-device
+Translator API instead; text-to-speech uses the built-in Web Speech API.
+Recognition is experimental and varies by game font.
 
 ## License
 

@@ -3,12 +3,16 @@ import { parseGbaHeader } from "../../gba";
 import { canvas, consoleEl, fsBtn, overlayFlash, recBadge, speedEl, statusEl, touchSpeedLabelEl } from "../dom.js";
 import { announce } from "../hud/announce.js";
 import { toast } from "../hud/toast.js";
+import { defaultTranslateTarget } from "../ocr/languages.js";
+import { openTranslateOverlay } from "../ocr/translate-overlay.js";
+import { KEYS, lsGet } from "../persistence/local-storage.js";
 import { audio, renderer, setPaused, state } from "../state.js";
 import { startPacing, stopPacing } from "./pacing.js";
 import { flushPlayTime, startPlayTimer } from "./play-time.js";
 import { Recorder } from "./recording.js";
 import { pauseGbaSession, resumeGbaSession } from "./runtime-gba.js";
 import * as Screenshot from "./screenshot.js";
+import { isScreenshotPreviewOpen, openScreenshotPreview } from "./screenshot-preview.js";
 
 /** Cart title for the currently-loaded ROM, suitable for embedding
  *  in a screenshot / recording filename. Prefers the GB cart's
@@ -216,24 +220,75 @@ export function stepFrameBack(): void {
   renderer.render(popped.meta.framebuffer as Uint8ClampedArray<ArrayBuffer>);
 }
 
-export async function takeScreenshot(): Promise<void> {
-  const base = Screenshot.sanitize(cartTitleForFilename());
-  const iso = new Date().toISOString().replace(/[:.]/g, "-");
+export function takeScreenshot(): void {
+  // Ignore a repeat trigger while the preview is up — the game is paused
+  // under it and re-entering would tangle the pause/resume bookkeeping.
+  if (isScreenshotPreviewOpen()) return;
+  // Capture the NATIVE PPU framebuffer (not the shader-displayed canvas):
+  // a pixel-exact source for the preview, and the un-double-processed
+  // input the AI-enhance path needs. GB is 160×144, GBA 240×160.
+  const fb = state.gb ? state.gb.ppu.framebuffer : state.gba ? state.gba.framebuffer : null;
+  if (!fb) return;
+  const width = state.gb ? 160 : 240;
+  const height = state.gb ? 144 : 160;
   overlayFlash?.classList.add("active");
   setTimeout(() => overlayFlash?.classList.remove("active"), 120);
-  const result = await Screenshot.captureTo(canvas, `${base}-${iso}.png`);
-  switch (result) {
-    case "saved":
-    case "shared":
-      toast("Screenshot saved");
-      return;
-    case "cancelled":
-      toast("Screenshot cancelled");
-      return;
-    case "failed":
-      toast("Screenshot failed — see console for details");
-      return;
+  const base = Screenshot.sanitize(cartTitleForFilename());
+  const iso = new Date().toISOString().replace(/[:.]/g, "-");
+
+  // Pause while the modal is up so the game can't advance (and the
+  // player can't die) behind the blocking overlay. Only auto-resume if
+  // WE paused — a pre-existing manual pause must survive the modal.
+  const pausedForModal = !state.paused;
+  if (pausedForModal) void togglePause();
+
+  // Copy the buffer — the engine reuses it for the next frame.
+  openScreenshotPreview(
+    new Uint8ClampedArray(fb.subarray(0, width * height * 4)),
+    width,
+    height,
+    `${base}-${iso}`,
+    () => {
+      if (pausedForModal && state.paused) void togglePause();
+    }
+  );
+}
+
+/** Pause the emulator only while the (main-thread) OCR/translation runs,
+ *  so the inference doesn't stutter the render loop. Tracks whether *we*
+ *  paused so a pre-existing manual pause survives, and so overlapping
+ *  triggers don't resume prematurely. */
+let pausedForTranslate = false;
+function setTranslateBusy(busy: boolean): void {
+  if (busy) {
+    if (!state.paused) {
+      pausedForTranslate = true;
+      void togglePause();
+    }
+  } else if (pausedForTranslate) {
+    pausedForTranslate = false;
+    if (state.paused) void togglePause();
   }
+}
+
+/** Read + translate the on-screen text into the user's target language,
+ *  shown in an overlay panel. Each press captures the CURRENT frame and
+ *  (re)opens the overlay, so triggering again after the screen changes
+ *  re-translates the new screen. The emulator is paused only during the
+ *  compute (see `setTranslateBusy`); reading the result runs unpaused. */
+export function translateScreen(): void {
+  const fb = state.gb ? state.gb.ppu.framebuffer : state.gba ? state.gba.framebuffer : null;
+  if (!fb) return;
+  const width = state.gb ? 160 : 240;
+  const height = state.gb ? 144 : 160;
+  const target = (lsGet(KEYS.TRANSLATE_TARGET) ?? "").trim() || defaultTranslateTarget();
+  openTranslateOverlay(
+    new Uint8ClampedArray(fb.subarray(0, width * height * 4)),
+    width,
+    height,
+    target,
+    setTranslateBusy
+  );
 }
 
 /** Single session-wide recorder — starting while active is a stop, so the

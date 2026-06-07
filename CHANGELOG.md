@@ -5,6 +5,33 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-06-07
+
+### Added
+
+- **AI screenshot enhancer** — taking a screenshot now opens a preview
+  with a Download action and an "Enhance with AI" action. Enhancing runs
+  a PixelPerfect ×4 sprite-upscaling model (ESRGAN, ONNX Runtime Web,
+  WebGPU with a CPU/WASM fallback) on the native frame and shows a
+  drag-to-compare before/after, then lets you download the 4× PNG. The
+  model (~32 MB, fp16) is hosted off-repo and the ONNX runtime loads
+  from a version-pinned CDN — neither touches the main bundle or first
+  page load; both are fetched only on first use and cached after, and a
+  delivery failure only disables Enhance.
+- **Translate the screen (experimental)** — a Translate hotkey (or the
+  touch-toolbar button) reads the on-screen text (PaddleOCR PP-OCRv5),
+  translates it into your chosen language, and can read it aloud, in a
+  non-blocking overlay. Three-tier, capability-detected routing: the
+  Chromium **Translator API** (Chrome/Edge, instant, no download) → an
+  **offline per-language Opus-MT model** via transformers.js (opt-in,
+  ~100 MB/language, downloadable from Settings or inline, cached, any
+  browser) → **read-aloud** fallback (Web Speech API). 19 languages are
+  available offline (so they work in every browser); a "Don't translate —
+  read aloud" mode works everywhere. Everything is on-device — no server,
+  no API key, no text or image leaves the browser. The runtime libraries
+  load from a version-pinned CDN and the models from our own Hugging Face
+  repos; neither touches the main bundle.
+
 ## [1.1.0] — 2026-06-06
 
 The Game Boy Advance release. Glowboot now plays Game Boy, Game Boy
