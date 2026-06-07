@@ -856,8 +856,10 @@ body.is-touch textarea {
   .touch-actions {
     display: flex;
     justify-content: center;
-    flex-wrap: wrap;
-    gap: 14px;
+    /* One row always: the buttons flex to share the available width (capped
+       at their natural size), so 7 actions fit any phone without wrapping. */
+    flex-wrap: nowrap;
+    gap: 8px;
     padding: 12px 8px 4px;
     opacity: 0;
     visibility: hidden;
@@ -885,8 +887,14 @@ body.is-touch textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  /* Flex to fill the row, square (aspect-ratio), capped at the natural size.
+     box-sizing so the 1px border doesn't push the effective width past the
+     budget. min-width:0 lets them shrink on narrow phones — always one row. */
+  box-sizing: border-box;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 40px;
+  aspect-ratio: 1 / 1;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: var(--surface-subtle);

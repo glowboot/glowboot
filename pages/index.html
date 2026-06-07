@@ -771,6 +771,20 @@
                     </label>
                     <label
                       class="settings-row"
+                      title="Target language for the on-screen translation overlay (Translate hotkey). Reads the on-screen English text and translates it on-device. Chrome/Edge translate instantly with the built-in translator; in other browsers a download button appears to fetch that language's offline model (~100 MB)."
+                    >
+                      <span>Translate screen to</span>
+                      <span class="translate-control">
+                        <!-- Options populated by panels.ts from the shared
+                             TRANSLATE_LANGUAGES list. -->
+                        <select id="translate-target-select"></select>
+                        <!-- Shown only when the selected language needs an
+                             offline download (non-Chromium browsers). -->
+                        <button type="button" id="translate-download" class="translate-dl-btn" hidden></button>
+                      </span>
+                    </label>
+                    <label
+                      class="settings-row"
                       title="What's plugged into the Game Boy's serial port. 2-player pairs with another tab or device for link-cable games. Printer turns the port into a virtual Game Boy Printer — print Pokémon Pokédex pages, Game Boy Camera shots, etc."
                     >
                       <span>Link cable</span>
@@ -1476,6 +1490,32 @@
           >
             <circle cx="12" cy="12" r="6" fill="currentColor"></circle>
             <circle cx="12" cy="12" r="9"></circle>
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="touch-action"
+          data-touch-action="translate"
+          aria-label="Translate screen"
+          title="Translate screen"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m5 8 6 6"></path>
+            <path d="m4 14 6-6 2-3"></path>
+            <path d="M2 5h12"></path>
+            <path d="M7 2h1"></path>
+            <path d="m22 22-5-10-5 10"></path>
+            <path d="M14 18h6"></path>
           </svg>
         </button>
         <button type="button" class="touch-action" data-touch-action="reset" aria-label="Reset" title="Reset">

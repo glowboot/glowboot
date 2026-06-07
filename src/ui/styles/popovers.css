@@ -826,6 +826,17 @@ body.is-touch.popover-active .popover-close {
   letter-spacing: 0.3px;
   margin-left: 8px;
 }
+/* Translate language picker + its contextual offline-download button. The
+ * button reuses the shared ghost-pill style (see `.bindings-reset` group
+ * below); its layout-only tweaks live just after that rule so the rule's
+ * `all: unset` doesn't wipe them. It appears only when the selected
+ * language needs an offline model (non-Chromium browsers); it shows "⤓",
+ * then a live "NN%", then hides. */
+.translate-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .bindings-group {
   display: flex;
   flex-direction: column;
@@ -1915,7 +1926,8 @@ body.is-touch .cheats-add button[type="submit"] {
 .bindings-reset,
 .settings-io-btn,
 .cheats-import,
-.cart-info-save-btn {
+.cart-info-save-btn,
+.translate-dl-btn {
   all: unset;
   cursor: pointer;
   padding: 4px 10px;
@@ -1933,9 +1945,29 @@ body.is-touch .cheats-add button[type="submit"] {
 .bindings-reset:hover,
 .settings-io-btn:hover,
 .cheats-import:hover,
-.cart-info-save-btn:hover {
+.cart-info-save-btn:hover,
+.translate-dl-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
+}
+/* Circular icon button matching the section-reset circles — placed after
+   the ghost-pill rule above so its `all: unset` can't clobber the shape.
+   While downloading, a conic-gradient fill-ring shows progress (driven by
+   the `--dl-progress` custom property) since a % won't fit the circle. */
+.translate-dl-btn {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+.translate-dl-btn.downloading {
+  background: conic-gradient(var(--accent, #8ab4ff) var(--dl-progress, 0%), var(--surface-subtle) 0);
+  color: rgba(255, 255, 255, 0.55);
+  cursor: default;
 }
 /* The three save-data buttons share a row that hugs the right edge
    like the other cart-info-row controls. */
@@ -3270,4 +3302,187 @@ body.is-touch .cheat-delete {
     width: min(94vw, 480px);
     max-width: none;
   }
+}
+
+/* ── Screenshot preview + AI-enhance modal ─────────────────────────────── */
+.ss-panel {
+  width: min(94vw, 560px);
+  gap: 10px;
+}
+.ss-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ss-close {
+  all: unset;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+}
+.ss-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.ss-stage {
+  position: relative;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  /* aspect-ratio set inline from the frame dims */
+}
+.ss-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.ss-img-native {
+  image-rendering: pixelated;
+}
+.ss-img-enhanced {
+  image-rendering: auto;
+  /* Reveal the enhanced frame from the split line to the right edge. */
+  clip-path: inset(0 0 0 var(--split, 50%));
+}
+.ss-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--split, 50%);
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+.ss-tag {
+  position: absolute;
+  bottom: 6px;
+  padding: 1px 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.ss-tag-before {
+  left: 6px;
+}
+.ss-tag-after {
+  right: 6px;
+}
+.ss-slider {
+  width: 100%;
+  margin: 2px 0 0;
+  accent-color: var(--gold, #e7b53c);
+  cursor: ew-resize;
+}
+.ss-dims {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+}
+.ss-note {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
+}
+.ss-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.ss-actions .modal-btn {
+  flex: 0 1 auto;
+}
+
+/* ── Translate overlay ─────────────────────────────────────────────────── */
+/* Non-blocking: docks to the bottom, no dimming backdrop, and lets clicks
+ * + keys pass through to the game (so you can keep playing and re-trigger
+ * the translation on a new screen). Only the panel itself is interactive. */
+.tr-overlay {
+  inset: auto 0 0 0;
+  align-items: flex-end;
+  padding: 16px;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: none;
+}
+.tr-panel {
+  width: min(94vw, 480px);
+  gap: 10px;
+  pointer-events: auto;
+}
+.tr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tr-status {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
+  padding: 14px 0;
+}
+.tr-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tr-translated {
+  margin: 0;
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.4;
+  color: #fff;
+}
+.tr-original {
+  margin: 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.5);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 8px;
+}
+.tr-note {
+  margin: 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--gold, #e7b53c);
+}
+.tr-speak {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 5px 12px;
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.tr-speak:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.tr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
