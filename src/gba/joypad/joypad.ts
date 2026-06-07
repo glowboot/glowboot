@@ -61,6 +61,12 @@ export class Joypad extends BaseIoHandler {
     this.held &= ~(1 << BIT[button]);
   }
 
+  /** Release every button. Called by the host on blur / tab-switch so a
+   *  key whose `keyup` never arrived can't leave a button stuck down. */
+  releaseAll(): void {
+    this.held = 0;
+  }
+
   isPressed(button: GbaButton): boolean {
     return (this.held & (1 << BIT[button])) !== 0;
   }
@@ -91,7 +97,8 @@ export class Joypad extends BaseIoHandler {
   }
 
   deserialize(r: GbaStateReader): void {
-    this.held = r.u16();
+    r.u16(); // held — read to advance, but discarded: live input isn't part
+    this.held = 0; //        of a restored game (you're not holding anything).
     this.keycnt = r.u16();
   }
 }

@@ -5,6 +5,17 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] — 2026-06-07
+
+### Fixed
+
+- **Stuck joypad buttons.** A button held when focus left the playing
+  surface (opening a popover, switching tabs) could stay pressed — the
+  game would then act on its own, e.g. the character walking by itself
+  after a pause / save / reload. Key releases now always register (even
+  when a menu has focus), held buttons are cleared on window blur / tab
+  switch, and loading a save state no longer restores live input.
+
 ## [1.2.0] — 2026-06-07
 
 ### Added

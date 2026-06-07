@@ -147,19 +147,21 @@ describe("Gba.saveState / loadState", () => {
     }
   });
 
-  it("preserves joypad held bitmask + KEYCNT across save/load", () => {
+  it("restores KEYCNT but NOT held buttons across save/load", () => {
     const gba = new Gba(makeBlankRom());
     gba.joypad.press("a");
     gba.joypad.press("l");
     gba.mem.bus.write16(0x04000132, 0x4321);
     const blob = gba.saveState();
 
-    // Mutate state on a different engine, then load — both fields restore.
     const other = new Gba(makeBlankRom());
     other.loadState(blob);
-    expect(other.joypad.isPressed("a")).toBe(true);
-    expect(other.joypad.isPressed("l")).toBe(true);
-    expect(other.joypad.isPressed("b")).toBe(false);
+    // Held buttons are live input, not part of a restored game — clearing
+    // them on load prevents a key held at save time from staying stuck down
+    // (which made the game move on its own after a reload).
+    expect(other.joypad.isPressed("a")).toBe(false);
+    expect(other.joypad.isPressed("l")).toBe(false);
+    // KEYCNT (the interrupt-control register) still round-trips.
     expect(other.mem.bus.read16(0x04000132)).toBe(0x4321);
   });
 

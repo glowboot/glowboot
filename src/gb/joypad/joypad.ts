@@ -67,10 +67,20 @@ export class Joypad {
     this.buttons.delete(button);
   }
 
+  /** Release every button. Called by the host on blur / tab-switch and
+   *  after a state load so a key whose `keyup` never arrived (focus left
+   *  the page) can't leave a button stuck down. */
+  releaseAll(): void {
+    this.buttons.clear();
+  }
+
   serialize(w: StateWriter): void {
     w.u8(this.select);
   }
   deserialize(r: StateReader): void {
     this.select = r.u8();
+    // Held buttons aren't part of the saved state; clear any live presses so
+    // a stuck key from before the load doesn't carry into the restored game.
+    this.buttons.clear();
   }
 }
