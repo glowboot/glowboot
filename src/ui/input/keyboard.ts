@@ -121,26 +121,37 @@ window.addEventListener("keydown", (e) => {
 });
 
 window.addEventListener("keyup", (e) => {
-  if (inTextInput(e)) return;
-  if (inUiControl(e)) return;
+  // Releases run UNCONDITIONALLY — deliberately NOT gated by inTextInput /
+  // inUiControl like keydown is. If a key is released after focus has moved
+  // (e.g. you held a direction, then clicked a popover / Save button, then
+  // let go), gating here would drop the release and leave the button stuck
+  // down — the game then "moves on its own" after resume/reload.
   const action = BindingsUI.codeToHotkey[e.code];
-  // Speed/turbo is a tap-to-cycle toggle, so there's no keyup half —
-  // releasing the bound key leaves the emulator at whatever multiplier
-  // the last tap selected. Rewind is still hold-to-scrub.
+  // Speed/turbo is a tap-to-cycle toggle, so there's no keyup half. Rewind
+  // is hold-to-scrub, so its release must end the scrub.
   if (action === "rewind") {
-    e.preventDefault();
     void endRewind();
     return;
   }
   const btn = BindingsUI.codeToButton[e.code];
   if (btn) {
-    e.preventDefault();
     state.gb?.joypad.release(btn);
     state.gba?.joypad.release(btn);
   }
   const shoulder = BindingsUI.codeToShoulder[e.code];
   if (shoulder && state.gba) {
-    e.preventDefault();
     state.gba.joypad.release(shoulder);
   }
+});
+
+// A held key whose `keyup` never arrives (window blur / tab switch / OS
+// shortcut grabbing focus) would otherwise stay pressed. Release everything
+// when the page loses focus or is hidden.
+function releaseAllButtons(): void {
+  state.gb?.joypad.releaseAll();
+  state.gba?.joypad.releaseAll();
+}
+window.addEventListener("blur", releaseAllButtons);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) releaseAllButtons();
 });
