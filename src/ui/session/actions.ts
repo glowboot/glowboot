@@ -1,5 +1,6 @@
 import { type BreakpointHit, takeHit } from "../../gb";
 import { parseGbaHeader } from "../../gba";
+import { isAssistOverlayOpen, openAssistOverlay } from "../assist/assist-overlay.js";
 import { canvas, consoleEl, fsBtn, overlayFlash, recBadge, speedEl, statusEl, touchSpeedLabelEl } from "../dom.js";
 import { announce } from "../hud/announce.js";
 import { toast } from "../hud/toast.js";
@@ -289,6 +290,18 @@ export function translateScreen(): void {
     target,
     setTranslateBusy
   );
+}
+
+/** Ask a vision LLM about the current screen (opt-in, bring-your-own
+ *  endpoint). Captures the current frame + cart title and opens the
+ *  assist overlay; ignored if one is already open. */
+export function assistScreen(): void {
+  if (isAssistOverlayOpen()) return;
+  const fb = state.gb ? state.gb.ppu.framebuffer : state.gba ? state.gba.framebuffer : null;
+  if (!fb) return;
+  const width = state.gb ? 160 : 240;
+  const height = state.gb ? 144 : 160;
+  openAssistOverlay(new Uint8ClampedArray(fb.subarray(0, width * height * 4)), width, height, cartTitleForFilename());
 }
 
 /** Single session-wide recorder — starting while active is a stop, so the

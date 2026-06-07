@@ -1,6 +1,10 @@
 import { NO_LINK } from "../../gb";
+import { getAssistConfig, listModels, setAssistConfig } from "../assist/assist.js";
 import { AUDIO_MODES, type AudioMode } from "../audio/output.js";
 import {
+  assistEndpointInput,
+  assistKeyInput,
+  assistModelSelect,
   audioModeSelect,
   audioResetBtn,
   audioRumbleToggle,
@@ -754,6 +758,82 @@ function loadGrade(): ColorGrade {
     if (el) el.value = defaultTranslateTarget();
     clearMtDownloaded();
     void refreshAvailability();
+  });
+}
+
+// ─── AI assist provider (opt-in, bring-your-own) ──────────────────────────
+// OpenAI-compatible provider URL + key + model for the "Ask AI about screen"
+// hotkey. The model dropdown is populated from the provider's /models list;
+// persisted as the user edits and read by assist.ts at trigger time.
+{
+  const ep = assistEndpointInput;
+  const key = assistKeyInput;
+  const model = assistModelSelect;
+
+  function persist(): void {
+    setAssistConfig({ endpoint: ep?.value ?? "", key: key?.value ?? "", model: model?.value ?? "" });
+  }
+
+  /** Fill the model <select> from `models`, keeping the saved choice (even
+   *  if absent upstream) so the config survives a /models failure. When the
+   *  list is empty, show a disabled placeholder and persist nothing useful. */
+  function fillModels(models: string[], saved: string, placeholder: string): void {
+    if (!model) return;
+    const all = saved && !models.includes(saved) ? [saved, ...models] : models;
+    model.innerHTML = "";
+    if (all.length === 0) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = placeholder;
+      opt.disabled = true;
+      opt.selected = true;
+      model.appendChild(opt);
+      model.disabled = true;
+      return;
+    }
+    model.disabled = false;
+    for (const id of all) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = id;
+      model.appendChild(opt);
+    }
+    model.value = saved && all.includes(saved) ? saved : all[0]!;
+  }
+
+  async function refreshModels(): Promise<void> {
+    const saved = getAssistConfig().model;
+    const endpoint = ep?.value.trim() ?? "";
+    fillModels([], saved, endpoint ? "Loading…" : "Enter a provider URL first");
+    if (!endpoint) {
+      persist();
+      return;
+    }
+    try {
+      const models = await listModels(endpoint, key?.value ?? "");
+      if (ep?.value.trim() !== endpoint) return; // provider changed mid-fetch
+      fillModels(models, saved, "No models returned by the provider");
+    } catch (err) {
+      console.warn("[Assist] model list failed:", err);
+      if (ep?.value.trim() !== endpoint) return;
+      fillModels(saved ? [saved] : [], saved, "Couldn't load models — check the provider/key");
+    }
+    persist(); // capture endpoint + key + the resolved model selection
+  }
+
+  if (ep) ep.value = getAssistConfig().endpoint;
+  if (key) key.value = getAssistConfig().key;
+  void refreshModels();
+
+  ep?.addEventListener("change", () => void refreshModels());
+  key?.addEventListener("change", () => void refreshModels());
+  model?.addEventListener("change", persist);
+
+  onSectionReset("behavior", () => {
+    setAssistConfig({ endpoint: "", key: "", model: "" });
+    if (ep) ep.value = "";
+    if (key) key.value = "";
+    void refreshModels();
   });
 }
 

@@ -785,6 +785,38 @@
                     </label>
                     <label
                       class="settings-row"
+                      title="Optional: an OpenAI-compatible API base URL for the 'Ask AI about screen' hotkey. Works with OpenAI, OpenRouter, Groq, or a local server (Ollama / LM Studio). Off until you fill this in. When used, the current frame + your question are sent to this endpoint — choose a local server to keep it on-device."
+                    >
+                      <span>AI provider</span>
+                      <input
+                        type="text"
+                        id="assist-endpoint"
+                        placeholder="https://openrouter.ai/api/v1"
+                        autocomplete="off"
+                        spellcheck="false"
+                      />
+                    </label>
+                    <label
+                      class="settings-row"
+                      title="API key for the provider (sent as a Bearer token). Leave blank for a local server that doesn't need one."
+                    >
+                      <span>API key</span>
+                      <input
+                        type="password"
+                        id="assist-key"
+                        placeholder="(blank for a local server)"
+                        autocomplete="off"
+                      />
+                    </label>
+                    <label
+                      class="settings-row"
+                      title="Pick a vision-capable model. The list is fetched from the provider once the URL (and key) are set."
+                    >
+                      <span>Model</span>
+                      <select id="assist-model"></select>
+                    </label>
+                    <label
+                      class="settings-row"
                       title="What's plugged into the Game Boy's serial port. 2-player pairs with another tab or device for link-cable games. Printer turns the port into a virtual Game Boy Printer — print Pokémon Pokédex pages, Game Boy Camera shots, etc."
                     >
                       <span>Link cable</span>

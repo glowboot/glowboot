@@ -49,6 +49,19 @@ device, works on desktop and phones.
   Chrome/Edge translate instantly with the built-in translator; other
   browsers can opt into a small on-device translation model. Where
   translation isn't available it falls back to reading the text aloud.
+- **Ask AI about the screen (experimental, opt-in)** — point Glowboot at
+  any OpenAI-compatible vision endpoint (a cloud provider, or a local
+  server like Ollama / LM Studio) in Settings → AI assist, then ask a
+  free-form question about what's on screen, get a quick hint, or have it
+  described — streamed back and optionally read aloud, in your chosen
+  language. Off until you configure it; nothing is sent until you do.
+- **Let AI play (experimental, opt-in)** — turn that same endpoint loose
+  on the game: it looks at the screen, plans the next few inputs, and
+  drives the joypad, step by step. You can give it a **goal**, nudge it
+  with **live hints**, and it keeps a running scratchpad and will
+  **rewind** out of mistakes. Best on slower / turn-based games — twitch
+  platformers will flail — and it spends your own API budget, so it's
+  capped and stoppable, with a one-time cost confirmation before the first run.
 - **Cheats** — paste Game Genie or Game Shark codes on Game Boy,
   GameShark or CodeBreaker codes on Game Boy Advance, or search an
   online database by game title.
@@ -935,7 +948,7 @@ src/
     ├── state.ts              #   Shared mutable app state + renderer/audio/gamepad singletons
     ├── dom.ts                #   Centralised getElementById wall
     ├── format.ts             #   relativeTime / formatPlayTime / formatTime / slot helpers
-    ├── draggable.ts          #   makeDraggablePanel — drag a fixed panel by a handle, position remembered (translate overlay)
+    ├── draggable.ts          #   makeDraggablePanel — drag a fixed panel by a handle, position remembered (translate + assist overlays)
     ├── rom-loader.ts         #   Load ROM button, drag-drop, PWA launchQueue → startEmulator
     ├── save-blob.ts          #   Web Share API helper for mobile screenshot/recording exports
     ├── audio/                #   Web Audio output graph + post-processor presets
@@ -1011,6 +1024,10 @@ src/
     │   ├── narrate.ts        #     Text-to-speech via the Web Speech API (voice selection)
     │   ├── languages.ts      #     Supported target languages (kept in sync with mt.ts model map)
     │   └── translate-overlay.ts # Overlay flow + three-tier routing (API → offline → read-aloud)
+    ├── assist/               #   AI "ask about the screen" + "let AI play" (opt-in; bring-your-own OpenAI-compatible vision endpoint)
+    │   ├── assist.ts         #     Endpoint client: askAssist (streamed Q&A) + askPlan (agent action JSON) + listModels + preferred-answer-language
+    │   ├── ai-play.ts        #     "Let AI play" agent loop (capture → plan → drive joypad; goal, one-shot hints, own snapshot ring for rewind, scratchpad)
+    │   └── assist-overlay.ts #     Ask / Hint / Describe panel + Let-AI-play controls (goal box, one-shot hints, live status)
     ├── styles/               #   Stylesheets, imported by main.ts in cascade order
     │   ├── base.css          #     Reset, layout, header, responsive ladder, toast
     │   ├── themes.css        #     Aurora / Caustics / Starfield animated backgrounds
@@ -1245,6 +1262,15 @@ entirely.
   speech all run locally. No server, no API key. If a download fails, the
   feature degrades to reading the text aloud, or is simply unavailable; the
   rest of the app is unaffected.
+- **Ask AI / Let AI play.** This is the one feature that sends your screen
+  off-device — and only if you set it up. When you configure an endpoint in
+  Settings → AI assist and trigger it, the captured frame plus your question
+  (or, for "Let AI play", a frame each turn) are sent to the OpenAI-
+  compatible endpoint **you** chose: a third-party provider, or a local
+  server you run (Ollama / LM Studio) that keeps everything on your machine.
+  Glowboot runs no AI server of its own and supplies no key — whatever you
+  send is governed by your chosen endpoint's policies. Off until configured;
+  nothing is sent until you ask.
 
 That's the entire list. The webcam stream (when you load the Game
 Boy Camera cart), the link-cable bytes (when paired), and every byte

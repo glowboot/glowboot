@@ -5,6 +5,35 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Ask AI about the screen (experimental, opt-in).** Point Glowboot at any
+  OpenAI-compatible vision endpoint — a cloud provider, or a local server
+  such as Ollama / LM Studio — in Settings → AI assist (provider URL, API
+  key, and a model picker populated from the endpoint). Then ask a free-form
+  question about the current screen, get a quick hint, or have it described:
+  answers stream back, can be read aloud, and come in your selected
+  "Translate screen to" language. Off until configured; the captured frame
+  and your question are sent only to the endpoint you chose, only when you
+  trigger it.
+- **Let AI play (experimental, opt-in).** The same endpoint can drive the
+  game itself: it reads the screen, plans the next few joypad inputs, and
+  plays step by step. You can set a **goal**, nudge it with **live hints**
+  (one-shot), and it keeps a running scratchpad and will **rewind** out of
+  mistakes. Reachable from the assist panel on desktop and the touch
+  toolbar. Best on slower / turn-based games — twitch platformers flail —
+  and it spends your own API budget, so it's capped and stoppable; a one-time
+  confirm (Cancel by default) spells out the per-move cost before the first run.
+
+### Changed
+
+- **Translate / Ask-AI overlays behave as persistent windows.** Both panels
+  can be dragged by their header (position remembered per overlay), now stay
+  open when you open a popover (drag them aside instead of being dismissed),
+  and close automatically when you load a new game.
+
 ## [1.2.2] — 2026-06-08
 
 ### Changed
