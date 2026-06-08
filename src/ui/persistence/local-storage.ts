@@ -135,7 +135,9 @@ export const KEYS = {
   /** JSON array of target-language codes whose offline Opus-MT model the
    *  user has downloaded (~100 MB each) — enables translation in browsers
    *  without the Chromium Translator API. */
-  MT_DOWNLOADED: "gb-mt-downloaded"
+  MT_DOWNLOADED: "gb-mt-downloaded",
+  /** Last dragged position of the translation panel, JSON {x,y}. */
+  TRANSLATE_PANEL_POS: "gb-translate-panel-pos"
 } as const;
 
 /** Symbols-pane keys are per-cart and use a shared prefix; the cart

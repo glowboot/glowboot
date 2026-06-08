@@ -115,6 +115,15 @@ body.is-touch.popover-active .popover-close {
   letter-spacing: 2px;
   color: #fff;
 }
+.shortcut-hint-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.shortcut-hint-head h2 {
+  margin: 0;
+}
 .shortcut-hint-panel section {
   margin-top: 16px;
 }
@@ -3422,7 +3431,14 @@ body.is-touch .cheat-delete {
   pointer-events: none;
 }
 .tr-panel {
+  /* Free-positioned + draggable by the header (placed via JS fixed coords,
+     remembered across sessions); default lands bottom-right, clear of the
+     centred game canvas. Height-capped so a long body scrolls inside the
+     panel rather than running off the top of the screen. */
+  position: fixed;
   width: min(94vw, 480px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
   gap: 10px;
   pointer-events: auto;
 }
@@ -3430,6 +3446,13 @@ body.is-touch .cheat-delete {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  cursor: move;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* The close button isn't a drag target. */
+.tr-head .ss-close {
+  cursor: pointer;
 }
 .tr-status {
   font-family: "JetBrains Mono", monospace;

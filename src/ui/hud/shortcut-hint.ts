@@ -67,9 +67,19 @@ function render(): void {
   if (!panel) return;
   panel.innerHTML = "";
 
+  // Header row with a close button, matching the other modals.
+  const head = document.createElement("div");
+  head.className = "shortcut-hint-head";
   const title = document.createElement("h2");
   title.textContent = "Keyboard shortcuts";
-  panel.appendChild(title);
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ss-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", hide);
+  head.append(title, closeBtn);
+  panel.appendChild(head);
 
   const keys = loadKeyBindings();
   const hot = loadHotkeyBindings();

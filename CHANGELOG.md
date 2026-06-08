@@ -5,6 +5,21 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] — 2026-06-08
+
+### Changed
+
+- **Draggable translation overlay.** The "translate the screen" panel can now
+  be dragged by its header and dropped anywhere on the page; its position is
+  remembered across sessions, so it no longer overlaps the game when the
+  panel grows tall.
+
+### Added
+
+- **Close button on the keyboard-shortcuts sheet.** The `?` cheat-sheet now
+  has a ✕ button matching the other modals (Esc, `?`, and clicking the
+  backdrop still close it too).
+
 ## [1.2.1] — 2026-06-07
 
 ### Fixed
