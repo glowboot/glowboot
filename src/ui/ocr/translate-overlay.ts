@@ -12,6 +12,8 @@
  * speaking that English when translation is unavailable.
  */
 
+import { makeDraggablePanel } from "../draggable.js";
+import { KEYS } from "../persistence/local-storage.js";
 import { languageName, READ_ORIGINAL } from "./languages.js";
 import {
   isMtDownloaded,
@@ -110,6 +112,8 @@ export function openTranslateOverlay(
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
   activeOverlay = overlay;
+  // Draggable by the header; position remembered (default = bottom-right).
+  makeDraggablePanel(panel, head, KEYS.TRANSLATE_PANEL_POS, closeBtn);
   document.addEventListener("keydown", onKeydown, true);
   // Dismiss when a popover opens — a docked overlay floating above the
   // Settings/other popovers reads as broken (fired by popovers/index.ts).

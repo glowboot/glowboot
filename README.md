@@ -935,6 +935,7 @@ src/
     ├── state.ts              #   Shared mutable app state + renderer/audio/gamepad singletons
     ├── dom.ts                #   Centralised getElementById wall
     ├── format.ts             #   relativeTime / formatPlayTime / formatTime / slot helpers
+    ├── draggable.ts          #   makeDraggablePanel — drag a fixed panel by a handle, position remembered (translate overlay)
     ├── rom-loader.ts         #   Load ROM button, drag-drop, PWA launchQueue → startEmulator
     ├── save-blob.ts          #   Web Share API helper for mobile screenshot/recording exports
     ├── audio/                #   Web Audio output graph + post-processor presets
