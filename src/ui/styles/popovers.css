@@ -115,6 +115,15 @@ body.is-touch.popover-active .popover-close {
   letter-spacing: 2px;
   color: #fff;
 }
+.shortcut-hint-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.shortcut-hint-head h2 {
+  margin: 0;
+}
 .shortcut-hint-panel section {
   margin-top: 16px;
 }
