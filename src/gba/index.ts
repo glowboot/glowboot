@@ -43,6 +43,7 @@ export {
   loadGbaSymbols
 } from "./debug/symbols.js";
 export { FRAMES_PER_SEC, Gba } from "./gba.js";
+export type { GbaButton } from "./joypad/joypad.js";
 export type { MemoryBus } from "./memory/bus.js";
 export { SCREEN_HEIGHT, SCREEN_WIDTH } from "./ppu/ppu.js";
 export { UnsupportedGbaSaveStateError } from "./serialization/serialization.js";

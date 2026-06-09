@@ -30,7 +30,7 @@ export const GB_BUTTONS: readonly Button[] = ["up", "down", "left", "right", "a"
  *  load (0-9 and Shift+0-9) stay positional and aren't included — the
  *  digit IS the slot number, so rebinding them would cost more clarity
  *  than it gains. */
-export type HotkeyAction = "pause" | "turbo" | "rewind" | "screenshot" | "record" | "reset" | "translate";
+export type HotkeyAction = "pause" | "turbo" | "rewind" | "screenshot" | "record" | "reset" | "translate" | "assist";
 export const HOTKEY_ACTIONS: readonly HotkeyAction[] = [
   "pause",
   "turbo",
@@ -38,7 +38,8 @@ export const HOTKEY_ACTIONS: readonly HotkeyAction[] = [
   "screenshot",
   "record",
   "reset",
-  "translate"
+  "translate",
+  "assist"
 ];
 export type HotkeyBindings = Record<HotkeyAction, string>;
 
@@ -92,7 +93,8 @@ export const DEFAULT_HOTKEY_BINDINGS: HotkeyBindings = {
   screenshot: "KeyP",
   record: "KeyV",
   reset: "KeyR",
-  translate: "KeyT"
+  translate: "KeyT",
+  assist: "KeyG"
 };
 
 /** Tilt-input keys for MBC7 carts (Kirby Tilt 'n' Tumble, Command
@@ -254,6 +256,8 @@ export function describeHotkey(a: HotkeyAction): string {
       return "Reset";
     case "translate":
       return "Translate screen";
+    case "assist":
+      return "Ask AI about screen";
   }
 }
 

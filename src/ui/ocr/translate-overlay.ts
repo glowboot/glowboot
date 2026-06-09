@@ -41,8 +41,7 @@ function close(): void {
   activeOverlay.remove();
   activeOverlay = null;
   document.removeEventListener("keydown", onKeydown, true);
-  // Event name shared with popovers/index.ts (fired when any popover opens).
-  window.removeEventListener("gb-popover-open", close);
+  window.removeEventListener("gb-rom-loaded", close);
   lastFocus?.focus?.();
   lastFocus = null;
 }
@@ -115,9 +114,8 @@ export function openTranslateOverlay(
   // Draggable by the header; position remembered (default = bottom-right).
   makeDraggablePanel(panel, head, KEYS.TRANSLATE_PANEL_POS, closeBtn);
   document.addEventListener("keydown", onKeydown, true);
-  // Dismiss when a popover opens — a docked overlay floating above the
-  // Settings/other popovers reads as broken (fired by popovers/index.ts).
-  window.addEventListener("gb-popover-open", close);
+  // Loading a new cart replaces the engine — dismiss this (now-stale) window.
+  window.addEventListener("gb-rom-loaded", close);
   // Deliberately do NOT move focus into the panel: keeping focus on the
   // game canvas means game input + the Translate hotkey keep working, so
   // the player can move to another screen and re-trigger the translation.
