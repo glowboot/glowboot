@@ -2,6 +2,9 @@ node_modules
 dist
 dist-dev
 
+# Screenshots / GIFs written by the headless scripting harness (tools/harness)
+harness-shots/
+
 # Claude Code local settings (per-developer preferences, not shared)
 .claude/
 

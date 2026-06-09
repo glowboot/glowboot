@@ -95,6 +95,11 @@ export async function handleGbaRomFile(file: File, rememberInRecents = true): Pr
     return;
   }
 
+  // Committed to loading a valid GBA cart — dismiss the translate / assist
+  // overlays (same as the GB path in startEmulator) before the engine they
+  // captured / drive is swapped out.
+  window.dispatchEvent(new Event("gb-rom-loaded"));
+
   // Tear down any running GB session before booting the GBA cart.
   // Flush the outgoing GB cart's save RAM + auto-snapshot so its
   // resume point isn't lost when the user comes back to it later.
@@ -358,6 +363,10 @@ export async function handleGbaRomFile(file: File, rememberInRecents = true): Pr
 }
 
 export async function startEmulator(romData: Uint8Array, filename: string, rememberInRecents = true): Promise<void> {
+  // A new cart is loading — let the translate / AI-assist overlays dismiss
+  // (and AI-play stop) before the engine they captured / drive is torn down,
+  // so they don't linger showing the previous game.
+  window.dispatchEvent(new Event("gb-rom-loaded"));
   await audio.resume(); // must be inside a user-gesture frame
 
   // Tear down any running GBA session before booting a GB cart.

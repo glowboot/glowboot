@@ -34,6 +34,11 @@ export interface ConfirmOpts {
   /** Renders the confirm button with the danger palette — use for
    *  destructive actions (delete, wipe, restart). */
   danger?: boolean;
+
+  /** Focus Cancel instead of Confirm on open, so Enter / a stray click
+   *  cancels — for prompts where proceeding has a cost the user should
+   *  opt into deliberately. */
+  defaultCancel?: boolean;
 }
 
 let overlay: HTMLDivElement | null = null;
@@ -210,6 +215,6 @@ export function confirmAction(opts: ConfirmOpts): Promise<boolean> {
 
     el.innerHTML = "";
     el.appendChild(panel);
-    show(confirmBtn);
+    show(opts.defaultCancel ? cancelBtn : confirmBtn);
   });
 }

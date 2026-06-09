@@ -1,5 +1,5 @@
 /** Make a `position: fixed` panel draggable by a handle element, remembering
- *  its position in localStorage. Used by the translate overlay.
+ *  its position in localStorage. Shared by the translate + AI-assist overlays.
  *  Positions the panel immediately (restoring the saved spot, or defaulting to
  *  the bottom-right corner clear of the centred game canvas) and clamps to the
  *  viewport so it can never be dragged or restored off-screen. */

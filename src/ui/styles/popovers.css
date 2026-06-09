@@ -681,6 +681,7 @@ body.is-touch.popover-active .popover-close {
 .settings-row:has(select),
 .settings-row:has(input[type="text"]),
 .settings-row:has(input[type="url"]),
+.settings-row:has(input[type="password"]),
 .settings-row:has(.settings-io-buttons) {
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr);
@@ -689,7 +690,8 @@ body.is-touch.popover-active .popover-close {
 }
 .settings-row:has(select) select,
 .settings-row:has(input[type="text"]) input[type="text"],
-.settings-row:has(input[type="url"]) input[type="url"] {
+.settings-row:has(input[type="url"]) input[type="url"],
+.settings-row:has(input[type="password"]) input[type="password"] {
   width: 100%;
 }
 /* Numeric readout to the right of every range slider. Auto-injected
@@ -787,7 +789,8 @@ body.is-touch.popover-active .popover-close {
   opacity: 1;
 }
 .settings-row input[type="text"],
-.settings-row input[type="url"] {
+.settings-row input[type="url"],
+.settings-row input[type="password"] {
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   color: #fff;
@@ -3429,6 +3432,12 @@ body.is-touch .cheat-delete {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   pointer-events: none;
+  /* These overlays are persistent draggable "windows", not transient modals:
+     they stay open when a popover opens. Sit below the popover panel (z 50)
+     so Settings/etc. layer above them, but still above all game chrome
+     (which carries no z-index — see base.css). Blocking modals keep the
+     base .modal-overlay z-index (110). */
+  z-index: 48;
 }
 .tr-panel {
   /* Free-positioned + draggable by the header (placed via JS fixed coords,
@@ -3508,4 +3517,54 @@ body.is-touch .cheat-delete {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+/* ── AI assist overlay ─────────────────────────────────────────────────── */
+/* Positioning, height-cap, and drag handle are inherited from .tr-panel /
+   .tr-head; the assist panel just runs a touch narrower. */
+.assist-panel {
+  width: min(94vw, 420px);
+}
+.assist-frame {
+  align-self: center;
+  width: 240px;
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+}
+.assist-form {
+  display: flex;
+  gap: 8px;
+}
+.assist-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+}
+/* The goal box stands alone (not inside the flex form), so it spans the row. */
+.assist-goal {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+.assist-quick {
+  display: flex;
+  gap: 8px;
+}
+.assist-answer {
+  max-height: 38vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #fff;
 }

@@ -136,6 +136,20 @@ export const KEYS = {
    *  user has downloaded (~100 MB each) — enables translation in browsers
    *  without the Chromium Translator API. */
   MT_DOWNLOADED: "gb-mt-downloaded",
+
+  // ─── AI assist (bring-your-own endpoint) ───────────────────────────
+  /** OpenAI-compatible API base URL for the "Ask AI about this screen"
+   *  feature (e.g. https://openrouter.ai/api/v1, or a local server). */
+  ASSIST_ENDPOINT: "gb-assist-endpoint",
+  /** API key for the assist endpoint (sent as a Bearer token). */
+  ASSIST_KEY: "gb-assist-key",
+  /** Model id for the assist endpoint (e.g. "gpt-4o-mini"). */
+  ASSIST_MODEL: "gb-assist-model",
+  /** Last dragged position of the assist panel, JSON {x,y}. */
+  ASSIST_PANEL_POS: "gb-assist-panel-pos",
+  /** "1" once the user has acknowledged the AI-play API-cost confirm
+   *  (an agentic session can fire hundreds of requests on their key). */
+  AI_PLAY_COST_ACK: "gb-ai-play-cost-ack",
   /** Last dragged position of the translation panel, JSON {x,y}. */
   TRANSLATE_PANEL_POS: "gb-translate-panel-pos"
 } as const;
