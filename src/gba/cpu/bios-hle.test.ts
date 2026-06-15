@@ -55,7 +55,9 @@ describe("BIOS HLE — Div (0x06) and DivArm (0x07)", () => {
     dispatchSwi(0x06, cpu.regs, cpu.bus, cpu, ic);
     expect(cpu.regs.r[0]).toBe(-1);
     expect(cpu.regs.r[1]).toBe(-42);
-    expect(cpu.regs.r[3]).toBe(42);
+    // r3 = 1 on divide-by-zero — real-BIOS behaviour pinned by
+    // mgba-suite bios-math's "Div by zero" rows.
+    expect(cpu.regs.r[3]).toBe(1);
   });
 
   it("DivArm swaps the operand order (r0=den, r1=num)", () => {

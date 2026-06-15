@@ -42,16 +42,19 @@
  * counts are final.
  *
  * Set `GLOWBOOT_NO_FETCH=1` to skip auto-fetch (offline — drop the ROMs
- * at `tests/gba-roms/<suite>/<file>.gba` manually). The runner honours a
- * real Nintendo BIOS at `tests/gba-roms/gba_bios.bin` if present
- * (counter values are BIOS-sensitive — the committed baseline assumes
- * it); `--no-bios` forces the HLE path.
+ * at `tests/gba-roms/<suite>/<file>.gba` manually). The gate runs the
+ * HLE BIOS path — the configuration the BROWSER ships — against the
+ * committed baseline. `--bios` runs a real Nintendo BIOS at
+ * `tests/gba-roms/gba_bios.bin` as an INFORMATIONAL comparison against
+ * the same baseline (counter values are BIOS-sensitive); it prints the
+ * diff but never gates and never re-records.
  *
  * Usage:
- *   npm run test:gba-roms                       # everything (gate)
+ *   npm run test:gba-roms                       # everything (gate, HLE)
  *   npm run test:gba-roms mgba                  # one suite / substring
  *   npm run test:gba-roms jsmolka-arm           # one test by id
  *   npm run test:gba-roms -- --bless            # re-record the baseline
+ *   npm run test:gba-roms -- --bios             # opt-in real-BIOS diagnostic (local)
  */
 
 import { createHash } from "node:crypto";
@@ -714,6 +717,13 @@ type Signature =
   | { kind: "r12fail"; test: number }
   | { kind: "hash"; hash: string };
 
+/** HLE is the only committed baseline — it's the BIOS configuration the
+ *  browser ships, and the only one verifiable without a (gitignored,
+ *  copyrighted) Nintendo BIOS dump. `--bios` runs the real BIOS purely
+ *  as an INFORMATIONAL comparison against this same baseline: it prints
+ *  where the two diverge (~4 timing/IRQ tests — real-BIOS IRQ-entry
+ *  cycles vs the HLE stub) but never gates and never re-records. */
+const USE_BIOS = process.argv.includes("--bios");
 const BASELINE_PATH = resolve(__dirname, "run-gba-roms-baseline.json");
 
 function loadBaseline(): Record<string, Signature> {
@@ -1248,21 +1258,22 @@ async function main(): Promise<void> {
   const biosOpenPath = join(ROMS_DIR, "gba_bios_cult_of_gba.bin");
   let biosBytes: Uint8Array | null = null;
   let biosSource = "none";
-  // CLI override: `npm run test:gba-roms -- --no-bios <filter>` runs
-  // every test through the HLE-only path. Useful for diagnosing BIOS-
-  // HLE bugs (commercial games typically pass MORE mgba-suite subtests
-  // without our HLE BIOS, suggesting HLE gaps).
-  const noBios = process.argv.includes("--no-bios");
-  if (!noBios) {
+  // The gate runs HLE (the config the browser ships) against the
+  // committed baseline. `--bios` opts into a real BIOS as a LOCAL
+  // diagnostic, scored against a gitignored baseline (see BASELINE_PATH).
+  if (USE_BIOS) {
     if (existsSync(biosNintendoPath)) {
       biosBytes = new Uint8Array(readFileSync(biosNintendoPath));
-      biosSource = "Nintendo";
+      biosSource = "Nintendo (diagnostic)";
     } else if (existsSync(biosOpenPath)) {
       biosBytes = new Uint8Array(readFileSync(biosOpenPath));
-      biosSource = "Cult-of-GBA";
+      biosSource = "Cult-of-GBA (diagnostic)";
+    } else {
+      console.error("--bios requires a real BIOS at tests/gba-roms/gba_bios.bin (or gba_bios_cult_of_gba.bin).");
+      process.exit(1);
     }
   } else {
-    biosSource = "HLE (forced)";
+    biosSource = "HLE";
   }
   console.log(`Running ${filtered.length} test(s)… (BIOS: ${biosSource})`);
   console.log("");
@@ -1375,6 +1386,20 @@ async function main(): Promise<void> {
     }
   }
   if (cTotal > 0) console.log(`\n  counter sub-tests passing: ${cPass}/${cTotal}`);
+
+  if (USE_BIOS) {
+    // Real-BIOS run is informational only: it shows how the real BIOS
+    // diverges from the committed HLE baseline (~4 timing/IRQ tests). It
+    // never gates and never re-records.
+    if (bless) console.log("\n(--bless ignored: --bios is informational and never rewrites the committed baseline.)");
+    const diff = tally.regress + tally.changed + tally.improve;
+    console.log(
+      diff > 0
+        ? `\nℹ real-BIOS vs HLE baseline: ${diff} test(s) differ (expected — informational, not a gate).`
+        : `\nℹ real-BIOS matches the HLE baseline on all ${filtered.length} test(s).`
+    );
+    return;
+  }
 
   if (bless) {
     // Merge so a filtered run only rewrites the tests it actually ran.

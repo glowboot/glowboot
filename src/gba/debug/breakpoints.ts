@@ -39,6 +39,20 @@ const pcBps = new Set<number>();
 const readWps = new Set<number>();
 const writeWps = new Set<number>();
 
+// Plain-boolean mirrors of `set.size > 0`, maintained by the add /
+// remove / toggle / clear mutators. The check* helpers run once per
+// CPU instruction (pc) / memory access (read, write); `Set.size` is a
+// builtin getter call and showed up at ~2% of frame time in profiles,
+// while reading a module boolean is free.
+let anyPcBps = false;
+let anyReadWps = false;
+let anyWriteWps = false;
+function syncAnyFlags(): void {
+  anyPcBps = pcBps.size > 0;
+  anyReadWps = readWps.size > 0;
+  anyWriteWps = writeWps.size > 0;
+}
+
 let lastHit: GbaBreakpointHit | null = null;
 
 /**
@@ -53,19 +67,23 @@ let armedPc = -1;
 
 export function addGbaPcBreakpoint(addr: number): void {
   pcBps.add(addr >>> 0);
+  syncAnyFlags();
 }
 
 export function removeGbaPcBreakpoint(addr: number): void {
   pcBps.delete(addr >>> 0);
+  syncAnyFlags();
 }
 
 export function toggleGbaPcBreakpoint(addr: number): boolean {
   const a = addr >>> 0;
   if (pcBps.has(a)) {
     pcBps.delete(a);
+    syncAnyFlags();
     return false;
   }
   pcBps.add(a);
+  syncAnyFlags();
   return true;
 }
 
@@ -79,10 +97,12 @@ export function listGbaPcBreakpoints(): number[] {
 
 export function addGbaReadWatchpoint(addr: number): void {
   readWps.add(addr >>> 0);
+  syncAnyFlags();
 }
 
 export function removeGbaReadWatchpoint(addr: number): void {
   readWps.delete(addr >>> 0);
+  syncAnyFlags();
 }
 
 export function hasGbaReadWatchpoint(addr: number): boolean {
@@ -95,10 +115,12 @@ export function listGbaReadWatchpoints(): number[] {
 
 export function addGbaWriteWatchpoint(addr: number): void {
   writeWps.add(addr >>> 0);
+  syncAnyFlags();
 }
 
 export function removeGbaWriteWatchpoint(addr: number): void {
   writeWps.delete(addr >>> 0);
+  syncAnyFlags();
 }
 
 export function hasGbaWriteWatchpoint(addr: number): boolean {
@@ -113,6 +135,7 @@ export function clearAllGbaBreakpoints(): void {
   pcBps.clear();
   readWps.clear();
   writeWps.clear();
+  syncAnyFlags();
   lastHit = null;
   armedPc = -1;
 }
@@ -124,7 +147,7 @@ export function clearAllGbaBreakpoints(): void {
  * true — the caller should NOT execute.
  */
 export function checkGbaPc(pc: number): boolean {
-  if (pcBps.size === 0) return false;
+  if (!anyPcBps) return false;
   const a = pc >>> 0;
   if (a === armedPc) {
     armedPc = -1; // single-shot pass-through; next visit re-triggers
@@ -138,13 +161,13 @@ export function checkGbaPc(pc: number): boolean {
 }
 
 export function checkGbaRead(addr: number): void {
-  if (readWps.size === 0) return;
+  if (!anyReadWps) return;
   const a = addr >>> 0;
   if (readWps.has(a)) lastHit = { kind: "read", addr: a };
 }
 
 export function checkGbaWrite(addr: number): void {
-  if (writeWps.size === 0) return;
+  if (!anyWriteWps) return;
   const a = addr >>> 0;
   if (writeWps.has(a)) lastHit = { kind: "write", addr: a };
 }

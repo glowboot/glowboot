@@ -51,6 +51,11 @@ export interface MemoryBus {
    *  detect sequential vs non-sequential fetches. ArmCpu writes this
    *  on every step and resets it to -1 on prefetch invalidation. */
   lastInstrFetchAddr: number;
+  /** Real bus time of the pipeline fetches a cart cache-miss refill
+   *  prepaid. The CPU's fill-credit accounting drains it from idle
+   *  cycles before banking prefetcher look-ahead. Buses without a
+   *  prefetch model (FlatBus) leave it at 0. */
+  refillStreamDebt: number;
   /** Cycle cost of fetching one instruction at `addr` of the given
    *  width. Bus implementations that don't model wait states (FlatBus)
    *  can return 1. */
@@ -94,6 +99,7 @@ export class FlatBus implements MemoryBus {
   /** Stub for the prefetch FIFO model — FlatBus reports every fetch
    *  as 1 cycle and never tracks sequentiality. */
   lastInstrFetchAddr = -1;
+  refillStreamDebt = 0;
 
   constructor(size = 0x10000) {
     this.bytes = new Uint8Array(size);
@@ -125,13 +131,16 @@ export class FlatBus implements MemoryBus {
   addCartBusyCycles(): void {}
 
   read32(address: number): number {
-    const a = address >>> 0;
+    // Aligns like the real bus: CPU load paths pass the RAW address
+    // (the low bits only matter to MappedBus's byte-bus SRAM region);
+    // the bus transaction itself is word-aligned.
+    const a = (address & ~3) >>> 0;
     const b = this.bytes;
     return (b[a] ?? 0) | ((b[a + 1] ?? 0) << 8) | ((b[a + 2] ?? 0) << 16) | ((b[a + 3] ?? 0) << 24) | 0;
   }
 
   read16(address: number): number {
-    const a = address >>> 0;
+    const a = (address & ~1) >>> 0;
     const b = this.bytes;
     return (b[a] ?? 0) | ((b[a + 1] ?? 0) << 8);
   }

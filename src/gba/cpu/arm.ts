@@ -407,9 +407,10 @@ function executeLoadStore(regs: ArmRegisters, bus: MemoryBus, instr: number): vo
       value = bus.read8(accessAddress >>> 0);
     } else {
       // Word LDR: word at addr & ~3, rotated right by 8 × (addr & 3).
-      const aligned = accessAddress & ~3;
+      // The RAW address goes on the bus — alignment happens there, and
+      // the byte-bus SRAM region needs the low bits (see MappedBus).
       const rotate = (accessAddress & 3) * 8;
-      const raw = bus.read32(aligned >>> 0) | 0;
+      const raw = bus.read32(accessAddress >>> 0) | 0;
       value = rotate === 0 ? raw : (raw >>> rotate) | (raw << (32 - rotate)) | 0;
     }
     // Writeback before the destination write, BUT skipped when
@@ -536,7 +537,7 @@ function executeBlockTransfer(regs: ArmRegisters, bus: MemoryBus, instr: number)
   if (isLoad) {
     for (let i = 0; i < 16; i++) {
       if ((effectiveList & (1 << i)) === 0) continue;
-      const value = bus.read32((address & ~3) >>> 0) | 0;
+      const value = bus.read32(address >>> 0) | 0;
       if (i === 15) {
         // For exception return the alignment depends on the post-restore
         // T-bit, which we don't know yet — store raw and mask after the
@@ -561,7 +562,7 @@ function executeBlockTransfer(regs: ArmRegisters, bus: MemoryBus, instr: number)
       } else {
         value = regs.r[i]! | 0;
       }
-      bus.write32((address & ~3) >>> 0, value);
+      bus.write32(address >>> 0, value);
       address = (address + 4) | 0;
     }
   }
@@ -658,8 +659,7 @@ function executeHalfwordTransfer(regs: ArmRegisters, bus: MemoryBus, instr: numb
       // zero-extends it into the 32-bit destination register, then
       // ROR-8s it (so a halfword 0x00CD read at an odd address ends
       // up as 0xCD000000 in the destination).
-      const aligned = accessAddress & ~1;
-      const raw = bus.read16(aligned >>> 0) & 0xffff;
+      const raw = bus.read16(accessAddress >>> 0) & 0xffff;
       value = (accessAddress & 1) !== 0 ? (raw >>> 8) | ((raw & 0xff) << 24) | 0 : raw;
     } else {
       // LDRSH
@@ -937,11 +937,10 @@ function executeSwp(regs: ArmRegisters, bus: MemoryBus, instr: number): void {
     bus.write8(address, sourceValue & 0xff);
     regs.r[rd] = loaded;
   } else {
-    const aligned = address & ~3;
     const rotate = (address & 3) * 8;
-    const raw = bus.read32(aligned >>> 0) | 0;
+    const raw = bus.read32(address >>> 0) | 0;
     const loaded = rotate === 0 ? raw : (raw >>> rotate) | (raw << (32 - rotate)) | 0;
-    bus.write32(aligned >>> 0, sourceValue);
+    bus.write32(address >>> 0, sourceValue);
     regs.r[rd] = loaded;
   }
 }

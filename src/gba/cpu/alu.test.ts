@@ -136,17 +136,15 @@ describe("alu — SUB / CMP", () => {
 
 describe("alu — ADC / SBC / RSC carry-in", () => {
   it("ADC adds the C flag in", () => {
-    const without = alu(ALU_ADC, 0x10, 0x20, false, false, false);
-    const withC = alu(ALU_ADC, 0x10, 0x20, true, false, false);
-    expect(without.value).toBe(0x30);
-    expect(withC.value).toBe(0x31);
+    // alu() returns a reused scratch instance — consume each result
+    // before the next call.
+    expect(alu(ALU_ADC, 0x10, 0x20, false, false, false).value).toBe(0x30);
+    expect(alu(ALU_ADC, 0x10, 0x20, true, false, false).value).toBe(0x31);
   });
 
   it("SBC subtracts an extra 1 when C=0 (borrow)", () => {
-    const noBorrow = alu(ALU_SBC, 0x10, 0x05, true, false, false);
-    const borrow = alu(ALU_SBC, 0x10, 0x05, false, false, false);
-    expect(noBorrow.value).toBe(0x0b);
-    expect(borrow.value).toBe(0x0a);
+    expect(alu(ALU_SBC, 0x10, 0x05, true, false, false).value).toBe(0x0b);
+    expect(alu(ALU_SBC, 0x10, 0x05, false, false, false).value).toBe(0x0a);
   });
 
   it("RSC swaps Rn/Op2 versus SBC", () => {

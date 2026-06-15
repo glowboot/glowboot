@@ -428,6 +428,20 @@ export class Sio extends BaseIoHandler {
     }
   }
 
+  /** Cycles until the next scheduled transfer completion (master
+   *  `pendingCycles` or queued slave delivery) — both latch registers
+   *  and can raise IRQ_SERIAL, so `Gba.runFrame`'s batched peripheral
+   *  ticking must flush at exactly that boundary. Returns a large
+   *  sentinel when nothing is scheduled. Queue entries that arrive
+   *  asynchronously mid-batch are bounded by the batcher's 256-cycle
+   *  cap, well under cross-tab transport jitter. */
+  cyclesToNextEvent(): number {
+    let min = 0x7fffffff;
+    if (this.pendingCycles > 0) min = this.pendingCycles;
+    if (this.slaveQueue.length > 0 && this.slaveDeliveryCycles < min) min = this.slaveDeliveryCycles;
+    return min < 1 ? 1 : min;
+  }
+
   /** Final latch step shared by master (fires from `tick()`) and slave
    *  (fires from `tick()` after the multi-result broadcast scheduled
    *  its own pendingCycles countdown). Writes SIOMULTI, clears BUSY,

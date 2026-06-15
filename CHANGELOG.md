@@ -5,6 +5,30 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] — 2026-06-15
+
+### Changed
+
+- **Faster Game Boy Advance emulation.** The GBA engine's core loop was
+  reworked to run roughly 1.8× faster on average across our test library,
+  so more games hold a full 60 fps on modest hardware — without changing
+  how they look, sound, or play.
+
+### Fixed
+
+- **More Game Boy Advance games render and play correctly.** A batch of
+  hardware-accuracy fixes — memory and DMA behaviour, the high-level BIOS
+  math routines, and instruction / IRQ cycle timing — clears the
+  mgba-suite memory and DMA test categories completely and resolves
+  timing-sensitive glitches across a range of carts.
+
+### Notes
+
+- The GBA ROM accuracy gate (`npm run test:gba-roms`) now validates a
+  single committed baseline against the HLE BIOS — the configuration the
+  browser ships. `--bios` runs a real Nintendo BIOS as an informational
+  comparison only; it never gates or re-records.
+
 ## [1.3.0] — 2026-06-09
 
 ### Added

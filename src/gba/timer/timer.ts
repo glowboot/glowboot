@@ -178,6 +178,29 @@ export class Timer extends BaseIoHandler {
     }
   }
 
+  /** Cycles until the next event that must be observed at an exact
+   *  instruction boundary: the soonest overflow among enabled,
+   *  prescaler-driven channels (overflows raise IRQs, pop Direct
+   *  Sound FIFOs, and drive cascade children — all inside the same
+   *  `tick` call, so the parent's horizon covers them). Returns 1
+   *  when a deferred register write is pending — its apply point is
+   *  inside the very next tick. `Gba.runFrame` uses this to batch
+   *  peripheral ticks without delaying a timer IRQ past the
+   *  instruction where per-instruction ticking would have raised it. */
+  cyclesToNextEvent(): number {
+    let min = 0x7fffffff;
+    for (let i = 0; i < 4; i++) {
+      const ch = this.channels[i]!;
+      if (ch.pendingReloadCycles >= 0 || ch.pendingControlCycles >= 0) return 1;
+      if (!ch.enabled) continue;
+      if (i !== 0 && (ch.control & CNT_CASCADE) !== 0) continue;
+      const prescaler = PRESCALERS[ch.control & CNT_PRESCALER_MASK]!;
+      const remaining = (0x10000 - ch.counter) * prescaler - ch.prescalerSubticks + ch.enableDelay;
+      if (remaining < min) min = remaining;
+    }
+    return min < 1 ? 1 : min;
+  }
+
   /** Apply a TMxCNT_H write to the channel, handling the 0→1 enable
    *  transition (latch reload into counter, arm enableDelay). Used by
    *  both the immediate path (write while disabled) and the deferred
@@ -215,9 +238,22 @@ export class Timer extends BaseIoHandler {
     }
     ch.prescalerSubticks += remaining;
     const prescaler = ch.prescaler;
-    while (ch.prescalerSubticks >= prescaler) {
-      ch.prescalerSubticks -= prescaler;
-      this.advance(ch);
+    // Fast-forward arithmetically instead of one advance() per
+    // prescaler tick — a Direct Sound timer at prescaler 1 would
+    // otherwise pay one call per CPU cycle (~280k/frame). Counter
+    // increments between overflows have no observable side effects,
+    // so only the overflow boundaries need individual processing.
+    let increments = (ch.prescalerSubticks / prescaler) | 0;
+    ch.prescalerSubticks -= increments * prescaler;
+    while (increments > 0) {
+      const toOverflow = 0x10000 - ch.counter;
+      if (increments < toOverflow) {
+        ch.counter += increments;
+        return;
+      }
+      increments -= toOverflow;
+      ch.counter = 0;
+      this.overflow(ch);
     }
   }
 

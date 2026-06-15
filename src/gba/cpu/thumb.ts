@@ -461,9 +461,8 @@ function executeHiRegister(regs: ArmRegisters, instr: number): void {
  *  `addr & ~3` is loaded and then rotated right by `8 × (addr & 3)`
  *  so the byte at the unaligned address ends up in bits 7:0. */
 function loadWordRotated(bus: MemoryBus, addr: number): number {
-  const aligned = addr & ~3;
   const rotate = (addr & 3) * 8;
-  const raw = bus.read32(aligned >>> 0) | 0;
+  const raw = bus.read32(addr >>> 0) | 0;
   return rotate === 0 ? raw : (raw >>> rotate) | (raw << (32 - rotate)) | 0;
 }
 
@@ -511,7 +510,7 @@ function executeLoadStoreReg(regs: ArmRegisters, bus: MemoryBus, instr: number):
   if (isByte) {
     bus.write8(addr >>> 0, (regs.r[rd]! | 0) & 0xff);
   } else {
-    bus.write32((addr & ~3) >>> 0, regs.r[rd]! | 0);
+    bus.write32(addr >>> 0, regs.r[rd]! | 0);
   }
 }
 
@@ -528,7 +527,7 @@ function executeLoadStoreSign(regs: ArmRegisters, bus: MemoryBus, instr: number)
 
   if (!s && !h) {
     // STRH
-    bus.write16((addr & ~1) >>> 0, (regs.r[rd]! | 0) & 0xffff);
+    bus.write16(addr >>> 0, (regs.r[rd]! | 0) & 0xffff);
     return;
   }
   if (!s && h) {
@@ -570,7 +569,7 @@ function executeLoadStoreImm(regs: ArmRegisters, bus: MemoryBus, instr: number):
   if (isByte) {
     bus.write8(addr >>> 0, (regs.r[rd]! | 0) & 0xff);
   } else {
-    bus.write32((addr & ~3) >>> 0, regs.r[rd]! | 0);
+    bus.write32(addr >>> 0, regs.r[rd]! | 0);
   }
 }
 
@@ -586,7 +585,7 @@ function executeLoadStoreHalfword(regs: ArmRegisters, bus: MemoryBus, instr: num
   if (isLoad) {
     regs.r[rd] = loadHalfwordRotated(bus, addr);
   } else {
-    bus.write16((addr & ~1) >>> 0, (regs.r[rd]! | 0) & 0xffff);
+    bus.write16(addr >>> 0, (regs.r[rd]! | 0) & 0xffff);
   }
 }
 
@@ -602,7 +601,7 @@ function executeLoadStoreSpRelative(regs: ArmRegisters, bus: MemoryBus, instr: n
   if (isLoad) {
     regs.r[rd] = loadWordRotated(bus, addr);
   } else {
-    bus.write32((addr & ~3) >>> 0, regs.r[rd]! | 0);
+    bus.write32(addr >>> 0, regs.r[rd]! | 0);
   }
 }
 

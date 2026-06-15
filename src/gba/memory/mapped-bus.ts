@@ -42,6 +42,46 @@ export interface IoHandler {
   write32(offset: number, value: number): void;
 }
 
+/** Wraps a peripheral's IoHandler so every register access first fires
+ *  the bus's `onPeripheralAccess` hook. `Gba.runFrame` batches timer /
+ *  APU / SIO ticks between observable events instead of ticking once
+ *  per instruction; the hook drains that pending-cycle backlog so a
+ *  register read observes exactly the state it would have seen under
+ *  per-instruction ticking, and a register write applies to caught-up
+ *  state. Only the handlers whose registers expose batched state are
+ *  wrapped (APU / SIO / DMA / timer / interrupt controller) — PPU and
+ *  joypad registers stay on the unwrapped fast path. */
+class PeripheralAccessNotifier implements IoHandler {
+  constructor(
+    private readonly bus: MappedBus,
+    private readonly inner: IoHandler
+  ) {}
+  read8(offset: number): number {
+    this.bus.onPeripheralAccess?.();
+    return this.inner.read8(offset);
+  }
+  read16(offset: number): number {
+    this.bus.onPeripheralAccess?.();
+    return this.inner.read16(offset);
+  }
+  read32(offset: number): number {
+    this.bus.onPeripheralAccess?.();
+    return this.inner.read32(offset);
+  }
+  write8(offset: number, value: number): void {
+    this.bus.onPeripheralAccess?.();
+    this.inner.write8(offset, value);
+  }
+  write16(offset: number, value: number): void {
+    this.bus.onPeripheralAccess?.();
+    this.inner.write16(offset, value);
+  }
+  write32(offset: number, value: number): void {
+    this.bus.onPeripheralAccess?.();
+    this.inner.write32(offset, value);
+  }
+}
+
 /** How a region handles 8-bit writes.
  *
  *  - `normal`: store the byte as-is (RAM default).
@@ -76,6 +116,11 @@ type Backing = BytesBacking | HandlerBacking;
 interface Region {
   start: number;
   end: number;
+  /** True for the 8-bit cart-RAM bus at 0x0E000000 — the only region
+   *  whose chip decodes the full (unaligned) address. read16/read32
+   *  forward the address low bits to the handler for these regions
+   *  and strip them everywhere else. */
+  byteBus?: boolean;
   /** Effective region size for offset modulo. Equals `end - start`
    *  for plain regions; smaller than that when the region mirrors
    *  itself across a larger address window (IWRAM, EWRAM, palette,
@@ -257,6 +302,15 @@ export class MappedBus implements MemoryBus {
    *  `0x0E008300` / `0x0E008400` / `0x0E008500`) before the cart-RAM
    *  backup handler claims them. Null for all other carts. */
   cartTilt: TiltSensor | null = null;
+  /** Real bus time of the two prepaid pipeline fetches from the most
+   *  recent cart cache-miss refill — consumed by subsequent steps'
+   *  idle cycles before FIFO fill credit accrues. */
+  refillStreamDebt = 0;
+
+  /** Fired before any access to a wrapped peripheral handler (see
+   *  `PeripheralAccessNotifier`). Set by the Gba constructor to drain
+   *  the batched peripheral-tick backlog. */
+  onPeripheralAccess: (() => void) | null = null;
   /** Set when the most recent cart-bus bank entry landed at a 128 KiB
    *  boundary address (low 17 bits == 0). Used to gate the backward-
    *  cross +2 penalty: real HW only penalises a backward cross out of a
@@ -302,49 +356,49 @@ export class MappedBus implements MemoryBus {
    *  halfword cost gets cached for subsequent fill-credit conversion. */
   fetchCycleCost(addr: number, width: 16 | 32): number {
     const region = (addr >>> 24) & 0xf;
-    if (region < 8) return 1;
+    if (region < 8) {
+      // Internal regions have no prefetch FIFO, but they're not all
+      // 1-cycle: EWRAM sits on a 16-bit 3-wait bus, so a Thumb fetch
+      // costs 3 and an ARM fetch 6 (two halfwords) — the same
+      // table-based math cacheMissCost uses. IWRAM/BIOS/IO keep their
+      // 1-cycle fetches (bonus 0). nba-hw-test irq-delay's EWRAM row
+      // measures the ~20-cycle gap the flat `return 1` used to hide.
+      const ws = REGION_S_CYCLES_16[region] ?? 1;
+      const bonus = width === 32 ? (REGION_S_BONUS_32[region] ?? 0) : 0;
+      return ws + bonus;
+    }
     const halfwordsNeeded = width >>> 4; // 1 for Thumb, 2 for ARM
     const wsS = REGION_S_CYCLES_16[region] ?? 1;
     const wsN = REGION_N_CYCLES_16[region] ?? 1;
     // Sequential vs non-sequential to the previous instr fetch.
     const seq = addr === ((this.lastInstrFetchAddr + (width >>> 3)) | 0);
-    // With prefetch enabled, the real hardware's prefetcher keeps up
-    // with sequential reads behind the scenes — fills overlap with CPU
-    // execute / data-access cycles. Our explicit `prefetchCount` model
-    // only credits fills at step boundaries, so it lags behind reality
-    // and would charge full N+S for every linear cart-ROM fetch inside
-    // tight ARM loops (MMBN's 65k-iter EWRAM memset overcounted ~70%
-    // until this change). When seq + prefetch enabled, assume FIFO
-    // keeps up; we still flush on non-sequential / disabled cases.
-    const fifoHit = this.prefetchEnabled && seq;
-    let cost = 0;
-    let fromFifo = 0;
-    if (fifoHit) {
-      fromFifo = Math.min(this.prefetchCount, halfwordsNeeded);
-      cost += fromFifo; // 1 cycle per FIFO halfword
+    // Hardware model, pinned per-row by mgba-suite timing's WAITCNT /
+    // prefetch matrix: linear cart execution runs at the CART BUS
+    // rate — every sequential halfword the FIFO doesn't already hold
+    // costs WS_S, in BOTH prefetch modes (an ARM nop is S+S, a Thumb
+    // nop is S). The prefetcher only gets AHEAD during cycles the
+    // cart bus is idle (non-cart data accesses, internal cycles —
+    // credited at step end via addCartFillCycles); halfwords it
+    // banked that way cost 1 cycle each. A non-sequential fetch
+    // (branch) flushes the FIFO and pays WS_N for its first halfword.
+    let cost: number;
+    if (seq) {
+      const fromFifo = this.prefetchEnabled ? Math.min(this.prefetchCount, halfwordsNeeded) : 0;
       this.prefetchCount -= fromFifo;
-      this.prefetchNextAddr = (addr + fromFifo * 2) | 0;
-    } else {
-      // Pipeline flush — FIFO contents discarded.
-      this.prefetchCount = 0;
-      this.prefetchNextAddr = (addr + halfwordsNeeded * 2) | 0;
-    }
-    const remaining = halfwordsNeeded - fromFifo;
-    if (remaining > 0) {
-      // First miss-half pays WS_N if non-sequential (or if the FIFO was
-      // empty so this is effectively a fresh access), WS_S otherwise.
-      const firstCost = seq && fromFifo > 0 ? wsS : wsN;
-      cost += firstCost;
-      if (remaining > 1) cost += wsS * (remaining - 1);
-      // The miss portion of the fetch ties up the cart bus; FIFO-hit
-      // halfwords (the `fromFifo` ones) don't — they're just a latch
-      // handoff. Record only the miss portion so step-end fill-credit
-      // doesn't subtract FIFO-hit cycles as cart busy time.
+      const missed = halfwordsNeeded - fromFifo;
+      cost = fromFifo + missed * wsS;
+      // FIFO-hit halfwords are a latch handoff — the cart bus stays
+      // free for the prefetcher; demand-fetched halfwords tie it up.
       this.cartBusBusyCycles += cost - fromFifo;
-      // Drop any stale fill credit — the new fetch resets the timing
-      // window for prefetcher fill behind the new PC.
+      // A demand fetch consumes the prefetcher's in-flight progress.
+      if (missed > 0) this.prefetchCreditRemainder = 0;
+    } else {
+      this.prefetchCount = 0;
       this.prefetchCreditRemainder = 0;
+      cost = wsN + (halfwordsNeeded - 1) * wsS;
+      this.cartBusBusyCycles += cost;
     }
+    this.prefetchNextAddr = (addr + halfwordsNeeded * 2) | 0;
     this.prefetchHalfwordCost = wsS;
     return cost;
   }
@@ -419,6 +473,17 @@ export class MappedBus implements MemoryBus {
     // Disabling the prefetcher drains the FIFO; enabling it from cold
     // starts with an empty FIFO too. Either way reset state.
     if (wasEnabled !== this.prefetchEnabled) this.flushPrefetchFifo();
+  }
+
+  /** Charge bus cycles for an access WITHOUT moving data. The DMA
+   *  controller uses this for cart-region sources with a non-increment
+   *  src control: the cart chip serves data from its auto-incrementing
+   *  counter, but the DMA's internal address register follows the
+   *  programmed direction — and the 128 KiB bank-boundary penalties
+   *  key off the internal address (nba-hw-test bus/128kb-boundary's
+   *  DMA DEC rows differ from the INC rows at the same address). */
+  chargeDmaAccess(addr: number, width: 16 | 32): void {
+    this.chargeAccess(addr, width);
   }
 
   private chargeAccess(addr: number, width: 8 | 16 | 32): void {
@@ -564,12 +629,13 @@ export class MappedBus implements MemoryBus {
     this.indexRegion(region);
   }
 
-  addHandler(start: number, size: number, handler: IoHandler): void {
+  addHandler(start: number, size: number, handler: IoHandler, byteBus = false): void {
     const region: Region = {
       start: start >>> 0,
       end: (start + size) >>> 0,
       size,
       mirrorUnit: size,
+      byteBus,
       backing: { kind: "handler", handler }
     };
     this.regions.push(region);
@@ -631,7 +697,17 @@ export class MappedBus implements MemoryBus {
   }
 
   read16(address: number): number {
-    const addr = address >>> 0;
+    // Normalize to the bus-transaction address: the GBA's 16-bit bus
+    // ignores bit 0 for the transfer itself (CPU loads pass the RAW
+    // address; rotation happens in the load path). Watchpoints, cycle
+    // charging, and region resolution all see the aligned address —
+    // identical to when callers pre-aligned. Only the 8-bit cart-RAM
+    // bus (`byteBus` regions) sees the low bit: SRAM decodes the full
+    // address, so an unaligned load reads the byte AT that address
+    // replicated across the lanes (mgba-suite memory "SRAM load
+    // unaligned").
+    const rawAddr = address >>> 0;
+    const addr = (rawAddr & ~1) >>> 0;
     checkGbaRead(addr);
     this.chargeAccess(addr, 16);
     if (this.isVramBitmapBlocked(addr)) return 0;
@@ -643,17 +719,21 @@ export class MappedBus implements MemoryBus {
     if (!this.resolve(addr)) return 0;
     const region = this.resolveRegion!;
     const off = this.resolveOffset;
-    if (region.backing.kind === "handler") return region.backing.handler.read16(off);
+    if (region.backing.kind === "handler") {
+      return region.backing.handler.read16(region.byteBus ? off | (rawAddr & 1) : off);
+    }
     // The GBA bus only exchanges aligned halfwords — the LSB of the
     // address is consumed by the CPU's barrel-shifter for LDRH rotation
     // and never reaches the byte storage. Match write16's alignment.
-    const aligned = off & ~1;
     const b = region.backing.bytes;
-    return b[aligned]! | (b[aligned + 1]! << 8);
+    return b[off]! | (b[off + 1]! << 8);
   }
 
   read32(address: number): number {
-    const addr = address >>> 0;
+    // Same normalization as read16 — bit 1:0 stripped for the bus
+    // transaction, forwarded only to byte-bus (cart-RAM) regions.
+    const rawAddr = address >>> 0;
+    const addr = (rawAddr & ~3) >>> 0;
     checkGbaRead(addr);
     this.chargeAccess(addr, 32);
     if (this.isVramBitmapBlocked(addr)) return 0;
@@ -670,12 +750,13 @@ export class MappedBus implements MemoryBus {
     if (!this.resolve(addr)) return 0;
     const region = this.resolveRegion!;
     const off = this.resolveOffset;
-    if (region.backing.kind === "handler") return region.backing.handler.read32(off) | 0;
+    if (region.backing.kind === "handler") {
+      return region.backing.handler.read32(region.byteBus ? off | (rawAddr & 3) : off) | 0;
+    }
     // 32-bit bus reads are physically aligned; the address LSBs feed the
     // CPU's barrel-shifter for LDR's ROR-on-unaligned. Match write32.
-    const aligned = off & ~3;
     const b = region.backing.bytes;
-    return b[aligned]! | (b[aligned + 1]! << 8) | (b[aligned + 2]! << 16) | (b[aligned + 3]! << 24) | 0;
+    return b[off]! | (b[off + 1]! << 8) | (b[off + 2]! << 16) | (b[off + 3]! << 24) | 0;
   }
 
   /** Raw instruction fetch — no watchpoint, no cycle accounting, no
@@ -735,7 +816,19 @@ export class MappedBus implements MemoryBus {
     // Cart-ROM regions tie up the cart bus during refill — preserve
     // the same cartBusBusyCycles contribution chargeAccess would
     // have made via the original 3 read*() calls.
-    if (region >= 8 && region <= 0xd) this.cartBusBusyCycles += cost;
+    if (region >= 8 && region <= 0xd) {
+      this.cartBusBusyCycles += cost;
+      // The two prepaid pipeline fetches (the refillFreeFetches the
+      // CPU consumes at 1 cycle each) occupy the cart bus during the
+      // FOLLOWING steps on real hardware. Record their real bus time
+      // as a stream debt: upcoming idle cycles pay it off before any
+      // prefetcher look-ahead credit can accrue (see ArmCpu's
+      // fill-credit accounting). Without this, a spuriously banked
+      // halfword makes the first post-branch instruction 2 cycles
+      // faster than hardware — enough to flip Galidor's
+      // callback-pointer race and send it through a null pointer.
+      this.refillStreamDebt = 2 * (wsS + bonus);
+    }
     return cost;
   }
 
@@ -797,7 +890,13 @@ export class MappedBus implements MemoryBus {
   }
 
   write16(address: number, value: number): void {
-    const addr = address >>> 0;
+    // Same normalization as read16. Byte-bus (cart-RAM) stores narrow
+    // to ONE byte at the raw address, lane-selected from the source
+    // value — a 16-bit store to SRAM drives only the addressed byte
+    // (mgba-suite memory "SRAM store" pins this via the
+    // `value >> (8 * (addr & 1))` rule).
+    const rawAddr = address >>> 0;
+    const addr = (rawAddr & ~1) >>> 0;
     checkGbaWrite(addr);
     this.chargeAccess(addr, 16);
     if (this.isVramBitmapBlocked(addr)) return;
@@ -816,23 +915,26 @@ export class MappedBus implements MemoryBus {
     const region = this.resolveRegion!;
     const off = this.resolveOffset;
     if (region.backing.kind === "handler") {
-      // Handlers receive the unaligned offset. MMIO blocks (PPU/APU)
-      // realign internally; cart-RAM handlers (SRAM/Flash) consume the
-      // LSB to model the 8-bit-data-path byte rotation.
+      if (region.byteBus) {
+        // 8-bit cart-RAM bus: a halfword store drives ONE byte at the
+        // raw address, lane-selected from the source value.
+        region.backing.handler.write8(off | (rawAddr & 1), (value >>> (8 * (rawAddr & 1))) & 0xff);
+        return;
+      }
       region.backing.handler.write16(off, value & 0xffff);
       return;
     }
     if (region.backing.readOnly) return;
-    // Byte-region writes (EWRAM/IWRAM/palette/etc.) force alignment —
-    // matches ARM7TDMI's behaviour on RAM with a wider data path.
-    const aligned = off & ~1;
     const b = region.backing.bytes;
-    b[aligned] = value & 0xff;
-    b[aligned + 1] = (value >>> 8) & 0xff;
+    b[off] = value & 0xff;
+    b[off + 1] = (value >>> 8) & 0xff;
   }
 
   write32(address: number, value: number): void {
-    const addr = address >>> 0;
+    // Same normalization as read32; byte-bus stores narrow to one
+    // byte: `value >> (8 * (addr & 3))` at the raw address.
+    const rawAddr = address >>> 0;
+    const addr = (rawAddr & ~3) >>> 0;
     checkGbaWrite(addr);
     this.chargeAccess(addr, 32);
     if (this.isVramBitmapBlocked(addr)) return;
@@ -849,16 +951,21 @@ export class MappedBus implements MemoryBus {
     const region = this.resolveRegion!;
     const off = this.resolveOffset;
     if (region.backing.kind === "handler") {
+      if (region.byteBus) {
+        // 8-bit cart-RAM bus: a word store drives ONE byte at the raw
+        // address, lane-selected from the source value.
+        region.backing.handler.write8(off | (rawAddr & 3), (value >>> (8 * (rawAddr & 3))) & 0xff);
+        return;
+      }
       region.backing.handler.write32(off, value | 0);
       return;
     }
     if (region.backing.readOnly) return;
-    const aligned = off & ~3;
     const b = region.backing.bytes;
-    b[aligned] = value & 0xff;
-    b[aligned + 1] = (value >>> 8) & 0xff;
-    b[aligned + 2] = (value >>> 16) & 0xff;
-    b[aligned + 3] = (value >>> 24) & 0xff;
+    b[off] = value & 0xff;
+    b[off + 1] = (value >>> 8) & 0xff;
+    b[off + 2] = (value >>> 16) & 0xff;
+    b[off + 3] = (value >>> 24) & 0xff;
   }
 }
 
@@ -1102,7 +1209,26 @@ export interface GbaMemoryMap {
   eeprom: EepromBackup | null;
 }
 
-export function makeGbaMemoryMap(romSize = 0x2000, backup: BackupSpec = { type: "none", size: 0 }): GbaMemoryMap {
+/** First 8 bytes of the mandatory Nintendo boot logo at header offset
+ *  0x04. Licensed carts (and the flashcarts test-ROM expectations were
+ *  measured on) always carry the full 156-byte pattern; unlicensed
+ *  PCBs (GameShark GBA) don't bother — the prefix is enough to tell
+ *  them apart for the ROM-mirroring heuristic below. */
+const NINTENDO_LOGO_PREFIX = [0x24, 0xff, 0xae, 0x51, 0x69, 0x9a, 0xa2, 0x21] as const;
+
+function hasNintendoLogo(romData: Uint8Array | undefined): boolean {
+  if (romData === undefined || romData.length < 0x0c) return true;
+  for (let i = 0; i < NINTENDO_LOGO_PREFIX.length; i++) {
+    if (romData[0x04 + i] !== NINTENDO_LOGO_PREFIX[i]) return false;
+  }
+  return true;
+}
+
+export function makeGbaMemoryMap(
+  romSize = 0x2000,
+  backup: BackupSpec = { type: "none", size: 0 },
+  romData?: Uint8Array
+): GbaMemoryMap {
   const bus = new MappedBus();
   // BIOS region — handler-backed so reads can fall through to
   // `biosOpenBus` when the CPU is outside BIOS. The handler owns the
@@ -1144,16 +1270,28 @@ export function makeGbaMemoryMap(romSize = 0x2000, backup: BackupSpec = { type: 
   // hardware bus timings differ. We map WS0 explicitly and alias WS1
   // and WS2 onto the same backing array further down (after EEPROM,
   // so EEPROM at 0x0D000000 wins over the WS2 mirror when present).
-  // For power-of-two ROMs, mirror across the full 32 MB WS0 window —
-  // real cart hardware only decodes as many address lines as the ROM
-  // size requires, so the high bits are ignored and reads alias back
-  // to the in-range copy (Dead to Rights, Bruce Lee, and Bubble Bobble
-  // all branch deliberately into the upper mirror). For non-power-of-2
-  // ROMs the modular-mirror math would skew, so leave those without a
-  // mirror window (reads past the end fall through to CartOpenBus).
+  // No modulo mirroring within the 32 MB window: real cart hardware
+  // returns open-bus for in-window reads past
+  // the ROM end — `(addr >> 1) & 0xFFFF` per halfword, served by the
+  // CartOpenBusHandler fall-through below. mgba-suite memory's "ROM
+  // out-of-bounds load" pins this. Carts that branch into the upper
+  // window (Dead to Rights, Bruce Lee, Bubble Bobble) target offsets
+  // that are in-range for their ROM size, so the linear region covers
+  // them without a mirror.
+  // Licensed carts (and flashcarts, which the test-ROM expectations
+  // were measured on) decode enough address lines that in-window reads
+  // past the ROM end return open-bus — `(addr >> 1) & 0xFFFF` per
+  // halfword via the CartOpenBusHandler fall-through, as the hardware
+  // model returns and mgba-suite memory's "ROM out-of-bounds load" pins.
+  // Unlicensed PCBs (GameShark GBA) decode only as many lines as
+  // their small ROM needs, so the image mirrors across the window —
+  // without it both GameShark carts freeze at a static splash. The
+  // dump can't expose the PCB wiring, so gate the mirror on the
+  // unlicensed-hardware proxy: a power-of-two ROM whose header lacks
+  // the valid Nintendo boot logo.
   const isPowerOfTwo = romSize > 0 && (romSize & (romSize - 1)) === 0;
   const romRegionOpts: { readOnly: boolean; mirrorWindow?: number } = { readOnly: true };
-  if (isPowerOfTwo) romRegionOpts.mirrorWindow = 0x02000000;
+  if (isPowerOfTwo && !hasNintendoLogo(romData)) romRegionOpts.mirrorWindow = 0x02000000;
   const rom = bus.addRegion(0x08000000, romSize, romRegionOpts);
   const ppu = new Ppu(vram, palette, oam);
   bus.addHandler(0x04000000, 0x60, ppu);
@@ -1165,7 +1303,7 @@ export function makeGbaMemoryMap(romSize = 0x2000, backup: BackupSpec = { type: 
   // tail is unmapped on real silicon and reads land on CPU open-bus.
   // Extend the handler region by 8 bytes so the APU's read16 fallback
   // (which returns open-bus for offset >= 0x48) catches those slots.
-  bus.addHandler(0x04000060, 0x50, apu);
+  bus.addHandler(0x04000060, 0x50, new PeripheralAccessNotifier(bus, apu));
   const joypad = new Joypad();
   // KEYINPUT (0x130) + KEYCNT (0x132) — 4-byte handler window covers
   // both 16-bit registers and the half-word slot beyond them.
@@ -1175,10 +1313,10 @@ export function makeGbaMemoryMap(romSize = 0x2000, backup: BackupSpec = { type: 
   // first-match for those slots; SIO catches everything else in its
   // range, including the RCNT mode-select register at 0x134.
   const sio = new Sio();
-  bus.addHandler(0x04000120, 0x40, sio);
+  bus.addHandler(0x04000120, 0x40, new PeripheralAccessNotifier(bus, sio));
   const interrupts = new InterruptController();
   // IE/IF/WAITCNT/IME occupy 0x200..0x20B; 12-byte handler window.
-  bus.addHandler(0x04000200, 0x0c, interrupts);
+  bus.addHandler(0x04000200, 0x0c, new PeripheralAccessNotifier(bus, interrupts));
   // Cart-code WAITCNT writes rebuild the bus's per-region N/S cycle
   // tables (WS0/WS1/WS2/SRAM). Internal-bus regions keep their fixed
   // costs. Default seed (WAITCNT 0x0000) was applied at module load.
@@ -1202,18 +1340,16 @@ export function makeGbaMemoryMap(romSize = 0x2000, backup: BackupSpec = { type: 
   // jsmolka memory test 7/8 verify these mirrors by ADR-ing into ROM
   // then offsetting by +0x02000000 / +0x04000000 and checking the
   // value reads back identically.
-  const aliasOpts: { readOnly: boolean; mirrorWindow?: number } = { readOnly: true };
-  if (isPowerOfTwo) aliasOpts.mirrorWindow = 0x02000000;
-  bus.addRegionAlias(0x0a000000, rom, aliasOpts);
-  bus.addRegionAlias(0x0c000000, rom, aliasOpts);
+  bus.addRegionAlias(0x0a000000, rom, romRegionOpts);
+  bus.addRegionAlias(0x0c000000, rom, romRegionOpts);
   const dma = new Dma(bus, interrupts, eeprom);
   // 4 channels × 12 bytes (0xB0-0xDF) + 0x20-byte tail (0xE0-0xFF) the
   // handler answers with CPU open-bus, matching real hardware's
   // post-DMA unhandled MMIO. Total 0x50 bytes.
-  bus.addHandler(0x040000b0, 0x50, dma);
+  bus.addHandler(0x040000b0, 0x50, new PeripheralAccessNotifier(bus, dma));
   const timer = new Timer(interrupts, apu);
   // 4 timers × 4 bytes = 16 bytes starting at 0x100.
-  bus.addHandler(0x04000100, 0x10, timer);
+  bus.addHandler(0x04000100, 0x10, new PeripheralAccessNotifier(bus, timer));
   // POSTFLG + HALTCNT (4 bytes at 0x04000300). Wired into Gba so a
   // write to HALTCNT (direct STRB or via a halfword STRH whose high
   // byte lands at 0x04000301 — the CpuSet HALT-via-bus trick) flips
@@ -1269,7 +1405,7 @@ export function makeGbaMemoryMap(romSize = 0x2000, backup: BackupSpec = { type: 
   } else {
     handler = new OpenBusBackup();
   }
-  bus.addHandler(0x0e000000, 0x02000000, handler);
+  bus.addHandler(0x0e000000, 0x02000000, handler, /* byteBus */ true);
   // Unmapped MMIO catch-all from 0x04000400 onwards. Registered after
   // every real I/O handler so first-match leaves the live registers
   // untouched. mgba-suite io-read's `INVALID(0x100C)` probes a slot
