@@ -17,7 +17,10 @@
   align-items: center;
   gap: 20px;
   width: 100%;
-  max-width: 520px;
+  /* The screen-size slider (Settings → Display) drives `--screen-max`
+     so the game can scale up from the default 520px toward the .rig
+     width (1280px). Unset → 520px, preserving the historical size. */
+  max-width: var(--screen-max, 520px);
 }
 
 /* Canvas + glow + frame. The wrap tracks the Game Boy's native 10:9

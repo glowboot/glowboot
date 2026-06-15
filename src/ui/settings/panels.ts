@@ -32,6 +32,7 @@ import {
   rumblePresetSelect,
   rumbleResetBtn,
   rumbleStrengthSlider,
+  screenSizeSlider,
   sessionResetBtn,
   settingsExportBtn,
   settingsImportBtn,
@@ -233,6 +234,7 @@ function formatSliderValue(s: HTMLInputElement): string {
   const v = parseFloat(s.value);
   const max = parseFloat(s.max || "0");
   const step = parseFloat(s.step || "1");
+  if (s.id === "screen-size") return `${Math.round(v)}%`;
   if (max === 100 && step >= 1) return `${Math.round(v)}%`;
   if (step < 1) return v.toFixed(2);
   return String(v);
@@ -510,6 +512,36 @@ export function syncIntegerScaleToggle(): void {
     renderer.setPixelResponse(0);
     if (el) {
       el.value = "0";
+      syncSliderLabel(el);
+    }
+  });
+}
+
+// ─── Screen size (windowed) ──────────────────────────────────────────────
+// Scales the game screen in windowed mode by driving the `--screen-max`
+// CSS var (the .console max-width cap). 100% = the historical 520px; the
+// slider goes up to the .rig width. Fullscreen and the native render
+// buffer are untouched — this is pure display-size CSS. Pref: `gb-screen-size`.
+{
+  const applyScreenSize = (pct: number): void => {
+    document.documentElement.style.setProperty("--screen-max", `${Math.round((pct / 100) * 520)}px`);
+  };
+  const stored = parseInt(INIT_LS[KEYS.SCREEN_SIZE] ?? "100", 10);
+  const initial = Number.isFinite(stored) ? Math.max(100, Math.min(240, stored)) : 100;
+  applyScreenSize(initial);
+  const el = screenSizeSlider;
+  if (el) {
+    el.value = String(initial);
+    el.addEventListener("input", () => {
+      const v = parseInt(el.value, 10) || 100;
+      applyScreenSize(v);
+      lsSet(KEYS.SCREEN_SIZE, String(v));
+    });
+  }
+  onSectionReset("display", () => {
+    applyScreenSize(100);
+    if (el) {
+      el.value = "100";
       syncSliderLabel(el);
     }
   });

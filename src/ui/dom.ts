@@ -49,6 +49,7 @@ export const paletteNote = document.getElementById("palette-note") as HTMLElemen
 export const colorCorrectionToggle = document.getElementById("color-correction-toggle") as HTMLInputElement | null;
 export const integerScaleToggle = document.getElementById("integer-scale-toggle") as HTMLInputElement | null;
 export const pixelResponseSlider = document.getElementById("pixel-response") as HTMLInputElement | null;
+export const screenSizeSlider = document.getElementById("screen-size") as HTMLInputElement | null;
 export const solarBrightnessSlider = document.getElementById("solar-brightness") as HTMLInputElement | null;
 export const renderModeSelect = document.getElementById("render-mode") as HTMLSelectElement | null;
 export const gradeBrightness = document.getElementById("grade-brightness") as HTMLInputElement | null;

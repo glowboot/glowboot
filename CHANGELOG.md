@@ -5,6 +5,16 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Screen-size slider.** Settings → Display now has a "Screen size"
+  control (100%–240%) to scale the game up in windowed mode, so Game Boy
+  and especially GBA games are no longer stuck at one small size short of
+  fullscreen. Pairs with Integer scaling for crisp pixels and is
+  remembered across reloads; fullscreen is unaffected.
+
 ## [1.3.1] — 2026-06-15
 
 ### Changed

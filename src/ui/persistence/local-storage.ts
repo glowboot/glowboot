@@ -71,6 +71,7 @@ export const KEYS = {
   COLOR_CORRECTION: "gb-color-correction",
   INTEGER_SCALE: "gb-integer-scale",
   PIXEL_RESPONSE: "gb-pixel-response",
+  SCREEN_SIZE: "gb-screen-size",
   COLOR_GRADE: "gb-grade",
   PALETTE: "gb-palette",
   THEME: "gb-theme",
