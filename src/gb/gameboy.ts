@@ -76,9 +76,13 @@ export class GameBoy {
   constructor(romData: Uint8Array, bootRom: Uint8Array | null = null, opts?: { skipLogoCheck?: boolean }) {
     const preBoot = bootRom !== null;
     this.cart = new Cartridge(romData, opts);
-    // Always emulate a CGB console so DMG carts get CGB "compatibility mode"
-    // colourisation just like they do on real hardware.
-    this.ppu = new PPU(this.interrupts, /* cgb */ true, /* cgbGame */ this.cart.cgb, preBoot);
+    // Match the console to the cart: DMG-only carts (CGB flag clear) run as
+    // a real DMG, CGB carts as a CGB. Emulating DMG games on actual DMG
+    // hardware is what they were built for; running them in CGB-compat mode
+    // derailed a few (e.g. Miner 2049er hung on a register/boot-state quirk).
+    // The CGB-style compatibility colour palette is still applied below
+    // (applyDmgCompatPalette) so DMG games keep their colourised look.
+    this.ppu = new PPU(this.interrupts, /* cgb */ this.cart.cgb, /* cgbGame */ this.cart.cgb, preBoot);
     this.timer = new Timer(this.interrupts, preBoot);
     this.joypad = new Joypad(this.interrupts);
     this.mmu = new MMU(
@@ -88,10 +92,10 @@ export class GameBoy {
       this.timer,
       this.joypad,
       this.interrupts,
-      /* cgb console */ true,
+      /* cgb console */ this.cart.cgb,
       bootRom
     );
-    this.cpu = new CPU(this.mmu, this.interrupts, this.timer, /* cgb */ true, /* preBoot */ preBoot);
+    this.cpu = new CPU(this.mmu, this.interrupts, this.timer, /* cgb */ this.cart.cgb, /* preBoot */ preBoot);
     this.mmu.cpu = this.cpu; // break the constructor cycle so KEY1 can reach CPU.
     this.cpu.apu = this.apu; // per-bus-access APU ticking — see CPU.busRead
     this.cpu.ppu = this.ppu; // per-bus-access PPU ticking — register writes settle at the M-cycle of the write
