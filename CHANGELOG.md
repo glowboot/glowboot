@@ -17,6 +17,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Qix Adventure (and other carts that toggle the LCD off and on) no
+  longer hang on a blank screen.** A Game Boy PPU edge case: disabling
+  the LCD partway through the line-153 timing window left an internal
+  flag stuck, so when the LCD came back on the scanline counter never
+  wrapped and the VBlank interrupt stopped firing. The flag is now
+  cleared whenever the LCD is switched on or off.
 - **Rumble settings section now starts collapsed.** It was the only
   section besides Display that opened by default; it now matches the
   others so the Settings menu stays scannable. (If you'd already
