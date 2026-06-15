@@ -32,7 +32,17 @@ export interface ShiftResult {
   carryOut: boolean;
 }
 
-const NO_OP_PRESERVE_CARRY = (operand: number, cIn: boolean): ShiftResult => ({ value: operand | 0, carryOut: cIn });
+/** Shared result instance returned by both shift functions — reused to
+ *  keep the hot path allocation-free (one shift per data-processing /
+ *  register-offset instruction). Callers must consume it before the
+ *  next shift call and never retain it. */
+const SHIFT_SCRATCH: ShiftResult = { value: 0, carryOut: false };
+
+function shiftResult(value: number, carryOut: boolean): ShiftResult {
+  SHIFT_SCRATCH.value = value | 0;
+  SHIFT_SCRATCH.carryOut = carryOut;
+  return SHIFT_SCRATCH;
+}
 
 /** Immediate-form barrel shift. `amount` is the encoded shift amount
  *  (0–31). The special values LSR #0 / ASR #0 / ROR #0 are decoded
@@ -41,43 +51,28 @@ export function shiftByImmediate(operand: number, type: ShiftType, amount: numbe
   operand = operand | 0;
   switch (type) {
     case SHIFT_LSL: {
-      if (amount === 0) return NO_OP_PRESERVE_CARRY(operand, cIn);
-      return {
-        value: (operand << amount) | 0,
-        carryOut: ((operand >>> (32 - amount)) & 1) !== 0
-      };
+      if (amount === 0) return shiftResult(operand, cIn);
+      return shiftResult((operand << amount) | 0, ((operand >>> (32 - amount)) & 1) !== 0);
     }
     case SHIFT_LSR: {
       const actual = amount === 0 ? 32 : amount;
-      if (actual === 32) return { value: 0, carryOut: operand >>> 31 !== 0 };
-      return {
-        value: (operand >>> actual) | 0,
-        carryOut: ((operand >>> (actual - 1)) & 1) !== 0
-      };
+      if (actual === 32) return shiftResult(0, operand >>> 31 !== 0);
+      return shiftResult((operand >>> actual) | 0, ((operand >>> (actual - 1)) & 1) !== 0);
     }
     case SHIFT_ASR: {
       const actual = amount === 0 ? 32 : amount;
       if (actual >= 32) {
         const sign = operand >> 31;
-        return { value: sign, carryOut: operand >>> 31 !== 0 };
+        return shiftResult(sign, operand >>> 31 !== 0);
       }
-      return {
-        value: (operand >> actual) | 0,
-        carryOut: ((operand >>> (actual - 1)) & 1) !== 0
-      };
+      return shiftResult((operand >> actual) | 0, ((operand >>> (actual - 1)) & 1) !== 0);
     }
     case SHIFT_ROR: {
       if (amount === 0) {
         // RRX — rotate right with extend, feeding old carry into bit 31.
-        return {
-          value: ((cIn ? 1 : 0) << 31) | (operand >>> 1) | 0,
-          carryOut: (operand & 1) !== 0
-        };
+        return shiftResult(((cIn ? 1 : 0) << 31) | (operand >>> 1) | 0, (operand & 1) !== 0);
       }
-      return {
-        value: (operand >>> amount) | (operand << (32 - amount)) | 0,
-        carryOut: ((operand >>> (amount - 1)) & 1) !== 0
-      };
+      return shiftResult((operand >>> amount) | (operand << (32 - amount)) | 0, ((operand >>> (amount - 1)) & 1) !== 0);
     }
     default:
       throw new Error(`Unknown shift type: ${type}`);
@@ -91,49 +86,40 @@ export function shiftByImmediate(operand: number, type: ShiftType, amount: numbe
 export function shiftByRegister(operand: number, type: ShiftType, amount: number, cIn: boolean): ShiftResult {
   operand = operand | 0;
   amount = amount & 0xff;
-  if (amount === 0) return NO_OP_PRESERVE_CARRY(operand, cIn);
+  if (amount === 0) return shiftResult(operand, cIn);
   switch (type) {
     case SHIFT_LSL: {
       if (amount < 32) {
-        return {
-          value: (operand << amount) | 0,
-          carryOut: ((operand >>> (32 - amount)) & 1) !== 0
-        };
+        return shiftResult((operand << amount) | 0, ((operand >>> (32 - amount)) & 1) !== 0);
       }
-      if (amount === 32) return { value: 0, carryOut: (operand & 1) !== 0 };
-      return { value: 0, carryOut: false };
+      if (amount === 32) return shiftResult(0, (operand & 1) !== 0);
+      return shiftResult(0, false);
     }
     case SHIFT_LSR: {
       if (amount < 32) {
-        return {
-          value: (operand >>> amount) | 0,
-          carryOut: ((operand >>> (amount - 1)) & 1) !== 0
-        };
+        return shiftResult((operand >>> amount) | 0, ((operand >>> (amount - 1)) & 1) !== 0);
       }
-      if (amount === 32) return { value: 0, carryOut: operand >>> 31 !== 0 };
-      return { value: 0, carryOut: false };
+      if (amount === 32) return shiftResult(0, operand >>> 31 !== 0);
+      return shiftResult(0, false);
     }
     case SHIFT_ASR: {
       if (amount < 32) {
-        return {
-          value: (operand >> amount) | 0,
-          carryOut: ((operand >>> (amount - 1)) & 1) !== 0
-        };
+        return shiftResult((operand >> amount) | 0, ((operand >>> (amount - 1)) & 1) !== 0);
       }
       const sign = operand >> 31;
-      return { value: sign, carryOut: operand >>> 31 !== 0 };
+      return shiftResult(sign, operand >>> 31 !== 0);
     }
     case SHIFT_ROR: {
       const lowFive = amount & 0x1f;
       if (lowFive === 0) {
         // Rs[7:0] non-zero but Rs[4:0] zero — operand unchanged,
         // carry comes from bit 31.
-        return { value: operand, carryOut: operand >>> 31 !== 0 };
+        return shiftResult(operand, operand >>> 31 !== 0);
       }
-      return {
-        value: (operand >>> lowFive) | (operand << (32 - lowFive)) | 0,
-        carryOut: ((operand >>> (lowFive - 1)) & 1) !== 0
-      };
+      return shiftResult(
+        (operand >>> lowFive) | (operand << (32 - lowFive)) | 0,
+        ((operand >>> (lowFive - 1)) & 1) !== 0
+      );
     }
     default:
       throw new Error(`Unknown shift type: ${type}`);

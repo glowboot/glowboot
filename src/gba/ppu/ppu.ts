@@ -348,13 +348,36 @@ export class Ppu implements IoHandler {
    *  instruction's cycle model. Drives DISPSTAT flag transitions,
    *  HBlank / VBlank / VCount IRQs, and per-scanline rendering on
    *  dot 240 of each visible vcount. */
+  /** Dots until the next internal event (render at 240, HBlank flag at
+   *  252, scanline wrap at 308) — the boundaries where `tick` can fire
+   *  IRQs or HDMA. `Gba.runFrame` uses this to fast-forward halted CPU
+   *  time exactly to the next IRQ-capable moment. Always >= 1. */
+  dotsToNextEvent(): number {
+    const d = this.dot;
+    const next = d < VISIBLE_DOTS ? VISIBLE_DOTS : d < HBLANK_FLAG_DOT ? HBLANK_FLAG_DOT : DOTS_PER_SCANLINE;
+    return next - d;
+  }
+
   tick(dots: number): void {
     let remaining = dots | 0;
+    // Events only exist at three dot positions per scanline (render at
+    // 240, HBlank flag at 252, wrap at 308) — fast-forward between
+    // them instead of stepping dot-by-dot. Events still fire at
+    // exactly the same dot, in the same order, as the per-dot loop
+    // this replaces; calls that stay between events (the per-
+    // instruction common case) reduce to one compare and an add.
     while (remaining > 0) {
-      remaining--;
-      this.dot++;
+      const d = this.dot;
+      const next = d < VISIBLE_DOTS ? VISIBLE_DOTS : d < HBLANK_FLAG_DOT ? HBLANK_FLAG_DOT : DOTS_PER_SCANLINE;
+      const stride = next - d;
+      if (remaining < stride) {
+        this.dot = d + remaining;
+        return;
+      }
+      remaining -= stride;
+      this.dot = next;
 
-      if (this.dot === VISIBLE_DOTS) {
+      if (next === VISIBLE_DOTS) {
         // Pixel output ends at dot 240. Render the visible scanline
         // here so the framebuffer reflects the just-completed line
         // before any HBlank-stage game code runs. The skip-render

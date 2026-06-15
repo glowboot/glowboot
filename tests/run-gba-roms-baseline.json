@@ -64,7 +64,7 @@
   },
   "mgba-suite-dma": {
     "kind": "count",
-    "pass": 1196,
+    "pass": 1256,
     "total": 1256
   },
   "mgba-suite-io-read": {
@@ -74,7 +74,7 @@
   },
   "mgba-suite-memory": {
     "kind": "count",
-    "pass": 1460,
+    "pass": 1552,
     "total": 1552
   },
   "mgba-suite-misc-edge": {
@@ -103,17 +103,17 @@
   },
   "mgba-suite-timer-irq": {
     "kind": "count",
-    "pass": 37,
+    "pass": 52,
     "total": 90
   },
   "mgba-suite-timers": {
     "kind": "count",
-    "pass": 411,
+    "pass": 443,
     "total": 936
   },
   "mgba-suite-timing": {
     "kind": "count",
-    "pass": 257,
+    "pass": 365,
     "total": 2020
   },
   "mgba-suite-video": {
@@ -151,9 +151,8 @@
     "total": 6
   },
   "nba-irq-delay": {
-    "kind": "count",
-    "pass": 1,
-    "total": 1
+    "kind": "hash",
+    "hash": "4a014244636272e0d267d51bbb393730785591ec13568502f9584598e6e0683b"
   },
   "nba-ppu-vram-mirror": {
     "kind": "count",

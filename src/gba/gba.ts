@@ -263,13 +263,31 @@ export class Gba {
   private frameCycleCarry = 0;
   private frameDotRemainder = 0;
 
+  /** Batched peripheral-tick state. `runFrame` accumulates each step's
+   *  cycles here instead of ticking timer / APU / SIO per instruction
+   *  (per-call overhead was ~20% of frame time), and flushes when the
+   *  backlog reaches `peripheralHorizon` — the exact cycle distance to
+   *  the next observable peripheral event (timer overflow, SIO transfer
+   *  completion), capped at 256 to preserve `tickPeripherals`' audio
+   *  interleave granularity. A flush triggered by the horizon lands on
+   *  the same instruction boundary where per-instruction ticking would
+   *  have processed the event, so IRQ timing is unchanged. Reads /
+   *  writes of peripheral registers drain the backlog first via the
+   *  bus's `onPeripheralAccess` hook (see PeripheralAccessNotifier),
+   *  and mark the horizon dirty since the access may reconfigure the
+   *  event schedule. Always drained by the end of `runFrame`, so saved
+   *  state never carries a backlog. */
+  private peripheralDebt = 0;
+  private peripheralHorizon = 1;
+  private peripheralHorizonDirty = true;
+
   constructor(romData: Uint8Array, biosData?: Uint8Array) {
     // ROM region sized to the cart bytes; reads past the end fall
     // through to the cart open-bus handler in mapped-bus.ts, which
     // returns `(addr >> 1) & 0xFFFF` per halfword — what real GBA
     // hardware drives when no cart memory backs the address.
     this.backup = detectBackup(romData);
-    this.mem = makeGbaMemoryMap(romData.length, this.backup);
+    this.mem = makeGbaMemoryMap(romData.length, this.backup, romData);
     this.mem.rom.set(romData);
     // Detect GPIO peripherals the cart needs: rumble actuator (Drill
     // Dozer's GPIO bit 3) and / or the Seiko S-3511A RTC (Pokémon
@@ -361,9 +379,16 @@ export class Gba {
     // pre-ticked count from the end-of-step tick to keep totals in
     // balance.
     this.mem.dma.onCyclesElapsed = (cycles: number) => {
+      // Catch the timer / APU up on the batched backlog first so the
+      // pre-ticked startup cycles land on current state, in order.
+      this.flushPeripheralDebt();
       this.mem.timer.tick(cycles);
       this.mem.apu.tick(cycles);
     };
+    // Peripheral register accesses observe batched timer / APU / SIO
+    // state — drain the backlog so they see exactly what
+    // per-instruction ticking would have produced (see peripheralDebt).
+    this.mem.bus.onPeripheralAccess = () => this.flushPeripheralDebt();
     // Real BIOS sets POSTFLG=1 right before handing control to the
     // cart. nba-hw-test haltcnt's POSTFLG sub-test reads back 1
     // (and checks CpuSet doesn't clear it).
@@ -490,6 +515,21 @@ export class Gba {
     const ppu = this.mem.ppu;
     while (cycles < cyclesPerFrame || ppu.vcount < VISIBLE_SCANLINES) {
       this.mem.dma.preTickedThisStep = 0;
+      if (this.cpu.halted) {
+        // Exact-wake halt: a halted step consumes cycles up to the
+        // nearer of the timer/SIO horizon (whose flush raises the IRQ
+        // on its exact cycle) or the next PPU event dot (VBlank /
+        // HBlank / VCount IRQs, HDMA). The wake then lands on the
+        // event's cycle with no no-op quantization — and halt-heavy
+        // frames advance in scanline-sized jumps instead of 4-cycle
+        // steps. A dirty horizon falls back to one legacy-width step;
+        // the flush below recomputes it for the next iteration.
+        const toHorizon = this.peripheralHorizonDirty ? 4 : this.peripheralHorizon - this.peripheralDebt;
+        const toPpu = ppu.dotsToNextEvent() * APU_CYCLES_PER_DOT - dotRemainder;
+        let chunk = toHorizon < toPpu ? toHorizon : toPpu;
+        if (chunk < 1) chunk = 1;
+        this.cpu.haltCycleBudget = chunk;
+      }
       this.cpu.step();
       const stepCycles = this.cpu.lastCycles | 0;
       cycles += stepCycles;
@@ -499,16 +539,20 @@ export class Gba {
       // those cycles a second time.
       const preTicked = this.mem.dma.preTickedThisStep | 0;
       const peripheryCycles = stepCycles - preTicked;
-      if (peripheryCycles > 0) this.tickPeripherals(peripheryCycles);
+      if (peripheryCycles > 0) this.peripheralDebt += peripheryCycles;
+      if (this.peripheralHorizonDirty || this.peripheralDebt >= this.peripheralHorizon) {
+        this.flushPeripheralDebt();
+        this.recomputePeripheralHorizon();
+      }
       dotRemainder += stepCycles;
       // PPU ticks in whole dots (one dot = APU_CYCLES_PER_DOT cycles).
       // Accumulate fractional cycles across steps so we don't lose a
       // dot to truncation when instructions return non-multiple-of-4
       // cycle counts.
-      const dots = (dotRemainder / APU_CYCLES_PER_DOT) | 0;
+      const dots = dotRemainder >>> 2; // ÷ APU_CYCLES_PER_DOT (= 4); dotRemainder is never negative
       if (dots > 0) {
         this.mem.ppu.tick(dots);
-        dotRemainder -= dots * APU_CYCLES_PER_DOT;
+        dotRemainder &= 3;
       }
       // Bail out as soon as a breakpoint / watchpoint latches a hit.
       // The CPU sets lastCycles=0 on PC hits so the loop usually exits
@@ -516,6 +560,8 @@ export class Gba {
       // watchpoints that fire inside a normal-cost instruction.
       if (peekGbaHit()) break;
     }
+    this.cpu.haltCycleBudget = 4;
+    this.flushPeripheralDebt();
     // Carry the boundary overshoot (and sub-dot remainder) into the next
     // frame. clamp >= 0 so an early breakpoint break (cycles < frame)
     // doesn't lend the next frame extra time.
@@ -523,6 +569,29 @@ export class Gba {
     this.frameDotRemainder = dotRemainder;
     this.finishFrame(skipRender);
     return cycles;
+  }
+
+  /** Drain the batched peripheral-tick backlog. Clears the debt BEFORE
+   *  ticking: a timer overflow inside the flush can pop a Direct Sound
+   *  FIFO, trigger its refill DMA, and re-enter through the DMA's
+   *  pre-tick callback — the cleared debt makes that re-entry a no-op
+   *  instead of a double-tick. */
+  private flushPeripheralDebt(): void {
+    const debt = this.peripheralDebt;
+    if (debt > 0) {
+      this.peripheralDebt = 0;
+      this.tickPeripherals(debt);
+    }
+    this.peripheralHorizonDirty = true;
+  }
+
+  private recomputePeripheralHorizon(): void {
+    const t = this.mem.timer.cyclesToNextEvent();
+    const s = this.sio.cyclesToNextEvent();
+    let horizon = t < s ? t : s;
+    if (horizon > 256) horizon = 256;
+    this.peripheralHorizon = horizon;
+    this.peripheralHorizonDirty = false;
   }
 
   /** Interleave timer / APU / SIO ticks in ≤256-cycle chunks. A long
@@ -537,7 +606,12 @@ export class Gba {
   private tickPeripherals(cycles: number): void {
     let remaining = cycles;
     while (remaining > 0) {
-      const chunk = remaining > 256 ? 256 : remaining;
+      let chunk = remaining > 256 ? 256 : remaining;
+      // End the chunk exactly at the APU's next host-sample emission
+      // so the sample observes FIFO pops / PSG state advanced to its
+      // own emission cycle — not state from later in the chunk.
+      const toSample = this.mem.apu.cyclesToNextSample();
+      if (toSample < chunk) chunk = toSample;
       this.mem.timer.tick(chunk);
       this.mem.apu.tick(chunk);
       this.sio.tick(chunk);
@@ -586,10 +660,10 @@ export class Gba {
       const peripheryCycles = stepCycles - preTicked;
       if (peripheryCycles > 0) this.tickPeripherals(peripheryCycles);
       dotRemainder += stepCycles;
-      const dots = (dotRemainder / APU_CYCLES_PER_DOT) | 0;
+      const dots = dotRemainder >>> 2; // ÷ APU_CYCLES_PER_DOT (= 4); dotRemainder is never negative
       if (dots > 0) {
         this.mem.ppu.tick(dots);
-        dotRemainder -= dots * APU_CYCLES_PER_DOT;
+        dotRemainder &= 3;
       }
     }
     this.frameDotRemainder = dotRemainder;
@@ -641,10 +715,10 @@ export class Gba {
       this.mem.timer.tick(stepCycles);
       this.sio.tick(stepCycles);
       dotRemainder += stepCycles;
-      const dots = (dotRemainder / APU_CYCLES_PER_DOT) | 0;
+      const dots = dotRemainder >>> 2; // ÷ APU_CYCLES_PER_DOT (= 4); dotRemainder is never negative
       if (dots > 0) {
         this.mem.ppu.tick(dots);
-        dotRemainder -= dots * APU_CYCLES_PER_DOT;
+        dotRemainder &= 3;
       }
       if (!this.cpu.halted) break;
     }

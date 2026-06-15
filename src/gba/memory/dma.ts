@@ -64,6 +64,15 @@ function inEepromRegion(addr: number): boolean {
 const CART_REGION_START = 0x08000000;
 const CART_REGION_END = 0x10000000;
 
+/** Physical width of the DMA address registers (GBATEK: SAD is 27-bit
+ *  on DMA0, 28-bit on DMA1-3; DAD is 27-bit on DMA0-2, 28-bit on
+ *  DMA3). Writes above the register width wrap silently — DMA1/2
+ *  "to SRAM" land in VRAM (0x0E000000 & 0x07FFFFFE = 0x06000000), and
+ *  DMA0 can never address the cart bus at all. mgba-suite memory's
+ *  SRAM-store DMA1/2 rows pin the wrap. */
+const SAD_MASK = [0x07fffffe, 0x0ffffffe, 0x0ffffffe, 0x0ffffffe] as const;
+const DAD_MASK = [0x07fffffe, 0x07fffffe, 0x07fffffe, 0x0ffffffe] as const;
+
 function inCartRegion(addr: number): boolean {
   const a = addr >>> 0;
   return a >= CART_REGION_START && a < CART_REGION_END;
@@ -252,16 +261,16 @@ export class Dma extends BaseIoHandler {
     const v = value & 0xffff;
     switch (within & ~1) {
       case 0x0:
-        ch.sad = (ch.sad & 0xffff0000) | v;
+        ch.sad = ((ch.sad & 0xffff0000) | v) & SAD_MASK[ch.index]!;
         return;
       case 0x2:
-        ch.sad = (ch.sad & 0xffff) | (v << 16);
+        ch.sad = ((ch.sad & 0xffff) | (v << 16)) & SAD_MASK[ch.index]!;
         return;
       case 0x4:
-        ch.dad = (ch.dad & 0xffff0000) | v;
+        ch.dad = ((ch.dad & 0xffff0000) | v) & DAD_MASK[ch.index]!;
         return;
       case 0x6:
-        ch.dad = (ch.dad & 0xffff) | (v << 16);
+        ch.dad = ((ch.dad & 0xffff) | (v << 16)) & DAD_MASK[ch.index]!;
         return;
       case 0x8:
         ch.cnt = v;
@@ -369,8 +378,27 @@ export class Dma extends BaseIoHandler {
 
   private runChannel(ch: DmaChannel): void {
     const wordSize = ch.word ? 4 : 2;
-    const srcStep = stepFor(ch.srcControl, wordSize);
+    // The cart bus can't hold a DMA address: ROM-region sources always
+    // increment regardless of the src-control bits (fixed / decrement
+    // behave as increment — mgba-suite dma's "=ROM" / "-ROM" rows).
+    const srcOnCartBus = ch.shadowSad >>> 0 >= 0x08000000 && ch.shadowSad >>> 0 < 0x0e000000;
+    const srcStep = srcOnCartBus ? wordSize : stepFor(ch.srcControl, wordSize);
     const destStep = stepFor(ch.destControl, wordSize);
+    // Cart sources with a non-increment src control split in two: the
+    // cart chip's auto-incrementing counter serves the DATA (ascending
+    // regardless of the control bits — `srcStep` above), while the
+    // DMA's internal address register follows the PROGRAMMED direction
+    // and is what the bus timing sees (128 KiB bank penalties, and the
+    // cheap final access when a DEC stream exits the cart region).
+    // nba-hw-test bus/128kb-boundary's DMA DEC rows expect different
+    // cycle counts than INC at the same address; mgba-suite dma's
+    // "=ROM"/"-ROM" rows pin the ascending data. Known-bad residue:
+    // DEC at 0x08000008 measures 65 vs hardware's 63 — the 2-cycle gap
+    // needs a cart-bus-release model when the internal address leaves
+    // the cart mid-burst.
+    const timingStep = stepFor(ch.srcControl, wordSize);
+    const splitTiming = srcOnCartBus && timingStep !== srcStep;
+    let timingSrc = ch.shadowSad | 0;
     let src = ch.shadowSad | 0;
     let dst = ch.shadowDad | 0;
     const count = ch.shadowCnt | 0;
@@ -428,6 +456,10 @@ export class Dma extends BaseIoHandler {
           // returns 0 (the SRAM byte-bus contributes nothing because
           // the channel doesn't even reach the cart controller).
           v = src >>> 0 >= 0x0e000000 ? 0 : ch.latch | 0;
+        } else if (splitTiming) {
+          this.bus.chargeDmaAccess(timingSrc >>> 0, 32);
+          v = this.bus.fetchWord(src >>> 0) | 0;
+          ch.latch = v;
         } else {
           v = this.bus.read32(src >>> 0) | 0;
           ch.latch = v;
@@ -440,14 +472,28 @@ export class Dma extends BaseIoHandler {
         } else if (srcBlocked) {
           if (src >>> 0 >= 0x0e000000) v = 0;
           else v = (dst & 2) !== 0 ? (ch.latch >>> 16) & 0xffff : ch.latch & 0xffff;
+        } else if (splitTiming) {
+          this.bus.chargeDmaAccess(timingSrc >>> 0, 16);
+          v = this.bus.fetchHalfword(src >>> 0) & 0xffff;
+          ch.latch = (v << 16) | v | 0;
         } else {
           v = this.bus.read16(src >>> 0) & 0xffff;
           ch.latch = (v << 16) | v | 0;
         }
         if (!dstBlocked) this.bus.write16(dst >>> 0, v);
       }
-      const touchesCart = inCartRegion(src) || inCartRegion(dst);
+      // Cart-bus involvement keys off the TIMING address (the real
+      // bus address the cart sees), not the ascending data counter:
+      // in a SRC_DEC cart DMA they diverge only when the stream
+      // descends OUT of the cart region, and there the cart bus is
+      // released — so the per-word cart-continuation 2I must NOT be
+      // charged for that exit transfer (nba-bus-128kb-boundary DMA DEC
+      // 07FFFFF8: cart→OAM exit is 2 cycles cheaper than a mid-cart
+      // read). For every non-split case timingSrc === src, so this is
+      // a no-op there.
+      const touchesCart = inCartRegion(timingSrc) || inCartRegion(dst);
       src = (src + srcStep) | 0;
+      timingSrc = (timingSrc + timingStep) | 0;
       dst = (dst + destStep) | 0;
       if (ch.word && touchesCart) this.advanceForTransfer();
     }

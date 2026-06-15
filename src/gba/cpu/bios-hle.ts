@@ -115,6 +115,12 @@ export function dispatchSwi(
     r3In = regs.r[3]! | 0;
   }
   const handled = dispatchSwiInner(swiNumber, regs, bus, cpu, interrupts);
+  // Real BIOS leaves its open-bus latch holding GBATEK's "after SWI"
+  // value (the word prefetched while the SWI epilogue ran) on every
+  // SWI return — carts and mgba-suite memory's "BIOS load" rows read
+  // it back through the protected BIOS region. The reference HLE sets
+  // the same constant unconditionally at SWI end.
+  if (handled && cpu.biosHandler !== null) cpu.biosHandler.biosOpenBus = 0xe3a02004 | 0;
   if (handled && swiTraceHook !== null) {
     swiTraceHook(
       swiNumber & 0xff,
@@ -374,11 +380,22 @@ function biosDiv(regs: ArmRegisters, bus: MemoryBus): void {
   const num = regs.r[0]! | 0;
   const den = regs.r[1]! | 0;
   if (den === 0) {
-    const sign = num < 0 ? -1 : 1;
-    regs.r[0] = sign;
+    // Real BIOS divide-by-zero leaves r0 = sign(num) (treating 0 as
+    // positive), r1 = numerator, r3 = 1 — mgba-suite bios-math's
+    // "Div by zero" rows read all three back.
+    regs.r[0] = num < 0 ? -1 : 1;
     regs.r[1] = num;
-    regs.r[3] = Math.abs(num) | 0;
+    regs.r[3] = 1;
     bus.accessCycles += SWI_DISPATCH_CYCLES + 11;
+    return;
+  }
+  if (den === -1 && num === -0x80000000) {
+    // INT_MIN / -1 overflows the negation; real BIOS yields the
+    // wrapped quotient with remainder 0.
+    regs.r[0] = -0x80000000;
+    regs.r[1] = 0;
+    regs.r[3] = -0x80000000;
+    bus.accessCycles += SWI_DISPATCH_CYCLES + 100;
     return;
   }
   // JavaScript's `/` truncates toward zero only when both args are
@@ -409,9 +426,49 @@ function biosDivArm(regs: ArmRegisters, bus: MemoryBus): void {
 /** SWI 0x08 — Sqrt(r0). Returns r0 = floor(sqrt(r0)), treating r0 as
  *  unsigned 32-bit. */
 function biosSqrt(regs: ArmRegisters, bus: MemoryBus): void {
-  const v = regs.r[0]! >>> 0;
-  regs.r[0] = Math.floor(Math.sqrt(v)) | 0;
-  // Real BIOS cost: iterative algorithm, ~30-50 cycles depending on input.
+  // Real BIOS runs an iterative shift-and-subtract refinement, not an
+  // exact floor(sqrt): for some inputs the loop settles one off the
+  // mathematical root, and mgba-suite bios-math pins those exact
+  // values. Ported from the reference HLE's bit-faithful model.
+  const x = regs.r[0]! >>> 0;
+  if (x === 0) {
+    regs.r[0] = 0;
+    bus.accessCycles += SWI_DISPATCH_CYCLES + 40;
+    return;
+  }
+  let upper = x;
+  let bound = 1;
+  while (bound < upper) {
+    upper = upper >>> 1;
+    bound = (bound << 1) >>> 0;
+  }
+  for (;;) {
+    upper = x;
+    let accum = 0;
+    let lower = bound;
+    for (;;) {
+      const oldLower = lower;
+      if (lower <= upper >>> 1) lower = (lower << 1) >>> 0;
+      if (oldLower >= upper >>> 1) break;
+    }
+    for (;;) {
+      accum = (accum << 1) >>> 0;
+      if (upper >= lower) {
+        accum = (accum + 1) >>> 0;
+        upper = (upper - lower) >>> 0;
+      }
+      if (lower === bound) break;
+      lower = lower >>> 1;
+    }
+    const oldBound = bound;
+    bound = (bound + accum) >>> 0;
+    bound = bound >>> 1;
+    if (bound >= oldBound) {
+      bound = oldBound;
+      break;
+    }
+  }
+  regs.r[0] = bound | 0;
   bus.accessCycles += SWI_DISPATCH_CYCLES + 40;
 }
 
@@ -419,22 +476,79 @@ function biosSqrt(regs: ArmRegisters, bus: MemoryBus): void {
  *  Q1.14 result in r0, in the range (-pi/2, pi/2) = (-0x4000, 0x4000).
  *  The 16-bit result is sign-extended to 32 bits. */
 function biosArcTan(regs: ArmRegisters, bus: MemoryBus): void {
-  const tan = ((regs.r[0]! << 16) >> 16) / 0x4000; // signed Q1.14 → float
-  const result = Math.atan(tan) / (Math.PI / 2); // -1..+1
-  const fixed = Math.round(result * 0x4000) & 0xffff;
-  regs.r[0] = (fixed << 16) >> 16; // sign-extend
+  const r = arcTanPolynomial(regs.r[0]! | 0);
+  regs.r[0] = r.value;
+  regs.r[1] = r.a;
+  regs.r[3] = r.b;
   // Real BIOS cost: ~37 cycles base + 7 polynomial iterations.
   bus.accessCycles += SWI_DISPATCH_CYCLES + 50;
+}
+
+/** The exact 7-term polynomial the real BIOS ArcTan runs, including
+ *  its int32-wraparound behaviour for inputs outside the valid Q1.14
+ *  domain (|r0| > 0x4000 produces well-defined garbage carts and the
+ *  bios-math suite rely on) and the intermediate values it leaves in
+ *  r1 (`a`) and r3 (`b`). The result is the low 16 bits of
+ *  `(i * b) >> 16`, sign-extended. Ported from a reference HLE that
+ *  mirrors disassembled BIOS code. */
+function arcTanPolynomial(i: number): { value: number; a: number; b: number } {
+  const a = -(Math.imul(i, i) >> 14) | 0;
+  let b = (Math.imul(0xa9, a) >> 14) + 0x390;
+  b = (Math.imul(b, a) >> 14) + 0x91c;
+  b = (Math.imul(b, a) >> 14) + 0xfb6;
+  b = (Math.imul(b, a) >> 14) + 0x16aa;
+  b = (Math.imul(b, a) >> 14) + 0x2081;
+  b = (Math.imul(b, a) >> 14) + 0x3651;
+  b = (Math.imul(b, a) >> 14) + 0xa2f9;
+  const value = ((Math.imul(i, b) >> 16) << 16) >> 16;
+  return { value, a: a | 0, b: b | 0 };
 }
 
 /** SWI 0x0A — ArcTan2(x=r0, y=r1). Output: r0 = angle in
  *  [0, 0x10000) corresponding to [0, 2*pi). Quadrant-aware. */
 function biosArcTan2(regs: ArmRegisters, bus: MemoryBus): void {
-  const x = (regs.r[0]! << 16) >> 16;
-  const y = (regs.r[1]! << 16) >> 16;
-  let angle = Math.atan2(y, x); // -pi..+pi
-  if (angle < 0) angle += 2 * Math.PI; // → 0..2*pi
-  regs.r[0] = Math.round((angle / (2 * Math.PI)) * 0x10000) & 0xffff;
+  // Quadrant dispatch exactly as the real BIOS does it: axis-aligned
+  // inputs take an early path that leaves r1 untouched; everything
+  // else feeds `(n << 14) / d` into the ArcTan polynomial (whose `a`
+  // intermediate lands in r1). r0 is the ZERO-extended 16-bit angle;
+  // r3 is always left at 0x170 (a leftover BIOS constant the suite
+  // reads back). Ported from a reference HLE.
+  const x = regs.r[0]! | 0;
+  const y = regs.r[1]! | 0;
+  let value: number;
+  if (y === 0) {
+    value = x >= 0 ? 0 : 0x8000;
+  } else if (x === 0) {
+    value = y >= 0 ? 0x4000 : 0xc000;
+  } else {
+    let inner: { value: number; a: number };
+    if (y >= 0) {
+      if (x >= 0 && x >= y) {
+        inner = arcTanPolynomial((((y << 14) | 0) / x) | 0);
+        value = inner.value;
+      } else if (x < 0 && -x >= y) {
+        inner = arcTanPolynomial((((y << 14) | 0) / x) | 0);
+        value = inner.value + 0x8000;
+      } else {
+        inner = arcTanPolynomial((((x << 14) | 0) / y) | 0);
+        value = 0x4000 - inner.value;
+      }
+    } else {
+      if (x <= 0 && -x > -y) {
+        inner = arcTanPolynomial((((y << 14) | 0) / x) | 0);
+        value = inner.value + 0x8000;
+      } else if (x > 0 && x >= -y) {
+        inner = arcTanPolynomial((((y << 14) | 0) / x) | 0);
+        value = inner.value + 0x10000;
+      } else {
+        inner = arcTanPolynomial((((x << 14) | 0) / y) | 0);
+        value = 0xc000 - inner.value;
+      }
+    }
+    regs.r[1] = inner.a;
+  }
+  regs.r[0] = value & 0xffff;
+  regs.r[3] = 0x170;
   // Real BIOS cost: ~11 cycles for axis-aligned shortcuts, otherwise
   // delegates to ArcTan. Use a mid-range fixed estimate.
   bus.accessCycles += SWI_DISPATCH_CYCLES + 80;
@@ -509,6 +623,14 @@ function ldrhStorePayload(bus: MemoryBus, addr: number): number {
  *  per-call dispatch overhead. */
 function biosCpuSet(regs: ArmRegisters, bus: MemoryBus): void {
   const src = regs.r[0]! | 0;
+  // Real BIOS validates the source pointer and refuses to copy from
+  // below EWRAM (the protected BIOS region and the 0x01 unmapped gap)
+  // — the destination is left untouched. mgba-suite memory's "BIOS
+  // (out-of-bounds) load" swi rows read back the dst's prior zeros.
+  if (src >>> 24 < 0x02) {
+    bus.accessCycles += SWI_DISPATCH_CYCLES;
+    return;
+  }
   let dst = regs.r[1]! | 0;
   const control = regs.r[2]! | 0;
   const count = control & 0x1fffff;
@@ -554,6 +676,11 @@ function biosCpuSet(regs: ArmRegisters, bus: MemoryBus): void {
  *  SWI. */
 function biosCpuFastSet(regs: ArmRegisters, bus: MemoryBus): void {
   const src = regs.r[0]! | 0;
+  // Same source validation as CpuSet — real BIOS rejects src < EWRAM.
+  if (src >>> 24 < 0x02) {
+    bus.accessCycles += SWI_DISPATCH_CYCLES;
+    return;
+  }
   let dst = regs.r[1]! | 0;
   const control = regs.r[2]! | 0;
   const rawCount = control & 0x1fffff;

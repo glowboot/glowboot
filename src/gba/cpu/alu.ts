@@ -51,19 +51,33 @@ export interface AluResult {
   flags: AluFlags;
 }
 
-/** Wide unsigned add with carry-in, returning the 32-bit truncated
- *  result plus the C and V flags as ARM defines them. Used for every
- *  arithmetic data-processing op: SUB/CMP go through `addWithCarry(a, ~b, 1)`,
- *  SBC/RSC use the actual CPSR.C as the carry-in. */
-function addWithCarry(a: number, b: number, cIn: 0 | 1): { value: number; c: boolean; v: boolean } {
+/** Wide unsigned add with carry-in, leaving the 32-bit truncated
+ *  result plus the C and V flags (as ARM defines them) in the `awc*`
+ *  module scalars. Used for every arithmetic data-processing op:
+ *  SUB/CMP go through `addWithCarry(a, ~b, 1)`, SBC/RSC use the
+ *  actual CPSR.C as the carry-in. Scalar out-params instead of a
+ *  result object — this runs once per arithmetic instruction and the
+ *  allocation showed up in frame profiles. */
+let awcValue = 0;
+let awcC = false;
+let awcV = false;
+function addWithCarry(a: number, b: number, cIn: 0 | 1): void {
   const aU = a >>> 0;
   const bU = b >>> 0;
   const sum = aU + bU + cIn;
-  const value = sum | 0;
-  const c = sum > 0xffffffff;
-  const v = ((a ^ value) & (b ^ value)) >>> 31 !== 0;
-  return { value, c, v };
+  awcValue = sum | 0;
+  awcC = sum > 0xffffffff;
+  awcV = ((a ^ awcValue) & (b ^ awcValue)) >>> 31 !== 0;
 }
+
+/** Shared result instance returned by every `alu()` call — reused to
+ *  keep the hot path allocation-free. Callers must consume it before
+ *  the next `alu()` call and never retain it. */
+const ALU_SCRATCH: AluResult = {
+  value: 0,
+  writes: true,
+  flags: { n: false, z: false, c: false, v: false }
+};
 
 export function alu(op: AluOp, rn: number, op2: number, cIn: boolean, vIn: boolean, shifterC: boolean): AluResult {
   rn = rn | 0;
@@ -125,66 +139,66 @@ export function alu(op: AluOp, rn: number, op2: number, cIn: boolean, vIn: boole
       writes = false;
       break;
     case ALU_SUB: {
-      const r = addWithCarry(rn, ~op2, 1);
-      value = r.value;
-      c = r.c;
-      v = r.v;
+      addWithCarry(rn, ~op2, 1);
+      value = awcValue;
+      c = awcC;
+      v = awcV;
       writes = true;
       break;
     }
     case ALU_RSB: {
-      const r = addWithCarry(op2, ~rn, 1);
-      value = r.value;
-      c = r.c;
-      v = r.v;
+      addWithCarry(op2, ~rn, 1);
+      value = awcValue;
+      c = awcC;
+      v = awcV;
       writes = true;
       break;
     }
     case ALU_ADD: {
-      const r = addWithCarry(rn, op2, 0);
-      value = r.value;
-      c = r.c;
-      v = r.v;
+      addWithCarry(rn, op2, 0);
+      value = awcValue;
+      c = awcC;
+      v = awcV;
       writes = true;
       break;
     }
     case ALU_ADC: {
-      const r = addWithCarry(rn, op2, cBit);
-      value = r.value;
-      c = r.c;
-      v = r.v;
+      addWithCarry(rn, op2, cBit);
+      value = awcValue;
+      c = awcC;
+      v = awcV;
       writes = true;
       break;
     }
     case ALU_SBC: {
-      const r = addWithCarry(rn, ~op2, cBit);
-      value = r.value;
-      c = r.c;
-      v = r.v;
+      addWithCarry(rn, ~op2, cBit);
+      value = awcValue;
+      c = awcC;
+      v = awcV;
       writes = true;
       break;
     }
     case ALU_RSC: {
-      const r = addWithCarry(op2, ~rn, cBit);
-      value = r.value;
-      c = r.c;
-      v = r.v;
+      addWithCarry(op2, ~rn, cBit);
+      value = awcValue;
+      c = awcC;
+      v = awcV;
       writes = true;
       break;
     }
     case ALU_CMP: {
-      const r = addWithCarry(rn, ~op2, 1);
-      value = r.value;
-      c = r.c;
-      v = r.v;
+      addWithCarry(rn, ~op2, 1);
+      value = awcValue;
+      c = awcC;
+      v = awcV;
       writes = false;
       break;
     }
     case ALU_CMN: {
-      const r = addWithCarry(rn, op2, 0);
-      value = r.value;
-      c = r.c;
-      v = r.v;
+      addWithCarry(rn, op2, 0);
+      value = awcValue;
+      c = awcC;
+      v = awcV;
       writes = false;
       break;
     }
@@ -192,9 +206,12 @@ export function alu(op: AluOp, rn: number, op2: number, cIn: boolean, vIn: boole
       throw new Error(`Unknown ALU op: ${op}`);
   }
 
-  return {
-    value,
-    writes,
-    flags: { n: value < 0, z: value === 0, c, v }
-  };
+  ALU_SCRATCH.value = value;
+  ALU_SCRATCH.writes = writes;
+  const flags = ALU_SCRATCH.flags;
+  flags.n = value < 0;
+  flags.z = value === 0;
+  flags.c = c;
+  flags.v = v;
+  return ALU_SCRATCH;
 }

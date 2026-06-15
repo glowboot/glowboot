@@ -87,6 +87,13 @@ export class ArmCpu {
    *  structure. */
   lastCycles = 4;
 
+  /** Cycles an UNRELEASED halted step consumes. `Gba.runFrame` sets
+   *  this to the exact distance to the next IRQ-capable event before
+   *  each halted step (see the halt gate in `step`); every other
+   *  caller leaves the legacy 4-cycle no-op width. Transient — not
+   *  serialised. */
+  haltCycleBudget = 4;
+
   /** Latched IRQ-pending state from the END of the previous step.
    *  Real ARM7TDMI samples the IRQ line one cycle and then takes the
    *  exception at the NEXT instruction boundary — meaning a raise
@@ -234,6 +241,15 @@ export class ArmCpu {
           if (flagMatch) this.bus.write16(0x03007ff8, flag & ~this.intrWaitMask);
           this.intrWaitMask = 0;
           this.lastIrqServiced = 0;
+          // On real hardware the IntrWait SWI's epilogue is the last
+          // BIOS code to run before control returns to the cart, so
+          // the BIOS open-bus latch holds GBATEK's "after SWI" value.
+          // This hook short-circuits that loop tail (the satisfied
+          // wait returns straight to cart code), so the organically-
+          // tracked latch would keep the "after IRQ" value instead —
+          // seed the canonical constant (mgba-suite memory "BIOS
+          // load" reads it back).
+          if (this.biosHandler !== null) this.biosHandler.biosOpenBus = 0xe3a02004 | 0;
         } else {
           // Wait not satisfied — re-halt until the next IRQ fires. Real
           // BIOS's IntrWait spin loop does the same.
@@ -250,10 +266,17 @@ export class ArmCpu {
     let releasedFromHalt = false;
     if (this.halted) {
       if (!this.checkHaltRelease()) {
-        // `lastCycles` was reset to 4 at the top of step() and stays
-        // there for the no-op return — `Gba.runFrame` will tick the
-        // periphery by 4 cycles. Mirror that into `haltedCycles` so
-        // the host's CPU-load metric counts halt-time correctly.
+        // Unreleased halt: consume the caller-provided budget — the
+        // exact cycle distance to the next event that could raise an
+        // IRQ (timer/SIO horizon or PPU event dot), computed by
+        // Gba.runFrame each iteration. The wake therefore lands on
+        // the event's exact cycle instead of quantizing to a fixed
+        // no-op width (mgba-suite timers' IntrWait windows measure
+        // this). Callers without horizon knowledge (stepInstruction,
+        // runForCycles, bare-CPU tests) leave the budget at the
+        // legacy 4 cycles. Mirrored into `haltedCycles` so the
+        // host's CPU-load metric counts halt-time correctly.
+        this.lastCycles = this.haltCycleBudget | 0;
         this.haltedCycles += this.lastCycles;
         return;
       }
@@ -432,7 +455,19 @@ export class ArmCpu {
     // So the spare time available for prefetch fill is just:
     //   total_step_cycles − cart_bus_busy
     const cartBusy = this.bus.cartBusBusyCycles | 0;
-    const fillCycles = this.lastCycles - cartBusy;
+    let fillCycles = this.lastCycles - cartBusy;
+    // Idle cycles first pay off the pipeline-refill stream debt (the
+    // prepaid fetches cacheMissCost front-loaded — on hardware they
+    // occupy the cart bus DURING these steps), and only the excess
+    // banks prefetcher look-ahead. Back-to-back cheap instructions
+    // never pay it off (the bus stays saturated — mgba-suite timing's
+    // post-branch rows); a slow post-branch instruction (long EWRAM /
+    // IO access) does, and then earns real credit.
+    if (fillCycles > 0 && this.bus.refillStreamDebt > 0) {
+      const consumed = fillCycles < this.bus.refillStreamDebt ? fillCycles : this.bus.refillStreamDebt;
+      this.bus.refillStreamDebt -= consumed;
+      fillCycles -= consumed;
+    }
     if (fillCycles > 0) this.bus.addCartFillCycles(fillCycles);
 
     // Post-step: check whether PC advanced linearly within the same
@@ -587,6 +622,10 @@ export class ArmCpu {
    *  garbage addresses, ACKing the wrong IF bits and corrupting game
    *  state across frames. */
   private hleBiosIrqEntry(): void {
+    // GBATEK BIOS open-bus: while the cart's handler runs, the latch
+    // holds the word the BIOS IRQ dispatch prefetched ("during IRQ" =
+    // 0xE25EF004). jsmolka-bios #3 reads it from inside an ISR.
+    if (this.biosHandler !== null) this.biosHandler.biosOpenBus = 0xe25ef004 | 0;
     if (this.interrupts !== null) {
       // OR-accumulate across nested IRQ entries: a VBlank handler in
       // SYS mode (cart trampoline switches there after the BIOS save)
@@ -628,6 +667,9 @@ export class ArmCpu {
    *  Restores the caller-saved registers and returns from the IRQ
    *  exception, restoring CPSR from SPSR_irq. */
   private hleBiosIrqExit(): void {
+    // GBATEK BIOS open-bus: once the BIOS IRQ epilogue has run, the
+    // latch holds its prefetched word ("after IRQ" = 0xE55EC002).
+    if (this.biosHandler !== null) this.biosHandler.biosOpenBus = 0xe55ec002 | 0;
     const sp = this.regs.r[13]! | 0;
     this.regs.r[0] = this.bus.read32(sp >>> 0) | 0;
     this.regs.r[1] = this.bus.read32((sp + 4) >>> 0) | 0;
@@ -681,6 +723,11 @@ export class ArmCpu {
         if (flagMatch) this.bus.write16(0x03007ff8, flag & ~this.intrWaitMask);
         this.intrWaitMask = 0;
         this.lastIrqServiced = 0;
+        // A satisfied IntrWait returns to the cart through the SWI
+        // epilogue, which runs AFTER the IRQ epilogue — the latch
+        // must end at the "after SWI" value, overriding the
+        // "after IRQ" constant seeded at the top of this method.
+        if (this.biosHandler !== null) this.biosHandler.biosOpenBus = 0xe3a02004 | 0;
       } else if (this.interrupts !== null) {
         // Real BIOS IntrWait runs a polling loop around Halt: each
         // iteration ORs the wait-mask back into IE, then halts. The

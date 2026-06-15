@@ -861,6 +861,16 @@ export class Apu implements IoHandler {
     }
   }
 
+  /** Cycles until `advanceSampleClock` emits its next host sample.
+   *  `Gba.tickPeripherals` caps its tick chunks at this boundary so a
+   *  sample observes timer-driven FIFO pops and PSG state advanced to
+   *  exactly its emission cycle, regardless of how coarsely the
+   *  surrounding loop batches peripheral ticks. */
+  cyclesToNextSample(): number {
+    const remaining = this.cyclesPerSample - this.sampleAccumulator;
+    return remaining > 1 ? Math.ceil(remaining) : 1;
+  }
+
   private advanceSampleClock(cycles: number, silent: boolean): void {
     this.sampleAccumulator += cycles;
     while (this.sampleAccumulator >= this.cyclesPerSample) {
