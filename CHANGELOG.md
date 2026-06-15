@@ -15,6 +15,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fullscreen. Pairs with Integer scaling for crisp pixels and is
   remembered across reloads; fullscreen is unaffected.
 
+### Fixed
+
+- **Rumble settings section now starts collapsed.** It was the only
+  section besides Display that opened by default; it now matches the
+  others so the Settings menu stays scannable. (If you'd already
+  expanded it, your choice is remembered.)
+
 ## [1.3.1] — 2026-06-15
 
 ### Changed

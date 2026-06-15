@@ -23,6 +23,7 @@ const DEFAULT_COLLAPSED: Record<string, boolean> = {
   hotkeys: true,
   gamepad: true,
   touch: true,
+  rumble: true,
   audio: true,
   behavior: true,
   backup: true
