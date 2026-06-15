@@ -496,16 +496,22 @@ export class PPU {
           this.winLY = 0;
           this.dots = 4;
           this.mode = Mode.OAMSearch;
+          this.line153Quirk = false;
           this.statLine = false;
           this.updateStatLine();
         } else if (wasOn && !willBeOn) {
           // LCD turning off: PPU halts. Clear counters so the resume state
-          // is well-defined.
+          // is well-defined. line153Quirk MUST clear too — a cart that
+          // disables the LCD mid-line-153 (e.g. Qix Adventure between VRAM
+          // updates) would otherwise resume with the quirk stuck set,
+          // making the next VBlank entry bail early so LY never wraps and
+          // the VBlank IRQ never fires.
           this.ly = 0;
           this.lyForCompare = 0;
           this.winLY = 0;
           this.dots = 0;
           this.mode = Mode.HBlank;
+          this.line153Quirk = false;
           this.statLine = false;
         }
         break;
