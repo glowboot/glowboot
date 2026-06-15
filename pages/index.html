@@ -378,6 +378,13 @@
                     </label>
                     <label
                       class="settings-row"
+                      title="Scale the game screen up in windowed mode. 100% is the default size; higher values let it grow to fill more of the page width (turn on Integer scaling above to keep pixels perfectly crisp as it grows). Fullscreen is unaffected."
+                    >
+                      <span>Screen size</span>
+                      <input type="range" id="screen-size" min="100" max="240" step="5" value="100" />
+                    </label>
+                    <label
+                      class="settings-row"
                       title="Exponential blend between each frame and the previous one, simulating the real Game Boy LCD's slow pixel response. 0 = off, higher = slower fade (makes 30 Hz sprite flicker look like proper half-brightness)."
                     >
                       <span>Pixel response</span>
