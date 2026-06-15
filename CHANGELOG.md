@@ -17,6 +17,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Game Boy (non-Color) games now run as a real Game Boy.** DMG-only
+  carts ran in Game Boy Color compatibility mode, which derailed a few
+  titles (e.g. Miner 2049er hung on a blank screen). They now run as an
+  actual Game Boy — matching the hardware they were made for — while
+  keeping the colourised look. Game Boy Color games are unaffected.
 - **Qix Adventure (and other carts that toggle the LCD off and on) no
   longer hang on a blank screen.** A Game Boy PPU edge case: disabling
   the LCD partway through the line-153 timing window left an internal
