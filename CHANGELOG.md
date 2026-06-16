@@ -26,6 +26,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`/robots.txt` and `/sitemap.xml` load correctly in the browser again.**
+  The offline service worker's navigation fallback was serving the app
+  shell for those paths, so visiting them in a browser that had the app
+  cached showed the emulator instead of the file. They're now excluded
+  from the fallback and served as the real files. (Search-engine crawlers,
+  which don't run the service worker, were always served the real files.)
 - **InfoGenius Berlitz Translators, Force 21, and other carts that turn the
   screen off during start-up no longer freeze on a blank screen.** While the
   screen is off the display hardware is idle and raises no interrupts, but
