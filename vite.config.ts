@@ -81,7 +81,15 @@ export default defineConfig({
         // first visit. ROMs are loaded via the file picker so they aren't part
         // of the precache. No BIOS is shipped — GBA carts run through Glowboot's
         // HLE BIOS in the browser.
-        globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"]
+        globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"],
+        // The SPA navigation fallback serves index.html for any navigation it
+        // can't match. Real files served from the site root aren't precached
+        // (robots.txt / sitemap.xml are deliberately not in globPatterns), so
+        // without this denylist a browser with the SW installed gets the app
+        // shell when navigating to them instead of the file. Let those paths
+        // fall through to the network. (Crawlers don't run the SW, so they
+        // already fetch the real files.)
+        navigateFallbackDenylist: [/^\/robots\.txt$/, /^\/sitemap\.xml$/]
       }
     })
   ]
