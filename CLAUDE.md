@@ -22,7 +22,7 @@ src/ui/         Browser shell: rom-loader, settings/, popovers/, input/,
                 Bridges either engine to the browser.
 src/main.ts     UI entry point.
 pages/          Vite root — `pages/index.html` is the emulator. Public
-                assets in `pages/public/`. Deployed to glowboot.pages.dev.
+                assets in `pages/public/`. Deployed to glowboot.com.
 tests/          Headless ROM-runner scripts — `npm run test:roms` and
                 `npm run test:gba-roms`. Has its own tsconfig —
                 `tests/tsconfig.json` widens rootDir to the repo root
