@@ -2,6 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Legacy Cloudflare Pages host → canonical domain. Runs before the app
+      // loads so visitors on the old URL land on glowboot.com with their
+      // path/query/hash intact. Exact match leaves preview deploys
+      // (<id>.glowboot.pages.dev) and local dev alone.
+      if (location.hostname === "glowboot.pages.dev")
+        location.replace("https://glowboot.com" + location.pathname + location.search + location.hash);
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#1a0b3d" />
     <meta
