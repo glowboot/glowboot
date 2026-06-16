@@ -14,14 +14,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and especially GBA games are no longer stuck at one small size short of
   fullscreen. Pairs with Integer scaling for crisp pixels and is
   remembered across reloads; fullscreen is unaffected.
-
-### Added
-
 - **HuC1 cartridge support.** Games on Hudson's HuC1 mapper now run —
   e.g. Nectaris GB and Pokémon Card GB, which previously sat on a blank
   screen because the mapper was unrecognised and the game couldn't switch
   ROM banks. The cartridge's infrared port is stubbed as "no signal", so
   single-player works; IR-based trading/links between two carts does not.
+- **HuC3 cartridge support.** Hudson's HuC3 mapper now runs — Robopon Sun
+  Version booted to a blank screen before because the mapper (and its
+  on-cart real-time clock) wasn't recognised. The clock runs off your
+  system time; the cartridge's infrared port is stubbed as "no signal".
 
 ### Fixed
 

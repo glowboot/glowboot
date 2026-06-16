@@ -34,7 +34,7 @@ const RAM_SIZE_TABLE: Record<number, number> = {
   0x05: 8 // 64 KiB
 };
 
-export type MBCType = "ROM_ONLY" | "MBC1" | "MBC2" | "MBC3" | "MBC5" | "MBC7" | "CAMERA" | "HUC1";
+export type MBCType = "ROM_ONLY" | "MBC1" | "MBC2" | "MBC3" | "MBC5" | "MBC7" | "CAMERA" | "HUC1" | "HUC3";
 
 /** Map a host-side tilt input in roughly `[-1, +1]` g-units to the
  *  16-bit raw value MBC7's accelerometer reports. The cart calibrates
@@ -48,7 +48,7 @@ function mbc7ScaleAxis(g: number): number {
 }
 
 /** Cart type codes whose cartridges include a battery for RAM persistence. */
-const BATTERY_TYPES = new Set([0x03, 0x06, 0x09, 0x0d, 0x0f, 0x10, 0x13, 0x1b, 0x1e, 0x22, 0xff]);
+const BATTERY_TYPES = new Set([0x03, 0x06, 0x09, 0x0d, 0x0f, 0x10, 0x13, 0x1b, 0x1e, 0x22, 0xfe, 0xff]);
 
 /** CRC32 (IEEE polynomial) of the 48-byte logo region at cart offsets
  *  0x0104–0x0133. Real hardware checks this region byte-for-byte before
@@ -114,6 +114,22 @@ export class Cartridge {
   }
   private ramEnabled = false;
   private mbc1Mode = false; // false = ROM banking, true = RAM banking
+
+  // HuC3 (Hudson) mapper state. The 0xA000–0xBFFF window is multiplexed by
+  // `huc3Mode` (set via 0x0000–0x1FFF) between cart RAM, an IR port, and a
+  // register/command interface fronting the on-cart RTC (minutes-since-
+  // midnight + a day counter). These registers are a transient bus latch —
+  // like the MBC7 serial state they're deliberately left out of the save-
+  // state format, and the clock free-runs from wall time, matching a real
+  // cart whose RTC never stops.
+  private huc3Mode = 0;
+  private huc3Read = 0; // nibble returned by a mode-0xC read
+  private huc3Index = 0; // pointer into the RTC register file
+  private huc3Flags = 0; // extended-command status (0x6x); 2 = boot "ready" probe
+  private huc3Minutes = 0; // 0..1439, minutes since midnight (3 nibbles)
+  private huc3Days = 0; // 16-bit day counter (4 nibbles)
+  private huc3SecAccum = 0; // T-cycles accumulated toward the next minute
+  private readonly huc3Regs = new Uint8Array(0x100); // alarm / misc nibbles (index ≥ 7)
 
   /** Flips to `true` on any external-RAM write; cleared by `clearDirty()`. */
   private _ramDirty = false;
@@ -318,6 +334,12 @@ export class Cartridge {
     // HuC1 maps RAM by default; the 0x0000 register only toggles it off to
     // expose the IR port. Start enabled so RAM works before any register write.
     if (this.mbcType === "HUC1") this.ramEnabled = true;
+    // Seed the HuC3 clock from host wall time so the in-game RTC starts at a
+    // plausible time-of-day. (RAM stays gated behind mode 0xA, unlike HuC1.)
+    if (this.mbcType === "HUC3") {
+      const now = new Date();
+      this.huc3Minutes = now.getHours() * 60 + now.getMinutes();
+    }
     console.info(
       `[Cartridge] "${this.title}" – ${this.mbcType}, ROM banks: ${this.romBanks}, ` +
         `RAM banks: ${this.ramBanks}, battery: ${this.hasBattery}, CGB: ${this.cgb}`
@@ -377,6 +399,7 @@ export class Cartridge {
       if (!this.ramEnabled) return 0xc0;
       return this.readRamBank(this.ramBank, addr);
     }
+    if (this.mbcType === "HUC3") return this.readHuC3(addr);
     if (!this.ramEnabled) return 0xff;
     switch (this.mbcType) {
       case "MBC2": {
@@ -422,6 +445,9 @@ export class Cartridge {
         return;
       case "HUC1":
         this.writeHuC1(addr, value);
+        return;
+      case "HUC3":
+        this.writeHuC3(addr, value);
         return;
       default:
         return;
@@ -490,6 +516,100 @@ export class Cartridge {
     } else if (addr >= 0xa000 && addr < 0xc000) {
       // In IR mode this is the IR LED — no peer to receive it, so drop it.
       if (this.ramEnabled) this.writeRamBank(this.ramBank, addr, value);
+    }
+  }
+
+  // HuC3 multiplexes 0xA000–0xBFFF by the low nibble of the value last
+  // written to 0x0000–0x1FFF: 0xA = cart RAM, 0xB = command/argument
+  // register, 0xC = read result, 0xD = RTC semaphore (always ready), 0xE =
+  // IR receiver. The command register decodes a nibble pair (command, arg)
+  // to walk an RTC register file; extended command 0x6 with arg 2 is the
+  // boot status probe that must report 1 or the game refuses to start.
+  private readHuC3(addr: number): number {
+    switch (this.huc3Mode & 0x0f) {
+      case 0x0b:
+        return this.huc3Read;
+      case 0x0c:
+        return this.huc3Flags === 0x02 ? 0x01 : this.huc3Read;
+      case 0x0d:
+        return 0x01; // semaphore: the RTC is always ready
+      case 0x0e:
+        return 0x00; // IR receiver: no peer, no incoming light
+      default: // 0x0A and unmapped modes expose cart RAM
+        return this.readRamBank(this.ramBank, addr);
+    }
+  }
+
+  private writeHuC3(addr: number, value: number): void {
+    if (addr < 0x2000) {
+      this.huc3Mode = value;
+      this.ramEnabled = (value & 0x0f) === 0x0a;
+    } else if (addr < 0x4000) {
+      const bank = value & 0x7f;
+      this.romBank = bank === 0 ? 1 : bank;
+    } else if (addr < 0x6000) {
+      this.ramBank = value & 0x0f;
+    } else if (addr < 0x8000) {
+      // No mode register on HuC3.
+    } else if (addr >= 0xa000 && addr < 0xc000) {
+      if ((this.huc3Mode & 0x0f) === 0x0a) {
+        this.writeRamBank(this.ramBank, addr, value);
+        return;
+      }
+      if ((this.huc3Mode & 0x0f) !== 0x0b) return; // only the command register decodes writes
+      const cmd = (value >> 4) & 0x0f;
+      const arg = value & 0x0f;
+      switch (cmd) {
+        case 0x1: // read register + increment pointer
+          this.huc3Read = this.readHuC3Reg(this.huc3Index);
+          this.huc3Index = (this.huc3Index + 1) & 0xff;
+          break;
+        case 0x2: // write register (no increment)
+        case 0x3: // write register + increment pointer
+          this.writeHuC3Reg(this.huc3Index, arg);
+          if (cmd === 0x3) this.huc3Index = (this.huc3Index + 1) & 0xff;
+          break;
+        case 0x4: // set pointer low nibble
+          this.huc3Index = (this.huc3Index & 0xf0) | arg;
+          break;
+        case 0x5: // set pointer high nibble
+          this.huc3Index = (this.huc3Index & 0x0f) | (arg << 4);
+          break;
+        case 0x6: // extended command (status / latch)
+          this.huc3Flags = arg;
+          break;
+      }
+    }
+  }
+
+  /** RTC register file as nibbles: 0–2 = minutes, 3–6 = days, 7+ = misc. */
+  private readHuC3Reg(index: number): number {
+    if (index < 3) return (this.huc3Minutes >> (index * 4)) & 0x0f;
+    if (index < 7) return (this.huc3Days >> ((index - 3) * 4)) & 0x0f;
+    return this.huc3Regs[index]! & 0x0f;
+  }
+
+  private writeHuC3Reg(index: number, nibble: number): void {
+    if (index < 3) {
+      const sh = index * 4;
+      this.huc3Minutes = (this.huc3Minutes & ~(0x0f << sh)) | (nibble << sh);
+    } else if (index < 7) {
+      const sh = (index - 3) * 4;
+      this.huc3Days = (this.huc3Days & ~(0x0f << sh)) | (nibble << sh);
+    } else {
+      this.huc3Regs[index] = nibble;
+    }
+  }
+
+  private tickHuC3(tCycles: number): void {
+    this.huc3SecAccum += tCycles;
+    const perMinute = 4_194_304 * 60; // 60 s of emulated wall time
+    while (this.huc3SecAccum >= perMinute) {
+      this.huc3SecAccum -= perMinute;
+      if (++this.huc3Minutes >= 1440) {
+        this.huc3Minutes = 0;
+        this.huc3Days = (this.huc3Days + 1) & 0xffff;
+      }
     }
   }
 
@@ -562,6 +682,10 @@ export class Cartridge {
    *  cycles, so any drift between real and emulated clocks would show
    *  up as non-1000ms ticks. */
   tickRtc(tCycles: number): void {
+    if (this.mbcType === "HUC3") {
+      this.tickHuC3(tCycles);
+      return;
+    }
     if (!this.hasRtc || this.rtcHalted) return;
     this.rtcTickAccum += tCycles;
     // 4194304 T-cycles = 1 second of emulated wall time.
@@ -1198,6 +1322,7 @@ export class Cartridge {
     if (typeCode >= 0x19 && typeCode <= 0x1e) return "MBC5";
     if (typeCode === 0x22) return "MBC7";
     if (typeCode === 0xfc) return "CAMERA";
+    if (typeCode === 0xfe) return "HUC3";
     if (typeCode === 0xff) return "HUC1";
     console.warn(`[Cartridge] Unknown MBC type 0x${typeCode.toString(16)}, defaulting to ROM_ONLY`);
     return "ROM_ONLY";
