@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Glowboot now lives at its own domain, [glowboot.com](https://glowboot.com/).**
+  The old `glowboot.pages.dev` address now redirects here. Note: saves,
+  settings, and save states are stored per website address, so progress made
+  on `glowboot.pages.dev` won't carry over automatically.
+
 ## [1.4.0] — 2026-06-16
 
 ### Added
