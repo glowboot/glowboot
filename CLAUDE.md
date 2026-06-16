@@ -68,4 +68,4 @@ If `format:check` warns, run `npm run format` (or `npx prettier --write <files>`
 ## Common gotchas
 
 - **DeviceMotion silent on Android** despite HTTPS → Chrome's site-level motion-sensor toggle is off. Check that _before_ debugging code.
-- **Tests presenting as CGB by default** → some DMG-only test subtests (`blargg/oam_bug` 02/04/05/07/08, `blargg/dmg_sound` 09/10/12) fail by design when run on a CGB-presenting emulator. The behaviours those subtests probe (the DMG OAM-corruption bug, DMG-specific sound register quirks) don't exist on CGB hardware — the failures are hardware-correct, not engine bugs.
+- **A few DMG-quirk test subtests fail by design, not from engine bugs.** `blargg/oam_bug` 02/04/05/07/08 are CGB-flagged (header `0x143` = `0x80`), so they run as CGB where the DMG OAM-corruption bug they probe physically can't occur — the failures are hardware-correct. `blargg/dmg_sound` 09/10/12 are DMG-flagged and now run as a real DMG (DMG-only carts no longer run in CGB-compat mode); they fail only because the DMG-specific wave-RAM register quirks they probe aren't emulated — a deliberate accuracy skip, not a regression.
