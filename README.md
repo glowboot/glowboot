@@ -253,6 +253,10 @@ Gear icon in the header → **Display**:
   fills more of the viewport; toggle ON to keep every pixel
   perfectly square (best for Game Boy and Game Boy Color, whose
   160×144 frame grids evenly on most displays).
+- **Screen size** — slider (100–240 %) that scales the game up in
+  windowed mode so it isn't stuck at one small size short of fullscreen.
+  Pairs with Integer scaling for crisp pixels; remembered across reloads
+  and unaffected by fullscreen.
 - **CGB colour correction** — default ON; emulates the real CGB LCD's
   warm, muted response so Game Boy Color titles don't look neon on an
   sRGB monitor.
@@ -767,7 +771,8 @@ reload.
   master volume.
 - **Memory / MBC** — Work RAM, VRAM, OAM, HRAM, I/O, echo RAM. Mappers:
   ROM_ONLY, MBC1, MBC2, MBC3 (with RTC), MBC5, MBC7 (accelerometer +
-  EEPROM, for Kirby Tilt 'n' Tumble), and Pocket Camera (`0xFC`). OAM
+  EEPROM, for Kirby Tilt 'n' Tumble), Pocket Camera (`0xFC`), and Hudson
+  HuC1 (`0xFF`) / HuC3 (`0xFE`, with RTC). OAM
   DMA runs over 160 M-cycles with the CPU bus restricted to HRAM. Save
   RAM persisted to IndexedDB (autosaved every 2 s + on tab hide / close).
 - **Serial / link** — SC=0x81 master transfers complete after one
@@ -880,7 +885,7 @@ src/
 │   │   ├── interrupts.ts     #     IF / IE registers and request / servicing helpers
 │   │   └── serial-link.ts    #     SerialLink interface — no-op default; UI provides BroadcastChannel / WebRTC impls
 │   ├── cartridge/
-│   │   └── cartridge.ts      #     Header parse + MBC1/2/3/5/7 bank switching, MBC3 RTC, MBC7 accelerometer, Pocket Camera (0xFC)
+│   │   └── cartridge.ts      #     Header parse + MBC1/2/3/5/7 + HuC1/HuC3 bank switching, MBC3/HuC3 RTC, MBC7 accelerometer, Pocket Camera (0xFC)
 │   ├── ppu/
 │   │   └── ppu.ts            #     Pixel-FIFO renderer (BG fetcher, per-pixel sprite mix), STAT/LYC, mode timing, STAT line
 │   ├── apu/
@@ -1136,18 +1141,20 @@ Passes the `dmg-acid2` and `cgb-acid2` PPU tests and Blargg's
 edges:
 
 - **DMG-only audio quirks not emulated.** `dmg_sound` 09 / 10 / 12
-  exercise behaviours specific to the DMG audio hardware. Glowboot
-  presents as CGB, so those fail by design.
+  exercise wave-RAM access behaviours specific to the original DMG audio
+  hardware that Glowboot doesn't reproduce. No commercial game relies on
+  them.
 - **DMG OAM corruption bug not emulated.** Blargg's `oam_bug` tests 02,
   04, 05, 07, 08 exercise a DMG-only quirk where `INC`/`DEC`/`PUSH`/
   `POP`/`LDI`/`LDD` on an address in `$FE00–$FEFF` during OAM search
   corrupts wave RAM. The bug physically does not occur on CGB, and we
   present as a CGB console — no commercial game relies on it.
-- **CGB-only host.** DMG carts run in CGB compatibility mode. The real
-  CGB boot ROM hashes the cart title to pick one of ~30 palette schemes
-  for DMG carts; we don't ship the boot ROM, so DMG carts default to an
-  aurora-matched palette that the user can swap from Settings (9
-  curated presets).
+- **No boot ROM, so DMG palettes are substituted.** Game Boy (non-Color)
+  carts run as a real DMG, but the original CGB boot ROM hashes the cart
+  title to pick one of ~30 palette schemes for DMG carts — and we don't
+  ship that boot ROM. So DMG carts default to an aurora-matched palette the
+  user can swap from Settings (9 curated presets) rather than the boot
+  ROM's automatic scheme.
 - **PPU is per-M-cycle, not per-T-cycle.** The renderer is a pixel-FIFO
   (BG fetcher + per-pixel sprite mixer) and the PPU is ticked
   synchronously on every CPU bus access, so most mid-mode-3 register
