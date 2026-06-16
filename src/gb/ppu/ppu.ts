@@ -346,6 +346,22 @@ export class PPU {
     this.bgp = preBoot ? 0x00 : 0xfc;
     this.vram = new Uint8Array(cgb ? 0x4000 : 0x2000);
 
+    if (!preBoot && cgb) {
+      // The CGB boot ROM hands the PPU off mid-VBlank (LY ≈ 0x90), not at the
+      // top of frame 0. Some CGB carts read VRAM the instant they start with
+      // the LCD on and rely on it being accessible — e.g. Trouballs' CGB
+      // VRAM-bank self-test locks the console up if that read lands in mode 3.
+      // Land partway into line 144 (matching where the boot ROM hands off) so
+      // the next 143→144 transition — and `onVBlank` — fires mid runFrame
+      // rather than exactly on the frame boundary. The DMG boot ROM is shorter
+      // and its DMG carts boot fine from the default top-of-frame state, so
+      // this is gated to CGB only (LY=0x90 there regressed a few DMG titles).
+      this.ly = 0x90;
+      this.lyForCompare = 0x90;
+      this.mode = Mode.VBlank;
+      this.dots = 412;
+    }
+
     // Instance shade tables seed from the default green table. `setDmgCompatPalette`
     // can replace them when a DMG cart is booted on a CGB console.
     this.bgShades = new Uint32Array(PPU.DEFAULT_SHADES);

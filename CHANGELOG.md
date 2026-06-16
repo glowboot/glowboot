@@ -17,6 +17,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Trouballs (and other Game Boy Color games that probe VRAM at startup)
+  no longer lock up on a blank screen.** On a real Game Boy Color the boot
+  ROM hands the display off partway through its blanking period; the
+  emulator started it at the top of the frame instead, so a cart that read
+  video memory the instant it began got a locked-out read and bailed to a
+  dead halt. The startup display state now matches the hardware.
 - **Game Boy (non-Color) games now run as a real Game Boy.** DMG-only
   carts ran in Game Boy Color compatibility mode, which derailed a few
   titles (e.g. Miner 2049er hung on a blank screen). They now run as an
