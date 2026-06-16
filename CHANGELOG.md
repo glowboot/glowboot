@@ -17,6 +17,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **InfoGenius Berlitz Translators, Force 21, and other carts that turn the
+  screen off during start-up no longer freeze on a blank screen.** While the
+  screen is off the display hardware is idle and raises no interrupts, but
+  the emulator was still letting one slip through when a game armed a
+  particular interrupt source at that moment — sending the game into a
+  handler that waited forever for the screen to do something it never would.
+  The display now stays correctly silent while it is off.
 - **Trouballs (and other Game Boy Color games that probe VRAM at startup)
   no longer lock up on a blank screen.** On a real Game Boy Color the boot
   ROM hands the display off partway through its blanking period; the

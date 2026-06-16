@@ -535,14 +535,14 @@ export class PPU {
       case ADDR_STAT: {
         // DMG STAT-write bug: on monochrome hardware (and on CGB running
         // a DMG cart in compat mode) writing any value to STAT latches
-        // 0xFF for ~1 M-cycle before the real value. Pan Docs / devrs
-        // FAQ specifies it fires only when ((mode is HBlank or VBlank)
-        // AND LCD is on), OR when LY == LYC (any mode, even LCD off).
+        // 0xFF for ~1 M-cycle before the real value. It fires only when
+        // ((mode is HBlank or VBlank) AND LCD is on), or when LY == LYC.
         // Mode 2 / mode 3 alone must NOT trigger it — otherwise mid-
         // scanline STAT-writes produce spurious OAM-IRQs that crash
         // games like Pinball Deluxe. Required by Ocean engine titles
         // (Addams Family, Road Rash): their in-game STAT handler is
         // what restores the BG / OBJ palettes after the title screen.
+        // (updateStatLine suppresses the IRQ while the LCD is off.)
         if (!this.cgbGame) {
           const modeEligible = (this.mode === Mode.HBlank || this.mode === Mode.VBlank) && (this.lcdc & 0x80) !== 0;
           const lycEligible = this.ly === this.lyc;
@@ -1221,6 +1221,16 @@ export class PPU {
   private statLine = false;
 
   private updateStatLine(): void {
+    // The PPU drives the STAT interrupt line only while it is running; with
+    // the LCD off there is no line, so no STAT IRQ can be raised. A DMG cart
+    // that disables the LCD and then enables the LYC source while LY and LYC
+    // are both 0 (e.g. InfoGenius Berlitz clears STAT, then sets STAT bit 6,
+    // right after a VBlank-synced LCD-off) would otherwise get a phantom
+    // STAT IRQ that wedges its handler on a never-satisfied mode-wait.
+    if ((this.lcdc & 0x80) === 0) {
+      this.statLine = false;
+      return;
+    }
     const bitHBlank = (this.stat & 0x08) !== 0 && this.mode === Mode.HBlank;
     const bitVBlank = (this.stat & 0x10) !== 0 && this.mode === Mode.VBlank;
     const bitOAM = (this.stat & 0x20) !== 0 && this.mode === Mode.OAMSearch;
