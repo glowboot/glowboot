@@ -34,7 +34,7 @@ const RAM_SIZE_TABLE: Record<number, number> = {
   0x05: 8 // 64 KiB
 };
 
-export type MBCType = "ROM_ONLY" | "MBC1" | "MBC2" | "MBC3" | "MBC5" | "MBC7" | "CAMERA";
+export type MBCType = "ROM_ONLY" | "MBC1" | "MBC2" | "MBC3" | "MBC5" | "MBC7" | "CAMERA" | "HUC1";
 
 /** Map a host-side tilt input in roughly `[-1, +1]` g-units to the
  *  16-bit raw value MBC7's accelerometer reports. The cart calibrates
@@ -315,6 +315,9 @@ export class Cartridge {
     // carts (Kirby Tilt 'n' Tumble) interpret it as an unprogrammed
     // chip and run their first-time-setup flow.
     if (this.mbcType === "CAMERA" || this.mbcType === "MBC7") this.ram.fill(0xff);
+    // HuC1 maps RAM by default; the 0x0000 register only toggles it off to
+    // expose the IR port. Start enabled so RAM works before any register write.
+    if (this.mbcType === "HUC1") this.ramEnabled = true;
     console.info(
       `[Cartridge] "${this.title}" – ${this.mbcType}, ROM banks: ${this.romBanks}, ` +
         `RAM banks: ${this.ramBanks}, battery: ${this.hasBattery}, CGB: ${this.cgb}`
@@ -367,6 +370,13 @@ export class Cartridge {
       return this.readRamBank(this.ramBank, addr);
     }
     if (this.mbcType === "MBC7") return this.readMBC7(addr);
+    if (this.mbcType === "HUC1") {
+      // HuC1 RAM is always mapped; writing 0x0E to 0x0000–0x1FFF instead
+      // selects the IR receiver (tracked via ramEnabled). With no IR peer
+      // the receiver reports no incoming light — real HuC1 returns 0xC0.
+      if (!this.ramEnabled) return 0xc0;
+      return this.readRamBank(this.ramBank, addr);
+    }
     if (!this.ramEnabled) return 0xff;
     switch (this.mbcType) {
       case "MBC2": {
@@ -409,6 +419,9 @@ export class Cartridge {
         return;
       case "CAMERA":
         this.writeCamera(addr, value);
+        return;
+      case "HUC1":
+        this.writeHuC1(addr, value);
         return;
       default:
         return;
@@ -456,6 +469,27 @@ export class Cartridge {
       this.mbc1Mode = (value & 0x01) !== 0;
     } else if (addr >= 0xa000 && addr < 0xc000 && this.ramEnabled) {
       this.writeRamBank(this.mbc1Mode ? this.ramBank : 0, addr, value);
+    }
+  }
+
+  private writeHuC1(addr: number, value: number): void {
+    if (addr < 0x2000) {
+      // 0x0E selects the IR register; any other value exposes cart RAM.
+      // Modelled through ramEnabled so the IR/RAM select rides the existing
+      // save-state field — no format change, no version bump.
+      this.ramEnabled = (value & 0x0f) !== 0x0e;
+    } else if (addr < 0x4000) {
+      // Single 6-bit ROM-bank register (no BANK1/BANK2 split like MBC1).
+      // 0 remaps to 1 — bank 0 can't sit in the switchable slot.
+      const bank = value & 0x3f;
+      this.romBank = bank === 0 ? 1 : bank;
+    } else if (addr < 0x6000) {
+      this.ramBank = value & 0x03;
+    } else if (addr < 0x8000) {
+      // No mode register on HuC1.
+    } else if (addr >= 0xa000 && addr < 0xc000) {
+      // In IR mode this is the IR LED — no peer to receive it, so drop it.
+      if (this.ramEnabled) this.writeRamBank(this.ramBank, addr, value);
     }
   }
 
@@ -1164,6 +1198,7 @@ export class Cartridge {
     if (typeCode >= 0x19 && typeCode <= 0x1e) return "MBC5";
     if (typeCode === 0x22) return "MBC7";
     if (typeCode === 0xfc) return "CAMERA";
+    if (typeCode === 0xff) return "HUC1";
     console.warn(`[Cartridge] Unknown MBC type 0x${typeCode.toString(16)}, defaulting to ROM_ONLY`);
     return "ROM_ONLY";
   }

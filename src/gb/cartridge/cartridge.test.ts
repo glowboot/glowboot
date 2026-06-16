@@ -22,7 +22,8 @@ describe("Cartridge.parseMBCType", () => {
     [0x1d, "MBC5"], // rumble + RAM
     [0x1e, "MBC5"], // rumble + RAM + battery
     [0x22, "MBC7"],
-    [0xfc, "CAMERA"]
+    [0xfc, "CAMERA"],
+    [0xff, "HUC1"]
   ] as const)("maps cart-type byte 0x%s to %s", (code, expected) => {
     expect(Cartridge.parseMBCType(code)).toBe(expected);
   });
@@ -257,6 +258,50 @@ describe("Camera (MBC 0xFC)", () => {
     expect(cart.read(0xa000)).toBe(0x11);
     cart.write(0x4000, 0x05);
     expect(cart.read(0xa000)).toBe(0x55);
+  });
+});
+
+describe("HuC1 (MBC 0xFF)", () => {
+  function makeHuC1Cart(): Cartridge {
+    // 512 KB ROM (32 banks), 8 KB RAM. Tag each bank's first byte with the
+    // bank number so reads through 0x4000 reveal which bank is mapped.
+    const rom = buildRom({ typeCode: 0xff, romSizeCode: 4, ramSizeCode: 2, sizeBytes: 0x80000 });
+    for (let bank = 0; bank < 32; bank++) rom[bank * 0x4000] = bank;
+    return new Cartridge(rom, { skipLogoCheck: true });
+  }
+
+  it("constructs and reports the HUC1 mbc type", () => {
+    expect(makeHuC1Cart().mbcType).toBe("HUC1");
+  });
+
+  it("ROM bank register at 0x2000 selects the bank visible at 0x4000", () => {
+    const cart = makeHuC1Cart();
+    cart.write(0x2000, 5);
+    expect(cart.read(0x4000)).toBe(5);
+    cart.write(0x2000, 0x1f);
+    expect(cart.read(0x4000)).toBe(0x1f);
+  });
+
+  it("remaps ROM bank 0 to 1 in the switchable slot", () => {
+    const cart = makeHuC1Cart();
+    cart.write(0x2000, 0);
+    expect(cart.read(0x4000)).toBe(1);
+  });
+
+  it("cart RAM is mapped by default — no 0x0A handshake needed", () => {
+    const cart = makeHuC1Cart();
+    cart.write(0xa000, 0x42);
+    expect(cart.read(0xa000)).toBe(0x42);
+  });
+
+  it("writing 0x0E to 0x0000 selects the IR receiver: RAM hidden, reads return 0xC0", () => {
+    const cart = makeHuC1Cart();
+    cart.write(0xa000, 0x42);
+    cart.write(0x0000, 0x0e); // select IR
+    expect(cart.read(0xa000)).toBe(0xc0); // no IR signal
+    cart.write(0xa000, 0x99); // IR LED write — dropped, must not touch RAM
+    cart.write(0x0000, 0x00); // back to RAM
+    expect(cart.read(0xa000)).toBe(0x42);
   });
 });
 
