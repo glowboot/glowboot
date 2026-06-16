@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-06-16
+
 ### Changed
 
 - **Glowboot now lives at its own domain, [glowboot.com](https://glowboot.com/).**
