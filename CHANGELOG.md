@@ -15,6 +15,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fullscreen. Pairs with Integer scaling for crisp pixels and is
   remembered across reloads; fullscreen is unaffected.
 
+### Added
+
+- **HuC1 cartridge support.** Games on Hudson's HuC1 mapper now run —
+  e.g. Nectaris GB and Pokémon Card GB, which previously sat on a blank
+  screen because the mapper was unrecognised and the game couldn't switch
+  ROM banks. The cartridge's infrared port is stubbed as "no signal", so
+  single-player works; IR-based trading/links between two carts does not.
+
 ### Fixed
 
 - **InfoGenius Berlitz Translators, Force 21, and other carts that turn the
