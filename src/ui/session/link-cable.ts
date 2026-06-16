@@ -5,7 +5,7 @@ import { dispatchLinkStatus } from "./link-status.js";
 /**
  * Game Boy / Game Boy Color link-cable implementation over
  * `BroadcastChannel`. Two tabs on the same origin (e.g. the deployed
- * glowboot.pages.dev) can pair up and exchange serial bytes, which is
+ * glowboot.com) can pair up and exchange serial bytes, which is
  * enough to play 2-player Tetris or trade Pokémon between two copies
  * of the same ROM. The Game Boy Advance equivalent
  * (`./link-cable-gba.ts`) does halfword transfers in Multi-Player mode

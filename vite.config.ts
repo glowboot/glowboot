@@ -12,7 +12,7 @@ export default defineConfig({
   // project root stays clean (only configs + src/ + pages/).
   //   pages/index.html   →  /   (the emulator)
   //   pages/public/      →  /   (static assets, default publicDir)
-  // Deployed to glowboot.pages.dev. Source modules in ../src/ are
+  // Deployed to glowboot.com. Source modules in ../src/ are
   // reached via the `/src/` alias below (HTMLs use absolute /src/...
   // URLs which Vite then redirects to SRC_DIR — relative paths break
   // because `..` from a `/`-served HTML normalises to `/`, which Vite

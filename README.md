@@ -4,7 +4,7 @@ Play original Game Boy, Game Boy Color, and Game Boy Advance games in
 your browser. No installation required, your game data stays on your
 device, works on desktop and phones.
 
-**Play at** [glowboot.pages.dev](https://glowboot.pages.dev/).
+**Play at** [glowboot.com](https://glowboot.com/).
 
 [![CI](https://github.com/glowboot/glowboot/actions/workflows/ci.yml/badge.svg)](https://github.com/glowboot/glowboot/actions/workflows/ci.yml)
 
@@ -404,7 +404,7 @@ the inline status pill flips from grey "Waiting" to green
 endpoint, baked into the build via `VITE_LINK_RELAY_URL` (see
 `.env.example`); without one the link cable falls back to
 BroadcastChannel for same-machine pairing only. The hosted
-[glowboot.pages.dev](https://glowboot.pages.dev/) build ships with
+[glowboot.com](https://glowboot.com/) build ships with
 `https://relay.glowboot.workers.dev` already configured, so
 cross-device pairing works out of the box there — self-hosters set
 their own URL (or reuse that one) at build time. On both devices:
@@ -1220,7 +1220,7 @@ are not uploaded anywhere.
 
 The page does make a small set of outbound requests, listed in full
 below. **Scope:** the list applies to the hosted build at
-`glowboot.pages.dev`. If you run the emulator locally (`npm run dev`)
+`glowboot.com`. If you run the emulator locally (`npm run dev`)
 or self-host the build, the Cloudflare analytics beacon isn't part of
 the source code — it's injected by Cloudflare Pages on its own
 hosting, so it doesn't appear in any build you serve yourself. The
@@ -1229,9 +1229,9 @@ at build time); a self-hoster can point at their own relay, reuse the
 public one, or leave it unset to disable cross-device pairing
 entirely.
 
-**Always-on (one anonymous request per page load on `glowboot.pages.dev`):**
+**Always-on (one anonymous request per page load on `glowboot.com`):**
 
-- **Cloudflare Web Analytics** — the host (`glowboot.pages.dev`)
+- **Cloudflare Web Analytics** — the host (`glowboot.com`)
   injects `static.cloudflareinsights.com/beacon.min.js`, which fires
   one anonymous pageview per visit. It records page URL, referrer,
   country (from your IP, anonymized server-side), browser and viewport
