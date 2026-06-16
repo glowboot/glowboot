@@ -23,6 +23,7 @@ describe("Cartridge.parseMBCType", () => {
     [0x1e, "MBC5"], // rumble + RAM + battery
     [0x22, "MBC7"],
     [0xfc, "CAMERA"],
+    [0xfe, "HUC3"],
     [0xff, "HUC1"]
   ] as const)("maps cart-type byte 0x%s to %s", (code, expected) => {
     expect(Cartridge.parseMBCType(code)).toBe(expected);
@@ -302,6 +303,74 @@ describe("HuC1 (MBC 0xFF)", () => {
     cart.write(0xa000, 0x99); // IR LED write — dropped, must not touch RAM
     cart.write(0x0000, 0x00); // back to RAM
     expect(cart.read(0xa000)).toBe(0x42);
+  });
+});
+
+describe("HuC3 (MBC 0xFE)", () => {
+  function makeHuC3Cart(): Cartridge {
+    // 1 MB ROM (64 banks), 32 KB RAM (4 banks). Tag bank firsts + RAM banks.
+    const rom = buildRom({ typeCode: 0xfe, romSizeCode: 5, ramSizeCode: 3, sizeBytes: 0x100000 });
+    for (let bank = 0; bank < 64; bank++) rom[bank * 0x4000] = bank;
+    return new Cartridge(rom, { skipLogoCheck: true });
+  }
+
+  it("constructs and reports the HUC3 mbc type", () => {
+    expect(makeHuC3Cart().mbcType).toBe("HUC3");
+  });
+
+  it("ROM bank register at 0x2000 selects the bank visible at 0x4000 (0 remaps to 1)", () => {
+    const cart = makeHuC3Cart();
+    cart.write(0x2000, 0x2a);
+    expect(cart.read(0x4000)).toBe(0x2a);
+    cart.write(0x2000, 0);
+    expect(cart.read(0x4000)).toBe(1);
+  });
+
+  it("cart RAM is reachable only in mode 0xA", () => {
+    const cart = makeHuC3Cart();
+    cart.write(0x0000, 0x0a); // RAM mode
+    cart.write(0xa000, 0x77);
+    expect(cart.read(0xa000)).toBe(0x77);
+    cart.write(0x0000, 0x00); // leave RAM mode — A000 no longer hits RAM
+    cart.write(0xa000, 0x11); // dropped
+    cart.write(0x0000, 0x0a);
+    expect(cart.read(0xa000)).toBe(0x77);
+  });
+
+  it("RTC register file round-trips minutes through the command protocol", () => {
+    const cart = makeHuC3Cart();
+    cart.write(0x0000, 0x0b); // command/argument register
+    cart.write(0xa000, 0x40); // pointer low  = 0
+    cart.write(0xa000, 0x50); // pointer high = 0
+    cart.write(0xa000, 0x35); // write+inc nibble0 = 5
+    cart.write(0xa000, 0x32); // write+inc nibble1 = 2
+    cart.write(0xa000, 0x30); // write+inc nibble2 = 0  → minutes = 0x025
+    // Read them back: reset pointer, read+increment, fetch result in mode 0xC.
+    cart.write(0xa000, 0x40);
+    cart.write(0xa000, 0x50);
+    cart.write(0xa000, 0x10); // read+inc → latches nibble0
+    cart.write(0x0000, 0x0c);
+    expect(cart.read(0xa000)).toBe(5);
+    cart.write(0x0000, 0x0b);
+    cart.write(0xa000, 0x10); // read+inc → latches nibble1
+    cart.write(0x0000, 0x0c);
+    expect(cart.read(0xa000)).toBe(2);
+  });
+
+  it("boot status probe (extended command 2) reports ready=1 in mode 0xC", () => {
+    const cart = makeHuC3Cart();
+    cart.write(0x0000, 0x0b);
+    cart.write(0xa000, 0x62); // extended command 6, arg 2 = status
+    cart.write(0x0000, 0x0c);
+    expect(cart.read(0xa000)).toBe(1);
+  });
+
+  it("RTC semaphore (mode 0xD) is always ready; IR (mode 0xE) reports no signal", () => {
+    const cart = makeHuC3Cart();
+    cart.write(0x0000, 0x0d);
+    expect(cart.read(0xa000) & 1).toBe(1);
+    cart.write(0x0000, 0x0e);
+    expect(cart.read(0xa000)).toBe(0);
   });
 });
 
