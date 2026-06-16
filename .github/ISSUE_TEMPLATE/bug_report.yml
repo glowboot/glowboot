@@ -95,7 +95,7 @@ body:
     attributes:
       label: Where you ran Glowboot
       options:
-        - Hosted at glowboot.pages.dev
+        - Hosted at glowboot.com
         - Local dev build (npm run dev)
         - Self-hosted production build (npm run build)
     validations:
