@@ -109,8 +109,9 @@
     "total": 90
   },
   "mgba-suite-sio-timing": {
-    "kind": "hash",
-    "hash": "3c26ed2875ccb4a19b2f1f3dbed85a8c5383f7c233407d0771b2f3e5d3f909fc"
+    "kind": "count",
+    "pass": 0,
+    "total": 4
   },
   "mgba-suite-timer-irq": {
     "kind": "count",
@@ -162,8 +163,9 @@
     "total": 6
   },
   "nba-irq-delay": {
-    "kind": "hash",
-    "hash": "f8dd3fe698672f04ef06b0712218f45a89bf59d4a58ba2b881e1b72b3707ad00"
+    "kind": "count",
+    "pass": 0,
+    "total": 3
   },
   "nba-ppu-vram-mirror": {
     "kind": "count",
