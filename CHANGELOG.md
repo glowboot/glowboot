@@ -53,6 +53,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   transfers the program counter and advances the base register by 64 —
   both matching real silicon. The jsmolka Thumb CPU suite now passes in
   full.
+- **Game Boy Advance display windows handle off-screen edges correctly.**
+  A window whose bottom edge runs past the last scanline now stays active
+  through the rest of the frame and into the next one (across every row),
+  the way the hardware's window latch behaves, instead of being clipped to
+  a single-frame rectangle — fixing layer-masking glitches in effects that
+  position a window partly off-screen.
 
 ## [1.4.1] — 2026-06-16
 
