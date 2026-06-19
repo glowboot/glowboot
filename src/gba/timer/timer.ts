@@ -266,6 +266,15 @@ export class Timer extends BaseIoHandler {
     if (!wasEnabled && ch.enabled) {
       ch.counter = ch.reload & 0xffff;
       ch.enableDelay = 2;
+      // The prescaler is a free-running divider of the master clock, so its
+      // phase at enable is `masterClock % prescaler` — NOT the per-channel
+      // subtick accumulator, which is tracked mod whatever prescaler was set
+      // last and goes stale when this write also changes the prescaler. Deriving
+      // it from the clock fixes the high-prescaler configs (mgba-suite timers
+      // 8b/10b = prescaler 256/1024) whose first overflow lands up to a full
+      // tick off when the phase modulus is wrong.
+      const prescaler = PRESCALERS[ch.control & CNT_PRESCALER_MASK]!;
+      if (this.clock >= 0 && prescaler > 1) ch.prescalerSubticks = this.clock % prescaler;
     }
   }
 
@@ -284,15 +293,20 @@ export class Timer extends BaseIoHandler {
       return;
     }
     let remaining = cycles | 0;
-    // Burn the post-enable delay first — the prescaler is free-running
-    // but the counter doesn't advance until enableDelay has been paid.
+    const prescaler = ch.prescaler;
+    // Post-enable sync delay: the counter is frozen for `enableDelay` cycles,
+    // but the prescaler is FREE-RUNNING and keeps counting through it. Burning
+    // the delay without advancing the prescaler left it `enableDelay` behind
+    // per enable, which accumulates across the suite into a full slow-prescaler
+    // tick of phase error — mgba-suite timers' 8b/10b (prescaler 256/1024)
+    // configs overflow ~1 tick late. Advance the phase through the delay; a
+    // boundary crossed while frozen carries the phase but raises no increment.
     if (ch.enableDelay > 0) {
       const consumed = remaining < ch.enableDelay ? remaining : ch.enableDelay;
       ch.enableDelay -= consumed;
       remaining -= consumed;
     }
     ch.prescalerSubticks += remaining;
-    const prescaler = ch.prescaler;
     // Fast-forward arithmetically instead of one advance() per
     // prescaler tick — a Direct Sound timer at prescaler 1 would
     // otherwise pay one call per CPU cycle (~280k/frame). Counter
