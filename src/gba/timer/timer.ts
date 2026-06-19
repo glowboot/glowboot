@@ -104,11 +104,66 @@ export class Timer extends BaseIoHandler {
     new TimerChannel(3)
   ];
 
+  /** Master-clock value (bus.now) this timer has been advanced to. The
+   *  timer is clock-derived: it never advances on its own, only when
+   *  `advanceTo` pushes it to a `now`. Tracks bus.now so a mid-instruction
+   *  read samples the exact cycle. -1 = unsynced (first advanceTo rebases
+   *  rather than ticking a bogus delta, e.g. right after deserialize). */
+  private clock = -1;
+  /** Absolute master-clock value of the next event the runFrame loop must
+   *  observe the timer at (soonest overflow, or a deferred-write apply).
+   *  `runFrame` skips the per-step advanceTo until bus.now reaches this —
+   *  so a clock-derived timer with nothing due costs a single wrap-safe
+   *  integer compare per step instead of a 4-channel tick(). Re-armed by
+   *  advanceTo and by every register write. Capped well under the 2^31
+   *  wrap so the signed `(now - nextEventClock) >= 0` compare stays valid. */
+  nextEventClock = 0x7fffffff;
+
   constructor(
     private readonly interrupts: InterruptController,
     private readonly apu: Apu
   ) {
     super();
+  }
+
+  /** Re-arm {@link nextEventClock} from the current clock + soonest event.
+   *  Capped at +0x40000000 so the wrap-safe compare in runFrame stays
+   *  reliable even when no timer is enabled (a genuinely idle 64 s gap
+   *  re-arms with a harmless no-op advanceTo). */
+  private armNextEvent(): void {
+    if (this.clock < 0) {
+      this.nextEventClock = 0x7fffffff;
+      return;
+    }
+    const c = this.cyclesToNextEvent();
+    this.nextEventClock = (this.clock + (c > 0x40000000 ? 0x40000000 : c)) | 0;
+  }
+
+  /** Advance the timer to absolute master-clock `now`, processing any
+   *  overflows in between at their exact cycle (IRQ / Direct-Sound FIFO
+   *  pop / cascade fire inside `tick`). Idempotent — a `now` at or before
+   *  the current clock is a no-op. Reuses the per-cycle `tick` arithmetic
+   *  so behaviour is identical to the batched model when called once per
+   *  step; the only new capability is sampling mid-step.
+   *
+   *  The sample point: a TMxCNT_L read calls this with
+   *  `bus.now - lastAccessCost` so it observes the counter as of the START
+   *  of its own data access. Real ARM7TDMI charges the instruction fetch
+   *  AFTER the data access (it's the prefetch of the NEXT instruction), so
+   *  a plain `LDR Rd,[timer]` samples the start-of-instruction value — the
+   *  stale read the nba-hw-test timer suite expects — while two reads bracketing a
+   *  loop still diff to the exact elapsed cycles mgba-suite-timing wants. */
+  advanceTo(now: number): void {
+    if (this.clock < 0) {
+      this.clock = now | 0;
+      this.armNextEvent();
+      return;
+    }
+    const d = (now - this.clock) | 0;
+    if (d <= 0) return;
+    this.clock = now | 0;
+    this.tick(d);
+    this.armNextEvent();
   }
 
   /** Advance every timer by `cycles` CPU cycles. Cascade timers
@@ -297,6 +352,14 @@ export class Timer extends BaseIoHandler {
   }
 
   write16(offset: number, value: number): void {
+    this.write16Inner(offset, value);
+    // State changed (enable / reload / pending) — re-arm so the runFrame
+    // event guard fires this step (the bus hook already advanced the timer
+    // to this write's data phase before dispatching here).
+    this.armNextEvent();
+  }
+
+  private write16Inner(offset: number, value: number): void {
     const ch = this.channels[(offset / CH_SIZE) | 0];
     if (!ch) return;
     const within = (offset - ch.index * CH_SIZE) & ~1;
@@ -364,5 +427,9 @@ export class Timer extends BaseIoHandler {
       ch.pendingControl = r.u16();
       ch.pendingControlCycles = r.u32() - 1;
     }
+    // Rebase the master-clock reference: the next advanceTo re-anchors to
+    // the live bus.now rather than ticking a bogus delta against a clock
+    // value from the saving run.
+    this.clock = -1;
   }
 }

@@ -43,19 +43,18 @@ export interface MemoryBus {
    *  `ArmCpu.step` at the start of each instruction so a fresh
    *  N-cycle is charged for the first memory touch. */
   resetAccessCycles(): void;
-  /** Reset ONLY the data-access tracking (not `cartBusBusyCycles`).
-   *  The CPU calls this after capturing `cacheMissCost` so subsequent
-   *  data accesses don't appear sequential to the prefetch reads. */
+  /** Reset ONLY the data-access tracking. The CPU calls this after
+   *  capturing `cacheMissCost` so subsequent data accesses don't appear
+   *  sequential to the prefetch reads. */
   resetDataAccessTracking(): void;
   /** Last instruction-fetch address — used by `fetchCycleCost` to
    *  detect sequential vs non-sequential fetches. ArmCpu writes this
    *  on every step and resets it to -1 on prefetch invalidation. */
   lastInstrFetchAddr: number;
-  /** Real bus time of the pipeline fetches a cart cache-miss refill
-   *  prepaid. The CPU's fill-credit accounting drains it from idle
-   *  cycles before banking prefetcher look-ahead. Buses without a
-   *  prefetch model (FlatBus) leave it at 0. */
-  refillStreamDebt: number;
+  /** Unified bus clock in CPU cycles. The CPU advances it by each opcode
+   *  fetch before executing (Cpu.step); the bus advances it per data access.
+   *  Timer reads sample it directly. */
+  now: number;
   /** Cycle cost of fetching one instruction at `addr` of the given
    *  width. Bus implementations that don't model wait states (FlatBus)
    *  can return 1. */
@@ -64,17 +63,11 @@ export interface MemoryBus {
    *  at `pc`). The CPU calls this on a cache miss after using
    *  `fetchWord`/`fetchHalfword` for the raw data — those skip
    *  `chargeAccess`, so cacheMissCost is what folds the bus timing
-   *  back in. For cart-ROM regions the implementation also adds the
-   *  refill's bus-busy cycles to `cartBusBusyCycles` so the step's
-   *  prefetch-fill credit model stays accurate. */
+   *  back in. */
   cacheMissCost(pc: number, isThumb: boolean): number;
-  /** Cycles charged to the cart bus this step (cart-region data
-   *  accesses tie up the bus and pause the prefetch FIFO). Buses that
-   *  don't model the prefetcher leave this at 0. */
-  cartBusBusyCycles: number;
-  /** Credit the cart-ROM prefetch FIFO with `cycles` of free time.
-   *  No-op on buses without a prefetcher. */
-  addCartFillCycles(cycles: number): void;
+  /** Advance the prefetch-buffer countdown by `cycles` of elapsed
+   *  internal (non-fetch) time. No-op on buses without a prefetcher. */
+  tickPrefetch(cycles: number): void;
   /** Drain the cart-ROM prefetch FIFO. Called on any non-linear PC
    *  change. No-op on buses without a prefetcher. */
   flushPrefetchFifo(): void;
@@ -95,11 +88,9 @@ export class FlatBus implements MemoryBus {
   /** No wait-state model on FlatBus — tests don't care about cycle
    *  costs. The field exists to satisfy the MemoryBus interface. */
   accessCycles = 0;
-  cartBusBusyCycles = 0;
-  /** Stub for the prefetch FIFO model — FlatBus reports every fetch
-   *  as 1 cycle and never tracks sequentiality. */
+  /** FlatBus reports every fetch as 1 cycle and models no prefetch. */
   lastInstrFetchAddr = -1;
-  refillStreamDebt = 0;
+  now = 0;
 
   constructor(size = 0x10000) {
     this.bytes = new Uint8Array(size);
@@ -107,7 +98,6 @@ export class FlatBus implements MemoryBus {
 
   resetAccessCycles(): void {
     this.accessCycles = 0;
-    this.cartBusBusyCycles = 0;
   }
 
   resetDataAccessTracking(): void {
@@ -124,7 +114,7 @@ export class FlatBus implements MemoryBus {
     return isThumb ? 3 : 6;
   }
 
-  addCartFillCycles(): void {}
+  tickPrefetch(): void {}
 
   flushPrefetchFifo(): void {}
 

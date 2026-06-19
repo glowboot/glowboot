@@ -113,7 +113,7 @@
   },
   "mgba-suite-timing": {
     "kind": "count",
-    "pass": 365,
+    "pass": 1161,
     "total": 2020
   },
   "mgba-suite-video": {
@@ -152,7 +152,7 @@
   },
   "nba-irq-delay": {
     "kind": "hash",
-    "hash": "4a014244636272e0d267d51bbb393730785591ec13568502f9584598e6e0683b"
+    "hash": "f8dd3fe698672f04ef06b0712218f45a89bf59d4a58ba2b881e1b72b3707ad00"
   },
   "nba-ppu-vram-mirror": {
     "kind": "count",
