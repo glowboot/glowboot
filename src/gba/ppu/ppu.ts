@@ -228,6 +228,15 @@ export class Ppu implements IoHandler {
   win1h = 0;
   win0v = 0;
   win1v = 0;
+  /** Window vertical-active latches. Real hardware toggles a per-window flag
+   *  against vcount over the FULL 228 lines — set when vcount == Y1, cleared
+   *  when vcount == Y2 — and carries it across frames. A window whose Y2 is
+   *  offscreen (never equals any vcount, e.g. 228) therefore never clears and
+   *  stays active into the next frame's top rows (the "window offscreen reset"
+   *  quirk mgba-suite-video pins). Transient render state, not serialised — it
+   *  re-establishes within a frame or two after a state load. */
+  private win0VActive = false;
+  private win1VActive = false;
   /** WININ low byte = WIN0 enable bits, high byte = WIN1. Each byte:
    *  bit 0-3 = BG0-3 enable, bit 4 = OBJ enable, bit 5 = color-effect
    *  enable. Bits 6-7 are unused (read back zero). */
@@ -402,6 +411,7 @@ export class Ppu implements IoHandler {
         this.dot = 0;
         this.dispstat &= ~DISPSTAT_HBLANK;
         this.vcount = (this.vcount + 1) % SCANLINES_PER_FRAME;
+        this.stepWindowVLatch(this.vcount);
         // Shift the BG-enable latch pipeline. New DISPCNT writes go
         // into slot [2]; values cascade [2]→[1]→[0] over 2 scanlines,
         // so a freshly-enabled BG bit isn't visible to the renderer
@@ -781,10 +791,30 @@ export class Ppu implements IoHandler {
     this.bgEnableLatch[0] = this.dispcnt;
     this.bgEnableLatch[1] = this.dispcnt;
     this.bgEnableLatch[2] = this.dispcnt;
-    for (let y = 0; y < VISIBLE_SCANLINES; y++) this.renderScanline(y);
+    // Establish the window vertical-active latch as if this were a steady-state
+    // frame: a one-shot render has no preceding frame, so run the set/clear
+    // transitions across all 228 lines first (so an offscreen-Y2 window's
+    // carry-over is reflected on line 0), then continue them per visible line.
+    for (let v = 0; v < SCANLINES_PER_FRAME; v++) this.stepWindowVLatch(v);
+    for (let y = 0; y < VISIBLE_SCANLINES; y++) {
+      this.stepWindowVLatch(y);
+      this.renderScanline(y);
+    }
     // Whole-frame path: publish the work buffer immediately so callers
     // that just want a static render don't depend on a VBlank tick.
     this.framebuffer.set(this.workFramebuffer);
+  }
+
+  /** Advance the window vertical-active latches to scanline `vcount`. Each
+   *  window's flag is set when vcount reaches Y1 and cleared when it reaches
+   *  Y2 (cleared last, so Y1 == Y2 leaves it off — an empty window); never
+   *  reset at frame start, so a Y2 that no vcount ever equals carries the
+   *  window active into the next frame. */
+  private stepWindowVLatch(vcount: number): void {
+    if (vcount === ((this.win0v >>> 8) & 0xff)) this.win0VActive = true;
+    if (vcount === (this.win0v & 0xff)) this.win0VActive = false;
+    if (vcount === ((this.win1v >>> 8) & 0xff)) this.win1VActive = true;
+    if (vcount === (this.win1v & 0xff)) this.win1VActive = false;
   }
 
   /** Render one visible scanline (`y`, 0..159) into `framebuffer`.
@@ -887,7 +917,9 @@ export class Ppu implements IoHandler {
         this.winin,
         this.winout,
         objWinRowForMask,
-        maskRow
+        maskRow,
+        this.win0VActive,
+        this.win1VActive
       );
     }
 
@@ -1155,7 +1187,9 @@ export class Ppu implements IoHandler {
         this.winin,
         this.winout,
         objWinRowForMask,
-        maskRow
+        maskRow,
+        this.win0VActive,
+        this.win1VActive
       );
     }
 
