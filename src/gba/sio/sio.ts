@@ -2,9 +2,11 @@
  * Serial I/O (SIO) — mode-aware register file at 0x04000120-0x0400015F
  * plus a Multiplayer-mode state machine that moves 16-bit data between
  * two GBAs over a host-provided transport. Multiplayer is the only mode
- * that actually transfers data; Normal-8 / Normal-32 / UART / JOY-bus
- * round-trip their register bits to satisfy the mgba-suite read tests
- * but don't move bytes on the wire.
+ * that exchanges data with a peer. Normal-8 / Normal-32 have no peer
+ * transport, but an internally-clocked transfer still self-completes —
+ * BUSY clears and the Serial IRQ fires (the wire reads back all-1s) —
+ * so single-unit serial self-tests work. UART / JOY-bus just round-trip
+ * their register bits to satisfy the mgba-suite read tests.
  *
  * The GBA has six serial modes selected by RCNT bit 15 / bit 14 and
  * SIOCNT bits 12-13:
@@ -118,6 +120,16 @@ export class Sio extends BaseIoHandler {
    *  per frame. */
   private pendingCycles = 0;
   private pendingSlots: [number, number, number, number] = [0, 0, 0, 0];
+
+  /** Internally-clocked Normal-mode (Normal-8 / Normal-32) transfer
+   *  scheduled to complete `pendingSerialCycles` ahead. There's no
+   *  transport for these modes, so the line floats high and the
+   *  received word reads back all-1s; on completion BUSY clears and the
+   *  Serial IRQ fires (if armed). Scheduled rather than synchronous so
+   *  BUSY survives the read-back mgba-suite-sio-read does right after
+   *  the START write. */
+  private pendingSerialCycles = 0;
+  private pendingSerial32 = false;
 
   /** Slave-side queue of multi-results delivered by the transport
    *  faster than the cart could consume them. Each entry is a four-
@@ -336,14 +348,23 @@ export class Sio extends BaseIoHandler {
           this.activityFlag = true;
           this.startMultiplayerTransfer();
         }
-        // Normal-8 / Normal-32 / UART / JOY: no transport wired (these
-        // modes only matter for GameCube link via Pokémon Box, the
-        // e-Reader card scanner, etc — none of which Glowboot
-        // emulates). A cart that writes START in these modes sees
-        // BUSY stuck, matching a disconnected-cable hang on real
-        // silicon. mgba-suite-sio-read probes the register writable
-        // mask here, so any auto-complete would clear BUSY before
-        // the test reads it back.
+        // Normal-8 / Normal-32 with an INTERNAL clock (bit 0 = 1): on
+        // real silicon the shift register clocks itself, so the transfer
+        // always completes after the shift duration even with nothing
+        // connected — the line floats high (received word all-1s) — then
+        // clears BUSY and raises the Serial IRQ if armed. Schedule it via
+        // tick() so BUSY is still set for the immediate read-back that
+        // mgba-suite-sio-read performs. Used by carts that self-test the
+        // serial IRQ on a single unit (e.g. the AGB aging cartridge).
+        // External clock (bit 0 = 0) has no internal timer, so BUSY stays
+        // set until a partner clocks it — matching a disconnected port.
+        // UART / JOY-bus still have no transport (GameCube / e-Reader),
+        // so they keep the disconnected-hang behaviour.
+        if ((newMode === "N8" || newMode === "N32") && !wasBusy && (v & SIOCNT_BUSY) !== 0 && (v & 0x0001) !== 0) {
+          this.pendingSerial32 = newMode === "N32";
+          const cyclesPerBit = (v & 0x0002) !== 0 ? 8 : 64; // SIOCNT bit 1: 2 MHz vs 256 KHz
+          this.pendingSerialCycles = cyclesPerBit * (newMode === "N32" ? 32 : 8);
+        }
         return;
       }
       case SIOMLT_SEND:
@@ -418,6 +439,13 @@ export class Sio extends BaseIoHandler {
         this.latchTransfer(s0, s1, s2, s3);
       }
     }
+    if (this.pendingSerialCycles > 0) {
+      this.pendingSerialCycles -= cycles;
+      if (this.pendingSerialCycles <= 0) {
+        this.pendingSerialCycles = 0;
+        this.completeNormalTransfer();
+      }
+    }
     if (this.slaveQueue.length > 0) {
       this.slaveDeliveryCycles -= cycles;
       if (this.slaveDeliveryCycles <= 0) {
@@ -438,6 +466,7 @@ export class Sio extends BaseIoHandler {
   cyclesToNextEvent(): number {
     let min = 0x7fffffff;
     if (this.pendingCycles > 0) min = this.pendingCycles;
+    if (this.pendingSerialCycles > 0 && this.pendingSerialCycles < min) min = this.pendingSerialCycles;
     if (this.slaveQueue.length > 0 && this.slaveDeliveryCycles < min) min = this.slaveDeliveryCycles;
     return min < 1 ? 1 : min;
   }
@@ -456,6 +485,18 @@ export class Sio extends BaseIoHandler {
     // one. Without flagging here, slave-side broadcasts from the
     // IRQ handler's SIOMLT_SEND write don't reach the master tab
     // until the next time something else flips the flag.
+    this.activityFlag = true;
+    if ((this.siocnt & SIOCNT_IRQ) !== 0) this.interrupts?.raise(IRQ_SERIAL);
+  }
+
+  /** Finish an internally-clocked Normal-mode transfer. Nothing is
+   *  connected, so the received word reads back all-1s; clear BUSY and
+   *  raise the Serial IRQ when armed — the Normal-mode counterpart of
+   *  `latchTransfer`. */
+  private completeNormalTransfer(): void {
+    if (this.pendingSerial32) this.siodata32 = 0xffffffff;
+    else this.siomltSend = 0xff; // SIODATA8 holds the received (high) line
+    this.siocnt &= ~SIOCNT_BUSY;
     this.activityFlag = true;
     if ((this.siocnt & SIOCNT_IRQ) !== 0) this.interrupts?.raise(IRQ_SERIAL);
   }

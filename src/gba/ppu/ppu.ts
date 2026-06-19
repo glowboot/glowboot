@@ -428,7 +428,11 @@ export class Ppu implements IoHandler {
           // See the `framebuffer` field doc for why this exists.
           if (!this.skipRender) this.framebuffer.set(this.workFramebuffer);
           this.onVBlank?.();
-        } else if (this.vcount === 0) {
+        } else if (this.vcount === SCANLINES_PER_FRAME - 1) {
+          // The V-Blank flag covers lines 160-226 only — it clears one
+          // scanline early, on the last V-Blank line (227), not at the
+          // top of the next frame (GBATEK: "set in line 160..226; not
+          // 227"). The AGB aging cartridge's LCD test polls for this.
           this.dispstat &= ~DISPSTAT_VBLANK;
         }
 

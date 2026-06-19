@@ -148,11 +148,11 @@ const FIRST_ACCESS_TABLE = [5, 4, 3, 9] as const;
 const WS0_S_TABLE = [3, 2] as const;
 const WS1_S_TABLE = [5, 2] as const;
 const WS2_S_TABLE = [9, 2] as const;
-/** WAITCNT bit 14 — game-pak prefetch buffer enable. The bus drives a
- *  prefetch-FIFO model off this bit: when set, sequential cart-ROM
- *  fetches consume from the FIFO at 1 cycle each (filled in proportion
- *  to idle cart-bus time via `addCartFillCycles`); when clear, every
- *  fetch pays full WS_S/WS_N. Toggling the bit flushes the FIFO. */
+/** WAITCNT bit 14 — game-pak prefetch buffer enable. The bus drives the
+ *  prefetch-buffer state machine off this bit: when set, the prefetch
+ *  unit streams opcodes ahead during idle cart-bus cycles so a buffered
+ *  fetch costs 1 cycle; when clear, every fetch pays full WS_S/WS_N.
+ *  Toggling the bit flushes the prefetch unit. */
 const WAITCNT_PREFETCH = 1 << 14;
 
 /** Per-region 16-bit access cycle costs (N = first access, S =
@@ -218,10 +218,6 @@ function applyWaitcnt(value: number): void {
 // boot; cart code can change it again at runtime.
 applyWaitcnt(0x0000);
 
-/** Game-Pak Prefetch Buffer depth on real ARM7TDMI. The chip holds
- *  up to 8 halfwords prefetched ahead of the executing instruction. */
-const PREFETCH_FIFO_DEPTH = 8;
-
 export class MappedBus implements MemoryBus {
   private readonly regions: Region[] = [];
   /** Top-nibble index for `resolve()`. Every CPU step does at least
@@ -235,6 +231,28 @@ export class MappedBus implements MemoryBus {
   /** Cycle-cost accumulator + previous-access tracker. Reset at the
    *  start of each instruction's dispatch via `resetAccessCycles`. */
   accessCycles = 0;
+  /** Master cycle clock — monotonic count of CPU cycles elapsed since
+   *  power-on. The exact-timing rework (clock-derived timer / event
+   *  scheduler) reads peripheral state as a function of this. Advanced
+   *  by `runFrame` per CPU step for now; later moved to per-access so a
+   *  mid-instruction peripheral read samples the exact cycle. */
+  now = 0;
+  /** Called (wired by Gba) right before a read of a timer register
+   *  (0x04000100-0x0400010F) dispatches, so the timer is advanced to the
+   *  EXACT within-instruction cycle of this access before it returns its
+   *  counter — without it, a TMxCNT_L read samples stale (last-flush)
+   *  state instead of the live count the data phase would see. */
+  onIoTimerRead: (() => void) | null = null;
+  /** Wired by Gba — called right before a WRITE to a timer register
+   *  (0x04000100-0x0400010F) dispatches, so the clock-derived timer is
+   *  flushed to this write's data phase under the OLD control bits before
+   *  the new value applies. Without it, the lazy event guard could batch a
+   *  stale (idle) delta and re-interpret it under the just-written control. */
+  onIoTimerWrite: (() => void) | null = null;
+  /** Wait-state cost (in cycles) of the most recent `chargeAccess`. Lets a
+   *  timer read sync to the START of its own data access (the counter is
+   *  sampled before the access's own wait is charged). */
+  lastAccessCost = 0;
   private prevAccessAddr = -1;
   private prevAccessRegion = -1;
   /** Cart bus (regions 8-D) keeps its own sequentiality tracker
@@ -246,29 +264,28 @@ export class MappedBus implements MemoryBus {
    *  cases pin this: the cycle counts assume sequential cart reads
    *  across the DMA's interleaved read/write pattern. */
   private prevCartAddr = -1;
-  /** Cycles charged to the cart bus this step. When the cart bus is
-   *  busy with a data access, the prefetcher pauses; non-cart data
-   *  accesses leave the cart bus free, so they count as fill credit.
-   *  Used by ArmCpu.step to compute how many cycles the prefetcher
-   *  had available for FIFO fill since the previous cart instr fetch. */
-  cartBusBusyCycles = 0;
   /** Game-Pak Prefetch Buffer enable state — mirrors WAITCNT bit 14. */
   prefetchEnabled = false;
-  /** Halfwords currently in the prefetch FIFO (0..PREFETCH_FIFO_DEPTH).
-   *  Each `addCartFillCycles` adds halfwords at WS_S/halfword. Each
-   *  sequential cart instr fetch consumes halfwords (1 for Thumb, 2
-   *  for ARM). Non-sequential fetches drain the FIFO. */
-  prefetchCount = 0;
-  /** Address of the next halfword to be consumed from the FIFO. After
-   *  each consumed halfword this advances by 2. Used to detect FIFO
-   *  hit (`prefetchNextAddr === addr` on a fetch) vs miss. */
-  prefetchNextAddr = -1;
-  /** Cart-fill cycle credit modulo WS_S — leftover cycles from previous
-   *  step that didn't add a full halfword yet. Carried forward. */
-  private prefetchCreditRemainder = 0;
-  /** WS_S cycles for the cart region the prefetcher is currently
-   *  reading from. Cached so we don't have to look up every call. */
-  private prefetchHalfwordCost = 1;
+  /** Prefetch-buffer state machine, ported from a cycle-accurate reference
+   *  emulator's bus-timing model. The opcode-fetch path checks whether the requested
+   *  opcode is already buffered (cost 1), currently in-flight (cost =
+   *  remaining countdown), or a miss (full N/S + re-engage). `pfCountdown`
+   *  is decremented by every non-fetch cycle (tickPrefetch), completing
+   *  buffered opcodes up to `pfCapacity`. */
+  private pfActive = false;
+  private pfCount = 0;
+  private pfCountdown = 0;
+  private pfHeadAddr = 0;
+  private pfLastAddr = 0;
+  private pfDuty = 1;
+  private pfWidth = 4;
+  private pfCapacity = 4;
+  /** A data access since the last opcode fetch breaks the sequential fetch
+   *  stream (the address bus was used for data), so the next fetch is
+   *  non-sequential on ARM7 even though PC advanced linearly. Set in
+   *  chargeAccess, consumed by fetchCycleCost. */
+  private dataSinceLastFetch = false;
+  private dataBreakNow = false;
   /** Last instruction-fetch address used by `fetchCycleCost` to detect
    *  sequential vs non-sequential cart fetches. ArmCpu invalidates
    *  this (to -1) whenever the prefetch FIFO is flushed (branches,
@@ -302,10 +319,6 @@ export class MappedBus implements MemoryBus {
    *  `0x0E008300` / `0x0E008400` / `0x0E008500`) before the cart-RAM
    *  backup handler claims them. Null for all other carts. */
   cartTilt: TiltSensor | null = null;
-  /** Real bus time of the two prepaid pipeline fetches from the most
-   *  recent cart cache-miss refill — consumed by subsequent steps'
-   *  idle cycles before FIFO fill credit accrues. */
-  refillStreamDebt = 0;
 
   /** Fired before any access to a wrapped peripheral handler (see
    *  `PeripheralAccessNotifier`). Set by the Gba constructor to drain
@@ -356,80 +369,100 @@ export class MappedBus implements MemoryBus {
    *  halfword cost gets cached for subsequent fill-credit conversion. */
   fetchCycleCost(addr: number, width: 16 | 32): number {
     const region = (addr >>> 24) & 0xf;
-    if (region < 8) {
-      // Internal regions have no prefetch FIFO, but they're not all
-      // 1-cycle: EWRAM sits on a 16-bit 3-wait bus, so a Thumb fetch
-      // costs 3 and an ARM fetch 6 (two halfwords) — the same
-      // table-based math cacheMissCost uses. IWRAM/BIOS/IO keep their
-      // 1-cycle fetches (bonus 0). nba-hw-test irq-delay's EWRAM row
-      // measures the ~20-cycle gap the flat `return 1` used to hide.
+    // A data access breaks the opcode fetch happening 2 instructions ahead in
+    // the 3-stage pipeline (the executing instruction was already fetched), so
+    // the break surfaces one fetch LATER than the data access — delay it by a
+    // single-stage shift. (str→END: END is 1 ahead, not broken → S; str→mul→END:
+    // END is 2 ahead, broken → N. Matches the suite's calibration vs multiply.)
+    const brokeStream = this.dataBreakNow;
+    this.dataBreakNow = this.dataSinceLastFetch;
+    this.dataSinceLastFetch = false;
+    const halfwordsNeeded = width >>> 4; // 1 for Thumb, 2 for ARM
+    // Internal / SRAM code: no Game-Pak prefetch buffer. EWRAM sits on a
+    // 16-bit 3-wait bus (Thumb 3 / ARM 6); IWRAM/BIOS/IO are 1-cycle.
+    if (region < 8 || region > 0xd) {
+      this.stopPrefetch();
       const ws = REGION_S_CYCLES_16[region] ?? 1;
       const bonus = width === 32 ? (REGION_S_BONUS_32[region] ?? 0) : 0;
       return ws + bonus;
     }
-    const halfwordsNeeded = width >>> 4; // 1 for Thumb, 2 for ARM
+    // ROM code fetch — prefetch-buffer state machine.
+    const a = addr >>> 0;
+    if (this.pfActive) {
+      // Case 1: the opcode is already buffered → 1 cycle (latch → CPU).
+      if (this.pfCount !== 0 && a === this.pfHeadAddr >>> 0) {
+        this.pfCount--;
+        this.pfHeadAddr = (this.pfHeadAddr + this.pfWidth) | 0;
+        this.tickPrefetch(1);
+        return 1;
+      }
+      // Case 2: the opcode is currently in flight → wait the remaining countdown.
+      if (this.pfCountdown > 0 && a === this.pfLastAddr >>> 0) {
+        const c = this.pfCountdown;
+        this.tickPrefetch(c);
+        this.pfHeadAddr = this.pfLastAddr;
+        this.pfCount = 0;
+        return c;
+      }
+    }
+    // Case 3: miss → full N/S, then (re-)engage the prefetch unit.
+    this.stopPrefetch();
     const wsS = REGION_S_CYCLES_16[region] ?? 1;
     const wsN = REGION_N_CYCLES_16[region] ?? 1;
-    // Sequential vs non-sequential to the previous instr fetch.
-    const seq = addr === ((this.lastInstrFetchAddr + (width >>> 3)) | 0);
-    // Hardware model, pinned per-row by mgba-suite timing's WAITCNT /
-    // prefetch matrix: linear cart execution runs at the CART BUS
-    // rate — every sequential halfword the FIFO doesn't already hold
-    // costs WS_S, in BOTH prefetch modes (an ARM nop is S+S, a Thumb
-    // nop is S). The prefetcher only gets AHEAD during cycles the
-    // cart bus is idle (non-cart data accesses, internal cycles —
-    // credited at step end via addCartFillCycles); halfwords it
-    // banked that way cost 1 cycle each. A non-sequential fetch
-    // (branch) flushes the FIFO and pays WS_N for its first halfword.
-    let cost: number;
-    if (seq) {
-      const fromFifo = this.prefetchEnabled ? Math.min(this.prefetchCount, halfwordsNeeded) : 0;
-      this.prefetchCount -= fromFifo;
-      const missed = halfwordsNeeded - fromFifo;
-      cost = fromFifo + missed * wsS;
-      // FIFO-hit halfwords are a latch handoff — the cart bus stays
-      // free for the prefetcher; demand-fetched halfwords tie it up.
-      this.cartBusBusyCycles += cost - fromFifo;
-      // A demand fetch consumes the prefetcher's in-flight progress.
-      if (missed > 0) this.prefetchCreditRemainder = 0;
-    } else {
-      this.prefetchCount = 0;
-      this.prefetchCreditRemainder = 0;
-      cost = wsN + (halfwordsNeeded - 1) * wsS;
-      this.cartBusBusyCycles += cost;
+    const seq = !brokeStream && addr === ((this.lastInstrFetchAddr + (width >>> 3)) | 0);
+    const cost = seq ? halfwordsNeeded * wsS : wsN + (halfwordsNeeded - 1) * wsS;
+    if (this.prefetchEnabled) {
+      const thumb = width === 16;
+      this.pfActive = true;
+      this.pfCount = 0;
+      this.pfWidth = thumb ? 2 : 4;
+      this.pfCapacity = thumb ? 8 : 4;
+      this.pfDuty = thumb ? wsS : wsS + (REGION_S_BONUS_32[region] ?? 0);
+      this.pfCountdown = this.pfDuty;
+      this.pfLastAddr = (addr + this.pfWidth) | 0;
+      this.pfHeadAddr = this.pfLastAddr;
     }
-    this.prefetchNextAddr = (addr + halfwordsNeeded * 2) | 0;
-    this.prefetchHalfwordCost = wsS;
     return cost;
   }
 
-  /** Notification from the CPU after a step completes: the prefetcher
-   *  had `cycles` of free cart-bus time during the step. Convert to
-   *  FIFO halfwords (carrying remainder forward) and cap at the
-   *  hardware FIFO depth. Called by `ArmCpu.step`. */
-  addCartFillCycles(cycles: number): void {
-    if (!this.prefetchEnabled || cycles <= 0) return;
-    if (this.prefetchHalfwordCost <= 0) return;
-    const total = this.prefetchCreditRemainder + cycles;
-    const halfwords = (total / this.prefetchHalfwordCost) | 0;
-    this.prefetchCreditRemainder = total - halfwords * this.prefetchHalfwordCost;
-    if (halfwords > 0) {
-      this.prefetchCount = Math.min(this.prefetchCount + halfwords, PREFETCH_FIFO_DEPTH);
+  /** Advance the prefetch countdown by `cycles` of elapsed (non-fetch) time,
+   *  completing buffered opcodes as the countdown crosses 0. */
+  tickPrefetch(cycles: number): void {
+    if (!this.pfActive || cycles <= 0) return;
+    this.pfCountdown -= cycles;
+    while (this.pfCountdown <= 0) {
+      this.pfCount++;
+      if (this.prefetchEnabled && this.pfCount < this.pfCapacity) {
+        this.pfLastAddr = (this.pfLastAddr + this.pfWidth) | 0;
+        this.pfCountdown += this.pfDuty;
+      } else {
+        break;
+      }
     }
   }
 
-  /** Drain the prefetch FIFO — call this on any non-linear PC change
+  /** A cart-bus data access (or leaving ROM execution) halts the prefetch
+   *  unit. Hardware applies a 1-cycle penalty if the unit was finishing a
+   *  halfword — returned so the caller can add it to the data access. */
+  private stopPrefetch(): number {
+    if (!this.pfActive) return 0;
+    this.pfActive = false;
+    return 0;
+  }
+
+  /** Drain the prefetch buffer — call this on any non-linear PC change
    *  (branch, exception, mode switch, PC-as-Rd). The next cart instr
-   *  fetch will pay WS_N for the first halfword. */
+   *  fetch is a miss and re-engages the prefetch unit. */
   flushPrefetchFifo(): void {
-    this.prefetchCount = 0;
-    this.prefetchNextAddr = -1;
-    this.prefetchCreditRemainder = 0;
+    this.pfActive = false;
+    // A branch already forces the target fetch non-sequential, and the
+    // pre-branch data-break shift must not leak into the new stream.
+    this.dataBreakNow = false;
+    this.dataSinceLastFetch = false;
   }
 
   resetAccessCycles(): void {
     this.accessCycles = 0;
-    this.cartBusBusyCycles = 0;
     this.prevAccessAddr = -1;
     this.prevAccessRegion = -1;
     this.prevCartAddr = -1;
@@ -443,15 +476,12 @@ export class MappedBus implements MemoryBus {
    *  symmetry; only the cycle count is consumed. */
   addCartBusyCycles(_addr: number, cycles: number): void {
     this.accessCycles += cycles;
-    this.cartBusBusyCycles += cycles;
   }
 
   /** Reset only the data-access tracking (`accessCycles` +
    *  prev-access registers) — used by the CPU after capturing
    *  `cacheMissCost` so the instruction's data accesses don't appear
-   *  sequential to the prefetch reads. Leaves `cartBusBusyCycles`
-   *  alone so the cache-miss fetches stay counted as cart-bus busy
-   *  for the step. */
+   *  sequential to the prefetch reads. */
   resetDataAccessTracking(): void {
     this.accessCycles = 0;
     this.prevAccessAddr = -1;
@@ -550,15 +580,24 @@ export class MappedBus implements MemoryBus {
     const bonus = width === 32 ? (REGION_S_BONUS_32[region] ?? 0) : 0;
     const cycles = halfCycles + bonus;
     this.accessCycles += cycles;
+    this.lastAccessCost = cycles;
+    // Master clock advances per access so a mid-instruction peripheral read
+    // samples the exact cycle. The fetch / internal-cycle residual is added
+    // at step end in runFrame (fetch is charged AFTER the data access).
+    this.now += cycles;
     // Cart-data accesses tie up the cart bus, pausing the prefetcher.
-    // Track them so the CPU can subtract them from the step's free-time
-    // budget when crediting the FIFO after the step.
     if (isCart) {
-      this.cartBusBusyCycles += cycles;
       this.prevCartAddr = addr | 0;
+      // A cart-bus data access halts the prefetch unit.
+      this.stopPrefetch();
+    } else {
+      // An internal data access leaves the cart bus free → the prefetcher
+      // keeps streaming during the access (the countdown keeps ticking).
+      this.tickPrefetch(cycles);
     }
     this.prevAccessAddr = addr | 0;
     this.prevAccessRegion = region;
+    this.dataSinceLastFetch = true;
   }
 
   /** Index a region into `regionsByNibble` for fast lookup by top
@@ -710,6 +749,7 @@ export class MappedBus implements MemoryBus {
     const addr = (rawAddr & ~1) >>> 0;
     checkGbaRead(addr);
     this.chargeAccess(addr, 16);
+    if (addr >= 0x04000100 && addr < 0x04000110 && this.onIoTimerRead !== null) this.onIoTimerRead();
     if (this.isVramBitmapBlocked(addr)) return 0;
     // GPIO register intercept — only when the cart has enabled
     // GPIO reads. With read-enable off the cart-ROM bytes win.
@@ -736,6 +776,7 @@ export class MappedBus implements MemoryBus {
     const addr = (rawAddr & ~3) >>> 0;
     checkGbaRead(addr);
     this.chargeAccess(addr, 32);
+    if (addr >= 0x04000100 && addr < 0x04000110 && this.onIoTimerRead !== null) this.onIoTimerRead();
     if (this.isVramBitmapBlocked(addr)) return 0;
     // GPIO word read — joins two halfwords. Cart writes that span
     // GPIO + cart-ROM (an LDR at 0x080000C6 takes 0xC6 + 0xC8) need
@@ -789,11 +830,7 @@ export class MappedBus implements MemoryBus {
   }
 
   /** Pipeline-refill cost: 3 instructions starting at `pc`, paying
-   *  WS_N for the first halfword and WS_S for the rest. Cart-ROM
-   *  refills also accumulate into `cartBusBusyCycles` so the next
-   *  step's prefetch-fill credit subtracts them — the raw fetches
-   *  done via `fetchWord`/`fetchHalfword` skip `chargeAccess` so this
-   *  is where the bus-busy accounting comes back in.
+   *  WS_N for the first halfword and WS_S for the rest.
    *
    *  Approximations vs the per-call `chargeAccess` path: the 128 KiB
    *  cart-bank cross penalty is not applied here (rare — only when
@@ -813,22 +850,6 @@ export class MappedBus implements MemoryBus {
     // 3 instruction fetches: first non-sequential (wsN), next two
     // sequential (wsS). Each access adds the 32-bit bonus once.
     const cost = wsN + bonus + 2 * (wsS + bonus);
-    // Cart-ROM regions tie up the cart bus during refill — preserve
-    // the same cartBusBusyCycles contribution chargeAccess would
-    // have made via the original 3 read*() calls.
-    if (region >= 8 && region <= 0xd) {
-      this.cartBusBusyCycles += cost;
-      // The two prepaid pipeline fetches (the refillFreeFetches the
-      // CPU consumes at 1 cycle each) occupy the cart bus during the
-      // FOLLOWING steps on real hardware. Record their real bus time
-      // as a stream debt: upcoming idle cycles pay it off before any
-      // prefetcher look-ahead credit can accrue (see ArmCpu's
-      // fill-credit accounting). Without this, a spuriously banked
-      // halfword makes the first post-branch instruction 2 cycles
-      // faster than hardware — enough to flip Galidor's
-      // callback-pointer race and send it through a null pointer.
-      this.refillStreamDebt = 2 * (wsS + bonus);
-    }
     return cost;
   }
 
@@ -899,6 +920,7 @@ export class MappedBus implements MemoryBus {
     const addr = (rawAddr & ~1) >>> 0;
     checkGbaWrite(addr);
     this.chargeAccess(addr, 16);
+    if (addr >= 0x04000100 && addr < 0x04000110 && this.onIoTimerWrite !== null) this.onIoTimerWrite();
     if (this.isVramBitmapBlocked(addr)) return;
     // Cart GPIO register intercept. The three GPIO registers
     // (`0xC4` data, `0xC6` direction, `0xC8` read-enable) sit at
@@ -937,6 +959,7 @@ export class MappedBus implements MemoryBus {
     const addr = (rawAddr & ~3) >>> 0;
     checkGbaWrite(addr);
     this.chargeAccess(addr, 32);
+    if (addr >= 0x04000100 && addr < 0x04000110 && this.onIoTimerWrite !== null) this.onIoTimerWrite();
     if (this.isVramBitmapBlocked(addr)) return;
     // GPIO register intercept — 32-bit stores split across two GPIO
     // halfwords. STR at 0x080000C4 writes data + direction together
@@ -1378,6 +1401,10 @@ export function makeGbaMemoryMap(
     // frame's first fires read garbage, and the BG affine matrix
     // corrupts. GBATEK explicitly notes the visible-only restriction.
     if (ppu.vcount < 160) dma.onHBlank();
+    // DMA3 Video Capture (Special timing) fires per-scanline from line
+    // 2 to 161 — including the first two VBlank lines — so it can't be
+    // gated by the visible-only HBlank restriction above.
+    dma.onVideoCapture(ppu.vcount);
   };
   ppu.onVCount = () => {
     if (ppu.vcountIrqEnabled) interrupts.raise(IRQ_VCOUNT);

@@ -47,8 +47,10 @@ export const IRQ_DMA0 = 8;
 export const IRQ_DMA1 = 9;
 export const IRQ_DMA2 = 10;
 export const IRQ_DMA3 = 11;
-// IRQ_KEYPAD (12) and IRQ_GAMEPAK (13) are similarly omitted —
-// keypad-match IRQ and gamepak-removed IRQ aren't wired.
+/** Raised by the joypad controller when the KEYCNT key-match condition
+ *  is met and KEYCNT bit 14 (IRQ enable) is set. */
+export const IRQ_KEYPAD = 12;
+// IRQ_GAMEPAK (13, gamepak-removed IRQ) is omitted — not wired.
 
 const REG_IE = 0x00;
 const REG_IF = 0x02;

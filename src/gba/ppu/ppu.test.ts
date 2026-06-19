@@ -194,14 +194,25 @@ describe("Ppu — state machine", () => {
     expect(ppu.vcount).toBe(5);
   });
 
-  it("V-blank flag asserts when VCOUNT reaches 160 and clears when it wraps to 0", () => {
+  it("V-blank flag asserts at VCOUNT 160 and clears one line early, on line 227 (not 0)", () => {
     const ppu = new Ppu();
     ppu.tick(DOTS_PER_SCANLINE * VISIBLE_SCANLINES);
-    expect(ppu.vcount).toBe(VISIBLE_SCANLINES);
+    expect(ppu.vcount).toBe(VISIBLE_SCANLINES); // 160
+    expect(ppu.dispstat & 0b001).toBe(0b001); // set
+
+    // Still set on the second-to-last V-blank line (226).
+    ppu.tick(DOTS_PER_SCANLINE * (SCANLINES_PER_FRAME - 2 - VISIBLE_SCANLINES));
+    expect(ppu.vcount).toBe(SCANLINES_PER_FRAME - 2); // 226
     expect(ppu.dispstat & 0b001).toBe(0b001);
 
-    // Advance through the rest of the V-blank back to scanline 0.
-    ppu.tick(DOTS_PER_SCANLINE * (SCANLINES_PER_FRAME - VISIBLE_SCANLINES));
+    // Clears on the last V-blank line (227) — one scanline early (GBATEK:
+    // V-Blank flag is "set in line 160..226; not 227").
+    ppu.tick(DOTS_PER_SCANLINE);
+    expect(ppu.vcount).toBe(SCANLINES_PER_FRAME - 1); // 227
+    expect(ppu.dispstat & 0b001).toBe(0);
+
+    // Stays clear as VCOUNT wraps into the next frame.
+    ppu.tick(DOTS_PER_SCANLINE);
     expect(ppu.vcount).toBe(0);
     expect(ppu.dispstat & 0b001).toBe(0);
   });

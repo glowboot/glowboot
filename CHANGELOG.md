@@ -7,6 +7,46 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Game Boy Advance DMA3 video-capture timing.** DMA3's "Special" start
+  timing — a per-scanline transfer that runs through the visible frame and
+  switches itself off at V-Blank — is now emulated, for games and demos
+  that build a capture or feedback effect on it.
+
+### Changed
+
+- **More hardware-faithful Game Boy Advance cart-ROM and timer timing.** The
+  cart-ROM prefetcher's wait-state accounting and the way the CPU advances the
+  bus clock during each instruction were reworked to match real hardware: an
+  opcode fetch is now charged on the clock the moment the console performs it —
+  so a timer read taken mid-instruction sees its own fetch already elapsed —
+  instead of being approximated after the fact. This improves cycle-timing
+  accuracy on timing-sensitive test ROMs, including the AGB/AGS aging-cartridge's
+  prefetch-buffer memory self-test (which now passes) and games that depend on
+  precise timer reads.
+
+### Fixed
+
+- **Game Boy Advance DMA channel priority is now preemptive.** A
+  higher-priority channel arming for an HBlank transfer now interrupts a
+  running lower-priority transfer mid-flight and resumes it afterward,
+  matching real hardware, instead of letting the lower-priority transfer
+  run to completion first.
+- **Game Boy Advance serial interrupt now fires for internally-clocked
+  transfers.** A single-unit serial transfer (no link cable) now completes
+  and raises the serial interrupt instead of leaving the port busy forever
+  — so game code (and hardware self-tests) that start an internally-clocked
+  transfer and wait for it to finish no longer hang.
+- **Game Boy Advance keypad interrupt now fires.** The keypad-match
+  interrupt (KEYCNT) was never raised; it now fires when the selected-key
+  condition is met, so games that use a button-press interrupt — and
+  hardware self-tests — behave correctly.
+- **Game Boy Advance V-Blank status flag clears at the right scanline.**
+  The display's V-Blank flag now clears one line early, on the last
+  V-Blank line (227), matching real hardware, instead of at the top of
+  the next frame.
+
 ## [1.4.1] — 2026-06-16
 
 ### Changed

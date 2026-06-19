@@ -13,9 +13,10 @@
  *   contribute to the IRQ.
  *   bit 14 = IRQ enable.
  *   bit 15 = IRQ condition (0 = OR / any selected key, 1 = AND / all).
- * Stored verbatim here; IRQ delivery isn't wired yet so writing
- * doesn't fire anything. Real games still write KEYCNT for the
- * future IRQ hookup, and we round-trip the bits.
+ * When bit 14 is set and the selected-key condition becomes true, the
+ * joypad raises IRQ_KEYPAD (on the rising edge). AND with an empty mask
+ * is vacuously true — how unattended self-tests (the AGB aging cartridge)
+ * fire the keypad IRQ without a key press.
  *
  * UI integration: `gamepad.press(b)` / `gamepad.release(b)` accept
  * the same lowercase button names the GB joypad uses (`a`, `b`,
@@ -23,6 +24,7 @@
  * for the GBA shoulders.
  */
 
+import { type InterruptController, IRQ_KEYPAD } from "../memory/interrupts.js";
 import { BaseIoHandler } from "../memory/io-handler-base.js";
 import type { GbaStateReader, GbaStateWriter } from "../serialization/serialization.js";
 
@@ -50,21 +52,51 @@ export class Joypad extends BaseIoHandler {
    *  produce KEYINPUT by inverting and OR-ing the reserved-high bits. */
   private held = 0;
 
-  /** Last-written KEYCNT value. No IRQ wiring yet. */
+  /** Last-written KEYCNT value. */
   private keycnt = 0;
+
+  /** Interrupt controller — the joypad raises IRQ_KEYPAD when KEYCNT's
+   *  key-match condition becomes true and bit 14 (IRQ enable) is set.
+   *  Wired by the Gba constructor. */
+  interrupts: InterruptController | null = null;
+
+  /** Edge-detect latch for the keypad-match condition. The IRQ fires on
+   *  the false→true transition (re-evaluated on every key change and
+   *  KEYCNT write) so a continuously-true condition doesn't re-flood IF
+   *  after the handler acknowledges it. Transient — not serialized. */
+  private keypadMatched = false;
 
   press(button: GbaButton): void {
     this.held |= 1 << BIT[button];
+    this.checkKeypadIrq();
   }
 
   release(button: GbaButton): void {
     this.held &= ~(1 << BIT[button]);
+    this.checkKeypadIrq();
   }
 
   /** Release every button. Called by the host on blur / tab-switch so a
    *  key whose `keyup` never arrived can't leave a button stuck down. */
   releaseAll(): void {
     this.held = 0;
+    this.checkKeypadIrq();
+  }
+
+  /** Raise IRQ_KEYPAD on the rising edge of the KEYCNT key-match
+   *  condition. Selected keys are KEYCNT bits 0-9; a key counts as
+   *  pressed when held. Bit 15 picks AND (all selected) vs OR (any
+   *  selected) — note AND with an empty mask is vacuously true, which is
+   *  how unattended self-tests (the AGB aging cartridge) trigger it. */
+  private checkKeypadIrq(): void {
+    let matched = false;
+    if ((this.keycnt & 0x4000) !== 0) {
+      const selected = this.keycnt & 0x03ff;
+      const pressed = this.held & 0x03ff;
+      matched = (this.keycnt & 0x8000) !== 0 ? (selected & pressed) === selected : (selected & pressed) !== 0;
+    }
+    if (matched && !this.keypadMatched) this.interrupts?.raise(IRQ_KEYPAD);
+    this.keypadMatched = matched;
   }
 
   isPressed(button: GbaButton): boolean {
@@ -89,6 +121,7 @@ export class Joypad extends BaseIoHandler {
     const aligned = offset & ~1;
     if (aligned !== KEYCNT_OFFSET) return; // KEYINPUT is read-only
     this.keycnt = value & 0xffff;
+    this.checkKeypadIrq();
   }
 
   serialize(w: GbaStateWriter): void {
