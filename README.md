@@ -831,7 +831,9 @@ reload.
   Increment-with-reload for repeating sound buffers, and the
   channel-priority + bus-latch quirks that mgba-suite-dma exercises
   (DMA0's "SRAM-not-on-bus" handling, cart-bus open-bus on aborted
-  transfers).
+  transfers), and mid-transfer priority preemption — a higher-priority
+  channel arming for HBlank interrupts a running lower-priority transfer
+  and resumes it afterward (the AGS aging-cart DMA-priority test).
 - **Timers** — All four 16-bit countup timers with the four prescaler
   divisors (1, 64, 256, 1024 CPU cycles per tick), cascade-from-
   previous-timer mode, IRQ-on-overflow, and the deferred-write quirks
@@ -1166,7 +1168,7 @@ edges:
 
 GBA accuracy is measured by `npm run test:gba-roms` against jsmolka,
 fuzzarm, mgba-suite, and nba-emu/hw-test. The current baseline is
-40/40 verdicts passing with 4851/7058 counter sub-tests cleared;
+40/40 verdicts passing with 5647/7058 counter sub-tests cleared;
 mgba-suite's memory (1552/1552) and dma (1256/1256) categories pass
 in full.
 Known gaps:
@@ -1179,11 +1181,15 @@ Known gaps:
   tested wedges on it, but it's why a few mgba-suite-timing sub-tests
   fall short. A real Nintendo BIOS can be dropped in at
   `tests/gba-roms/gba_bios.bin` and the test runner will use it.
-- **Cycle accuracy is per-instruction, not per-bus-cycle.** Cart-ROM
-  prefetch modelling + the precise timer-tick-vs-bus-read interleave
-  are the source of the remaining mgba-suite-timing / mgba-suite-
-  timers / nba-bus-128kb-boundary sub-test gaps. Real games tolerate
-  it; the test ROMs that probe exact T-cycle counts don't.
+- **Cycle accuracy is per-instruction, not per-bus-cycle.** Each
+  instruction's opcode fetch is charged on the bus clock the moment it
+  happens, so a mid-instruction timer read lands at the right cycle, but
+  the instruction's internal cycles are still accounted at instruction
+  granularity rather than interleaved per bus cycle. That, plus a few
+  cart-ROM prefetch edge cases, is the source of the remaining
+  mgba-suite-timing / mgba-suite-timers / nba-bus-128kb-boundary sub-test
+  gaps. Real games tolerate it; the test ROMs that probe exact T-cycle
+  counts don't.
 - **Link cable: Multi-Player mode only, and experimental.** SIO
   Multi-Player mode is the only transport-wired mode. Same-machine
   pairs via `BroadcastChannel` between two tabs; cross-device
@@ -1197,10 +1203,13 @@ Known gaps:
   Kart Super Circuit, Bomberman Tournament) are intermittent
   because cross-tab BroadcastChannel IPC (~1-3 ms per message)
   can't match real-cable round-trip times (~360 µs per transfer at
-  115200 baud). Normal-8 / Normal-32 / UART / JOY-bus modes are
-  intentionally left as no-transport stubs — they only matter for
-  GameCube link (Pokémon Box) and the e-Reader card scanner,
-  neither of which Glowboot emulates. The Wireless Adapter (RFU)
+  115200 baud). Normal-8 / Normal-32 carry no transport either, but
+  an internally-clocked transfer still completes and raises the Serial
+  interrupt (the line reads back all-1s with nothing connected) so
+  single-unit serial self-tests work. UART / JOY-bus remain no-transport
+  stubs — they only matter for GameCube link (Pokémon Box) and the
+  e-Reader card scanner, neither of which Glowboot emulates. The
+  Wireless Adapter (RFU)
   is also unsupported — its command set is ~80% undocumented in
   public references and no open-source emulator has working
   support after 10+ years of community effort.

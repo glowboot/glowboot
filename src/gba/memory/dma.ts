@@ -102,6 +102,16 @@ const CNT_ENABLE = 1 << 15;
 
 const IRQ_FOR_CHANNEL = [IRQ_DMA0, IRQ_DMA1, IRQ_DMA2, IRQ_DMA3] as const;
 
+/** One scanline in CPU cycles (308 dots × 4). A transfer shorter than
+ *  this can't span an HBlank, so preemption can't apply to it. */
+const CYCLES_PER_SCANLINE = 1232;
+
+/** Granularity of the mid-transfer PPU sync — fine enough that the HBlank
+ *  fires within a few dots of its real position (the AGS priority test is
+ *  explicitly not strict about timing), coarse enough to keep the sync
+ *  count low. */
+const PREEMPT_SYNC_CYCLES = 128;
+
 class DmaChannel {
   /** SAD / DAD / CNT_L / CNT_H are the bus-visible registers. */
   sad = 0;
@@ -127,6 +137,20 @@ class DmaChannel {
    *  verifies the (dst & 2) selection and that DMA2's latch isn't
    *  shared with DMA1's. */
   latch = 0;
+
+  /** In-progress transfer state for preemption resume (P3). When a
+   *  higher-priority channel preempts this one mid-transfer, the partial
+   *  progress — the advancing data address `xferSrc`, dest `xferDst`,
+   *  the cart-timing address counter `xferTimingSrc`, and units left
+   *  `xferLeft` — is saved so the pump resumes exactly where it bailed.
+   *  `xferActive` marks a started-but-unfinished transfer. Transient: a
+   *  transfer never straddles a frame boundary (the pump drains fully
+   *  inside one trigger), so this state is not serialised. */
+  xferActive = false;
+  xferSrc = 0;
+  xferDst = 0;
+  xferTimingSrc = 0;
+  xferLeft = 0;
 
   constructor(readonly index: 0 | 1 | 2 | 3) {}
 
@@ -170,6 +194,26 @@ export class Dma extends BaseIoHandler {
     new DmaChannel(2),
     new DmaChannel(3)
   ];
+
+  /** DMA flat-pump state. `runnable` is a 4-bit set
+   *  of channels wanting to run; {@link runPump} services them in priority
+   *  order (lowest index first). `activeDmaId` is the channel currently
+   *  transferring. `shouldReenter` is the preemption signal — set when a
+   *  higher-priority channel becomes runnable mid-transfer so the active
+   *  channel bails and the pump re-selects. Wired in P3; always false (and
+   *  the bail path is unreachable) in P1, which is a pure shape change. */
+  private runnable = 0;
+  private activeDmaId = -1;
+  private shouldReenter = false;
+  /** Re-entry guard for {@link requestAndPump}. */
+  private pumping = false;
+
+  /** Wired by Gba: advance the PPU by N cycles mid-transfer so an HBlank
+   *  fires at its real dot (gated to visible lines by ppu.onHBlank) and a
+   *  higher-priority HBlank channel becomes runnable, preempting the
+   *  running channel. The synced cycles are tracked by Gba so the
+   *  post-step PPU advance doesn't double-count them. */
+  syncPpuDuringDma: ((cycles: number) => void) | null = null;
 
   constructor(
     private readonly bus: MappedBus,
@@ -299,7 +343,7 @@ export class Dma extends BaseIoHandler {
           ch.shadowCnt = ch.unitCount();
           if (ch.timing === DmaTiming.Immediate) {
             if (!wasEnabled) this.advanceForImmediateStartup();
-            this.runChannel(ch);
+            this.requestAndPump(1 << ch.index);
           }
         }
         return;
@@ -311,19 +355,68 @@ export class Dma extends BaseIoHandler {
 
   // ─── External triggers ─────────────────────────────────────────────
 
+  /** Mark `mask`'s channels runnable and service the pump. The pump runs
+   *  the highest-priority (lowest-index) runnable channel to completion,
+   *  then the next, until none remain — identical order to the old direct
+   *  `for ch: runChannel(ch)` loops since those already ran in index
+   *  order. P3 makes a running channel bail when a higher-priority one
+   *  becomes runnable (`shouldReenter`), which is what enables preemption. */
+  private requestAndPump(mask: number): void {
+    if (mask === 0) return;
+    this.runnable |= mask;
+    // If a higher-priority (lower-index) channel becomes runnable while a
+    // lower-priority one is mid-transfer, signal the active channel to bail
+    // so the pump re-selects — this is the preemption. The active channel's
+    // unit loop saves its progress and returns; runPump then runs the
+    // higher-priority channel and resumes the preempted one afterwards.
+    if (this.pumping && this.activeDmaId >= 0) {
+      const highestRequested = 31 - Math.clz32(mask & -mask); // lowest set bit index
+      if (highestRequested < this.activeDmaId) this.shouldReenter = true;
+    }
+    // A nested request (e.g. a DMA whose destination is a DMA control
+    // register triggers another channel) only marks the channel runnable;
+    // the already-running pump services it rather than re-entering.
+    if (this.pumping) return;
+    this.pumping = true;
+    this.runPump();
+    this.pumping = false;
+  }
+
+  private runPump(): void {
+    while (this.runnable !== 0) {
+      let id = 0;
+      while ((this.runnable & (1 << id)) === 0) id++;
+      this.activeDmaId = id;
+      this.runChannel(this.channels[id]!);
+    }
+    this.activeDmaId = -1;
+  }
+
+  /** True if a higher-priority (lower-index) channel is enabled and armed
+   *  for HBlank — the trigger that preempts a running lower-priority
+   *  transfer. Gates the mid-transfer PPU sync to the rare case where it
+   *  matters, so ordinary DMAs keep the cheaper non-synced path. */
+  private hasHigherHBlankDma(index: number): boolean {
+    for (let j = 0; j < index; j++) {
+      const hc = this.channels[j];
+      if (hc && hc.enabled && hc.timing === DmaTiming.HBlank) return true;
+    }
+    return false;
+  }
+
   /** Fire any channel currently armed for VBlank. */
   onVBlank(): void {
-    for (const ch of this.channels) {
-      if (ch.enabled && ch.timing === DmaTiming.VBlank) this.runChannel(ch);
-    }
+    let mask = 0;
+    for (const ch of this.channels) if (ch.enabled && ch.timing === DmaTiming.VBlank) mask |= 1 << ch.index;
+    this.requestAndPump(mask);
   }
 
   /** Fire any channel currently armed for HBlank. (DMA0 only on
    *  visible scanlines on hardware; we don't gate on that.) */
   onHBlank(): void {
-    for (const ch of this.channels) {
-      if (ch.enabled && ch.timing === DmaTiming.HBlank) this.runChannel(ch);
-    }
+    let mask = 0;
+    for (const ch of this.channels) if (ch.enabled && ch.timing === DmaTiming.HBlank) mask |= 1 << ch.index;
+    this.requestAndPump(mask);
   }
 
   /** Signalled by the APU when FIFO A or B drops to half-full. The
@@ -338,6 +431,22 @@ export class Dma extends BaseIoHandler {
       if ((ch.shadowDad | 0) !== fifoAddr) continue;
       this.runSoundDma(ch);
     }
+  }
+
+  /** DMA3 Video Capture Mode (Special timing, DMA3 only). Like an
+   *  HBlank DMA but restricted to DMA3 and to scanlines 2..161: the
+   *  controller fires one transfer per scanline starting at line 2 and
+   *  auto-clears the enable bit after line 161 (GBATEK). Intended to
+   *  stream a per-scanline bitmap into VRAM; the AGB aging cartridge's
+   *  DMA test uses it to sample VCOUNT into a buffer once per line.
+   *  Repeat re-arming (continuing DAD / reloading CNT) is handled by
+   *  finishChannel, same as HBlank/VBlank repeat DMA. */
+  onVideoCapture(vcount: number): void {
+    const ch = this.channels[3];
+    if (!ch.enabled || ch.timing !== DmaTiming.Special) return;
+    if (vcount < 2 || vcount > 161) return;
+    this.requestAndPump(1 << 3);
+    if (vcount >= 161) ch.control &= ~CNT_ENABLE;
   }
 
   // ─── Transfer engine ───────────────────────────────────────────────
@@ -355,6 +464,14 @@ export class Dma extends BaseIoHandler {
   private advanceForImmediateStartup(): void {
     const cycles = 4;
     this.bus.accessCycles += cycles;
+    // The 4 = 2 (finish the trigger STR's data phase) + 2 (DMA startup).
+    // In the clock-derived model the STR's write already advanced bus.now
+    // by its access cost (`lastAccessCost`), so don't double-count that
+    // part — advance the master clock only by the remainder so a
+    // timer-sourced DMA read samples the exact startup cycle. The step
+    // total still gets the full 4 via accessCycles (reconciled at step
+    // end). nba-dma-start-delay pins this (TM0CNT_L == 20).
+    this.bus.now += cycles - this.bus.lastAccessCost;
     this.preTickedThisStep += cycles;
     this.onCyclesElapsed?.(cycles);
   }
@@ -372,6 +489,7 @@ export class Dma extends BaseIoHandler {
   private advanceForTransfer(): void {
     const cycles = 2;
     this.bus.accessCycles += cycles;
+    this.bus.now += cycles;
     this.preTickedThisStep += cycles;
     this.onCyclesElapsed?.(cycles);
   }
@@ -398,25 +516,65 @@ export class Dma extends BaseIoHandler {
     // the cart mid-burst.
     const timingStep = stepFor(ch.srcControl, wordSize);
     const splitTiming = srcOnCartBus && timingStep !== srcStep;
-    let timingSrc = ch.shadowSad | 0;
-    let src = ch.shadowSad | 0;
-    let dst = ch.shadowDad | 0;
-    const count = ch.shadowCnt | 0;
-    this.bus.dmaActive = true;
-    this.bus.dmaFirstCartAccess = true;
-    // EEPROM transfers (DMA3 only) bracket the loop so the device can
-    // see the transfer length (needed for chip-size autodetect on the
-    // first frame, and to know when a write-direction command is
-    // complete and should be parsed).
-    const eepromWrite = ch.index === 3 && this.eeprom !== null && inEepromRegion(dst);
-    const eepromRead = ch.index === 3 && this.eeprom !== null && inEepromRegion(src);
-    if (eepromWrite) this.eeprom!.beginDmaTransfer(count, /* write */ true);
-    else if (eepromRead) this.eeprom!.beginDmaTransfer(count, /* write */ false);
     // DMA0 cannot drive the cart bus on real hardware — reads sourced
     // from cart-ROM/SRAM return 0, and writes targeting that region
     // are dropped (the cart controller never sees the access).
     const blockCart = ch.index === 0;
-    for (let i = 0; i < count; i++) {
+    // EEPROM transfers (DMA3 only) bracket the loop so the device can see
+    // the transfer length (needed for chip-size autodetect on the first
+    // frame, and to know when a write-direction command is complete).
+    // Keyed off the latched START addresses so a resume after preemption
+    // doesn't re-bracket.
+    const eepromWrite = ch.index === 3 && this.eeprom !== null && inEepromRegion(ch.shadowDad | 0);
+    const eepromRead = ch.index === 3 && this.eeprom !== null && inEepromRegion(ch.shadowSad | 0);
+    let src: number;
+    let dst: number;
+    let timingSrc: number;
+    let left: number;
+    if (ch.xferActive) {
+      // Resuming a transfer a higher-priority channel preempted.
+      src = ch.xferSrc;
+      dst = ch.xferDst;
+      timingSrc = ch.xferTimingSrc;
+      left = ch.xferLeft;
+    } else {
+      src = ch.shadowSad | 0;
+      dst = ch.shadowDad | 0;
+      timingSrc = ch.shadowSad | 0;
+      left = ch.shadowCnt | 0;
+      ch.xferActive = true;
+      if (eepromWrite) this.eeprom!.beginDmaTransfer(left, /* write */ true);
+      else if (eepromRead) this.eeprom!.beginDmaTransfer(left, /* write */ false);
+    }
+    this.bus.dmaActive = true;
+    this.bus.dmaFirstCartAccess = true;
+    // DMA priority preemption: when a higher-priority HBlank channel is
+    // armed and this transfer is long enough to span an HBlank, advance the
+    // PPU as the transfer runs so the HBlank fires at its real dot and makes
+    // that channel runnable — `requestAndPump` then sets `shouldReenter` and
+    // the unit loop bails. Re-evaluated per runChannel call, so a resume
+    // after the higher channel has fired no longer syncs. bus.now keeps
+    // advancing across units so a fixed-source read of a running timer stays
+    // continuous. Gated tight so ordinary DMAs keep the cheap path.
+    const preemptable =
+      this.syncPpuDuringDma !== null &&
+      this.hasHigherHBlankDma(ch.index) &&
+      ch.shadowCnt * (ch.word ? 8 : 4) > CYCLES_PER_SCANLINE;
+    let lastSyncNow = this.bus.now | 0;
+    while (left > 0) {
+      // Preemption bail point: a higher-priority channel becoming runnable
+      // mid-transfer sets `shouldReenter`; save the partial progress and
+      // return WITHOUT clearing the runnable bit, so the pump runs the
+      // higher-priority channel and then resumes this one here.
+      if (this.shouldReenter) {
+        this.shouldReenter = false;
+        ch.xferSrc = src;
+        ch.xferDst = dst;
+        ch.xferTimingSrc = timingSrc;
+        ch.xferLeft = left;
+        this.bus.dmaActive = false;
+        return;
+      }
       const srcBlocked = blockCart && inCartRegion(src);
       const dstBlocked = blockCart && inCartRegion(dst);
       const srcInvalid = src >>> 0 < 0x02000000;
@@ -496,11 +654,23 @@ export class Dma extends BaseIoHandler {
       timingSrc = (timingSrc + timingStep) | 0;
       dst = (dst + destStep) | 0;
       if (ch.word && touchesCart) this.advanceForTransfer();
+      left--;
+      // Advance the PPU through the cycles this transfer just consumed so an
+      // HBlank can fire mid-stream and a higher-priority channel preempts.
+      if (preemptable && ((this.bus.now - lastSyncNow) | 0) >= PREEMPT_SYNC_CYCLES) {
+        this.syncPpuDuringDma!((this.bus.now - lastSyncNow) | 0);
+        lastSyncNow = this.bus.now | 0;
+      }
     }
     if (eepromWrite) this.eeprom!.endDmaTransfer(/* write */ true);
     else if (eepromRead) this.eeprom!.endDmaTransfer(/* write */ false);
     this.bus.dmaActive = false;
+    ch.xferActive = false;
     this.finishChannel(ch, src, dst);
+    // Transfer ran to completion — drop it from the pump's runnable set.
+    // (A channel that bailed via `shouldReenter` leaves its bit set so the
+    // pump resumes it on the next iteration.)
+    this.runnable &= ~(1 << ch.index);
   }
 
   private runSoundDma(ch: DmaChannel): void {

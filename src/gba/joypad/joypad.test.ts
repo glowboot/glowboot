@@ -110,3 +110,55 @@ describe("MappedBus + Joypad wiring", () => {
     expect(mem.bus.read16(0x04000130)).toBe(0x03ff);
   });
 });
+
+describe("Joypad — keypad IRQ (KEYCNT)", () => {
+  const KEYCNT = 0x02;
+  const ENABLE = 1 << 14;
+  const AND = 1 << 15;
+  const IRQ_KEYPAD = 12;
+
+  function withIrq(): { jp: Joypad; raised: number[] } {
+    const jp = new Joypad();
+    const raised: number[] = [];
+    (jp as unknown as { interrupts: { raise: (s: number) => void } }).interrupts = { raise: (s) => raised.push(s) };
+    return { jp, raised };
+  }
+
+  it("AND-mode with an empty key mask is vacuously true — fires on the KEYCNT write (AGB aging cart)", () => {
+    const { jp, raised } = withIrq();
+    jp.write16(KEYCNT, ENABLE | AND); // mask 0, AND, IRQ enabled
+    expect(raised).toEqual([IRQ_KEYPAD]);
+  });
+
+  it("OR-mode fires when any selected key is pressed, not before", () => {
+    const { jp, raised } = withIrq();
+    jp.write16(KEYCNT, ENABLE | (1 << 0)); // OR, select A
+    expect(raised).toEqual([]);
+    jp.press("a");
+    expect(raised).toEqual([IRQ_KEYPAD]);
+  });
+
+  it("AND-mode fires only once all selected keys are pressed", () => {
+    const { jp, raised } = withIrq();
+    jp.write16(KEYCNT, ENABLE | AND | (1 << 0) | (1 << 1)); // need A AND B
+    jp.press("a");
+    expect(raised).toEqual([]);
+    jp.press("b");
+    expect(raised).toEqual([IRQ_KEYPAD]);
+  });
+
+  it("does not fire when IRQ enable (bit 14) is clear", () => {
+    const { jp, raised } = withIrq();
+    jp.write16(KEYCNT, AND); // condition true but IRQ disabled
+    jp.press("a");
+    expect(raised).toEqual([]);
+  });
+
+  it("edge-triggered: a condition that stays true fires once, not on every key change", () => {
+    const { jp, raised } = withIrq();
+    jp.write16(KEYCNT, ENABLE | (1 << 0)); // OR, select A
+    jp.press("a"); // rising edge → fires
+    jp.press("b"); // still matched (A held) → no new edge
+    expect(raised).toEqual([IRQ_KEYPAD]);
+  });
+});

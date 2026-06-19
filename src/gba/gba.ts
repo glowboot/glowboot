@@ -262,6 +262,11 @@ export class Gba {
    *  re-introduces a few cycles of one-time error. */
   private frameCycleCarry = 0;
   private frameDotRemainder = 0;
+  /** Cycles by which a long DMA already advanced the PPU mid-step (via
+   *  {@link tickPpuCycles}, for priority preemption). Subtracted from the
+   *  post-step PPU advance so those dots aren't ticked twice. 0 for any
+   *  step without a preempting DMA — the overwhelmingly common case. */
+  private ppuCyclesThisStep = 0;
 
   /** Batched peripheral-tick state. `runFrame` accumulates each step's
    *  cycles here instead of ticking timer / APU / SIO per instruction
@@ -342,6 +347,7 @@ export class Gba {
     // complete events can fire IRQ_SERIAL. Without this the cart's
     // spin-on-IRQ pattern after START never wakes up.
     this.mem.sio.interrupts = this.interrupts;
+    this.mem.joypad.interrupts = this.interrupts;
     this.cpu = new ArmCpu(this.mem.bus, CART_ENTRY);
     this.cpu.interrupts = this.interrupts;
     this.cpu.hasBios = this.hasBios;
@@ -359,6 +365,15 @@ export class Gba {
     // registers (SAD / DAD / CNT_L). Reads of these slots return the
     // prefetched ARM opcode rather than the stored register state.
     this.mem.dma.openBusSource = () => this.cpu.currentOpenBus();
+    // DMA priority preemption: a long transfer advances the PPU mid-step
+    // through this hook so an HBlank fires at its real dot and makes a
+    // higher-priority channel runnable, preempting the running transfer.
+    // The synced cycles are recorded so the post-step PPU advance doesn't
+    // tick them twice.
+    this.mem.dma.syncPpuDuringDma = (cycles: number) => {
+      this.ppuCyclesThisStep += cycles;
+      this.tickPpuCycles(cycles);
+    };
     // And for the APU's write-only FIFO_A / FIFO_B push slots.
     this.mem.apu.openBusSource = () => this.cpu.currentOpenBus();
     // And for the catch-all MMIO open-bus handler covering
@@ -379,16 +394,42 @@ export class Gba {
     // pre-ticked count from the end-of-step tick to keep totals in
     // balance.
     this.mem.dma.onCyclesElapsed = (cycles: number) => {
-      // Catch the timer / APU up on the batched backlog first so the
-      // pre-ticked startup cycles land on current state, in order.
+      // Catch the APU / SIO up on the batched backlog so the pre-ticked
+      // startup cycles land on current state, in order.
       this.flushPeripheralDebt();
-      this.mem.timer.tick(cycles);
       this.mem.apu.tick(cycles);
+      // The timer is NOT advanced here: it's clock-derived, so a
+      // timer-sourced DMA read samples bus.now via the read hook (the
+      // DMA startup / per-transfer cycles already advanced bus.now), and
+      // the residual lands at the step-end advanceTo. Pushing the timer
+      // forward here would overshoot the read's sample point — the DMA's
+      // first read sees its address's value as of bus.now, not after the
+      // startup gap is double-counted (nba-dma-start-delay).
     };
     // Peripheral register accesses observe batched timer / APU / SIO
     // state — drain the backlog so they see exactly what
     // per-instruction ticking would have produced (see peripheralDebt).
     this.mem.bus.onPeripheralAccess = () => this.flushPeripheralDebt();
+    // A timer-register read samples the clock-derived counter at the START
+    // of its own data access (bus.now has already advanced past this
+    // access's wait, so back it out). Real ARM7TDMI charges the fetch after
+    // the data access, so a plain LDR observes the start-of-instruction
+    // value (the stale read the nba-hw-test timer suite expects) while two reads
+    // bracketing a loop diff to the exact elapsed cycles.
+    this.mem.bus.onIoTimerRead = () => {
+      // Unified clock: this instruction's opcode fetch already advanced bus.now
+      // before the instruction executed (see Cpu.step, which charges a
+      // wait-stated fetch up front), so the read samples the timer with its own
+      // fetch already elapsed. `lastAccessCost` backs out the read's own wait,
+      // sampling at the START of the access like real hardware. No overhang fudge.
+      const b = this.mem.bus;
+      this.mem.timer.advanceTo(b.now - b.lastAccessCost);
+    };
+    // Before a timer-register write applies, flush the timer to the write's
+    // data phase under the OLD control bits (same sample point as a read),
+    // so the lazy step-end guard never batches an idle delta across a
+    // control change. The write then re-arms the event clock itself.
+    this.mem.bus.onIoTimerWrite = () => this.mem.timer.advanceTo(this.mem.bus.now - this.mem.bus.lastAccessCost);
     // Real BIOS sets POSTFLG=1 right before handing control to the
     // cart. nba-hw-test haltcnt's POSTFLG sub-test reads back 1
     // (and checks CpuSet doesn't clear it).
@@ -497,7 +538,6 @@ export class Gba {
     // stays locked to exactly cyclesPerFrame per frame on average
     // (see frameCycleCarry).
     let cycles = this.frameCycleCarry;
-    let dotRemainder = this.frameDotRemainder;
     // Reset per-frame HALT counter so the pacer's CPU-load metric
     // reads `cpu.haltedCycles` over a known window. Mirrors GB.
     this.cpu.haltedCycles = 0;
@@ -524,19 +564,42 @@ export class Gba {
         // frames advance in scanline-sized jumps instead of 4-cycle
         // steps. A dirty horizon falls back to one legacy-width step;
         // the flush below recomputes it for the next iteration.
-        const toHorizon = this.peripheralHorizonDirty ? 4 : this.peripheralHorizon - this.peripheralDebt;
-        const toPpu = ppu.dotsToNextEvent() * APU_CYCLES_PER_DOT - dotRemainder;
+        // Timer is clock-derived: its next event is an ABSOLUTE clock, so
+        // the distance from now is wrap-safe `nextEventClock - now` (the
+        // lazy clock may lag now, but the event's absolute time is exact).
+        // SIO / APU still ride the batched debt horizon.
+        const toTimer = (this.mem.timer.nextEventClock - this.mem.bus.now) | 0;
+        const toSio = this.peripheralHorizonDirty ? 4 : this.peripheralHorizon - this.peripheralDebt;
+        const toHorizon = toTimer < toSio ? toTimer : toSio;
+        const toPpu = ppu.dotsToNextEvent() * APU_CYCLES_PER_DOT - this.frameDotRemainder;
         let chunk = toHorizon < toPpu ? toHorizon : toPpu;
         if (chunk < 1) chunk = 1;
         this.cpu.haltCycleBudget = chunk;
       }
+      const nowStart = this.mem.bus.now;
       this.cpu.step();
-      const stepCycles = this.cpu.lastCycles | 0;
+      // Defensive floor: a real instruction always consumes >= 1 cycle. If a
+      // cycle-cost bug ever drove lastCycles <= 0, `cycles` would stop
+      // advancing and this frame loop would spin forever (hanging the whole
+      // tab). Clamp to 1 so a miscount degrades to a 1-cycle step instead of
+      // a lockup; a breakpoint's deliberate 0 still exits via peekGbaHit.
+      let stepCycles = this.cpu.lastCycles | 0;
+      if (stepCycles < 1) stepCycles = 1;
       cycles += stepCycles;
-      // An immediate DMA inside this step may have already advanced
-      // timer / APU via the onCyclesElapsed callback so its bus reads
-      // see fresh counter state. Subtract that here so we don't tick
-      // those cycles a second time.
+      // Bus accesses during the step already advanced bus.now per access
+      // (so mid-step timer reads sampled the exact cycle); charge the
+      // fetch / internal-cycle residual here. Real ARM7TDMI charges the
+      // fetch AFTER the data access (it's the next instruction's prefetch).
+      this.mem.bus.now = (nowStart + stepCycles) | 0;
+      // The timer is clock-derived and LAZY: only flush it when bus.now has
+      // reached its next scheduled event (overflow / deferred-write apply).
+      // Timer reads/writes flush on demand via the bus hooks, so a step with
+      // nothing due costs one wrap-safe compare instead of a 4-channel
+      // tick() — restoring the batched-tick perf the per-step advance lost.
+      if (((this.mem.bus.now - this.mem.timer.nextEventClock) | 0) >= 0) this.mem.timer.advanceTo(this.mem.bus.now);
+      // APU / SIO stay on the batched-debt model. An immediate DMA may
+      // have pre-ticked them via onCyclesElapsed; subtract that so those
+      // cycles aren't counted twice.
       const preTicked = this.mem.dma.preTickedThisStep | 0;
       const peripheryCycles = stepCycles - preTicked;
       if (peripheryCycles > 0) this.peripheralDebt += peripheryCycles;
@@ -544,16 +607,10 @@ export class Gba {
         this.flushPeripheralDebt();
         this.recomputePeripheralHorizon();
       }
-      dotRemainder += stepCycles;
-      // PPU ticks in whole dots (one dot = APU_CYCLES_PER_DOT cycles).
-      // Accumulate fractional cycles across steps so we don't lose a
-      // dot to truncation when instructions return non-multiple-of-4
-      // cycle counts.
-      const dots = dotRemainder >>> 2; // ÷ APU_CYCLES_PER_DOT (= 4); dotRemainder is never negative
-      if (dots > 0) {
-        this.mem.ppu.tick(dots);
-        dotRemainder &= 3;
-      }
+      // A preempting DMA may have already advanced the PPU mid-step;
+      // tick only the remaining cycles so dots aren't double-counted.
+      this.tickPpuCycles(stepCycles - this.ppuCyclesThisStep);
+      this.ppuCyclesThisStep = 0;
       // Bail out as soon as a breakpoint / watchpoint latches a hit.
       // The CPU sets lastCycles=0 on PC hits so the loop usually exits
       // on the cycle-count check; this extra peek catches read/write
@@ -566,7 +623,6 @@ export class Gba {
     // frame. clamp >= 0 so an early breakpoint break (cycles < frame)
     // doesn't lend the next frame extra time.
     this.frameCycleCarry = cycles > cyclesPerFrame ? cycles - cyclesPerFrame : 0;
-    this.frameDotRemainder = dotRemainder;
     this.finishFrame(skipRender);
     return cycles;
   }
@@ -586,9 +642,10 @@ export class Gba {
   }
 
   private recomputePeripheralHorizon(): void {
-    const t = this.mem.timer.cyclesToNextEvent();
-    const s = this.sio.cyclesToNextEvent();
-    let horizon = t < s ? t : s;
+    // SIO-only: the timer is clock-derived and handled separately (its
+    // next-event distance is recomputed fresh against bus.now in the halt
+    // chunk sizing, so it isn't folded into the debt horizon any more).
+    let horizon = this.sio.cyclesToNextEvent();
     if (horizon > 256) horizon = 256;
     this.peripheralHorizon = horizon;
     this.peripheralHorizonDirty = false;
@@ -603,6 +660,20 @@ export class Gba {
    *  stair-step junk. With 256-cycle chunks each chunk covers ≤1
    *  host-sample emit and ≤1 timer overflow, so the DS sample update
    *  lands BEFORE the host sample that should observe it. */
+  /** Advance the PPU by `cycles` worth of dots, carrying the sub-dot
+   *  remainder across calls (one dot = APU_CYCLES_PER_DOT cycles). The
+   *  single PPU-advance primitive shared by runFrame / runForCycles AND
+   *  the mid-step DMA preemption sync, so all three accumulate into the
+   *  same dot clock. */
+  private tickPpuCycles(cycles: number): void {
+    this.frameDotRemainder += cycles;
+    const dots = this.frameDotRemainder >>> 2; // ÷ APU_CYCLES_PER_DOT (= 4); never negative
+    if (dots > 0) {
+      this.mem.ppu.tick(dots);
+      this.frameDotRemainder &= 3;
+    }
+  }
+
   private tickPeripherals(cycles: number): void {
     let remaining = cycles;
     while (remaining > 0) {
@@ -612,7 +683,7 @@ export class Gba {
       // own emission cycle — not state from later in the chunk.
       const toSample = this.mem.apu.cyclesToNextSample();
       if (toSample < chunk) chunk = toSample;
-      this.mem.timer.tick(chunk);
+      // Timer excluded — it's clock-derived (advanced to bus.now per step).
       this.mem.apu.tick(chunk);
       this.sio.tick(chunk);
       remaining -= chunk;
@@ -649,7 +720,6 @@ export class Gba {
    *  overshoot `budget` slightly). */
   runForCycles(budget: number): number {
     let totalCycles = 0;
-    let dotRemainder = this.frameDotRemainder;
     while (totalCycles < budget) {
       this.mem.dma.preTickedThisStep = 0;
       this.cpu.step();
@@ -659,14 +729,9 @@ export class Gba {
       const preTicked = this.mem.dma.preTickedThisStep | 0;
       const peripheryCycles = stepCycles - preTicked;
       if (peripheryCycles > 0) this.tickPeripherals(peripheryCycles);
-      dotRemainder += stepCycles;
-      const dots = dotRemainder >>> 2; // ÷ APU_CYCLES_PER_DOT (= 4); dotRemainder is never negative
-      if (dots > 0) {
-        this.mem.ppu.tick(dots);
-        dotRemainder &= 3;
-      }
+      this.tickPpuCycles(stepCycles - this.ppuCyclesThisStep);
+      this.ppuCyclesThisStep = 0;
     }
-    this.frameDotRemainder = dotRemainder;
     return totalCycles;
   }
 

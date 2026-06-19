@@ -588,3 +588,53 @@ describe("Sio — Multiplayer two-engine round-trip", () => {
     expect(bi.raised).toEqual([7]);
   });
 });
+
+describe("Sio — Normal-mode internal-clock transfer (single unit)", () => {
+  const INTERNAL = 1 << 0; // SIOCNT bit 0: 1 = internal clock
+  const START = 1 << 7; // SIOCNT bit 7: BUSY / start
+  const IRQ = 1 << 14; // SIOCNT bit 14: IRQ-on-completion
+
+  it("Normal-8 internal-clock START completes after a delay: BUSY clears, Serial IRQ fires", () => {
+    const sio = new Sio();
+    const ints = fakeInterrupts();
+    withFakeInterrupts(sio, ints);
+    sio.write16(SIOCNT, START | IRQ | INTERNAL); // Normal-8 (bits 12-13 = 0)
+    // Scheduled, not synchronous: BUSY is still set right after the write
+    // (so mgba-suite-sio-read's read-back still sees it), no IRQ yet.
+    expect(sio.read16(SIOCNT) & START).toBe(START);
+    expect(ints.raised).toEqual([]);
+    sio.tick(2000);
+    expect(sio.read16(SIOCNT) & START).toBe(0); // BUSY cleared
+    expect(ints.raised).toEqual([7]); // IRQ_SERIAL
+  });
+
+  it("Normal-32 internal-clock transfer also completes and raises the Serial IRQ", () => {
+    const sio = new Sio();
+    const ints = fakeInterrupts();
+    withFakeInterrupts(sio, ints);
+    sio.write16(SIOCNT, SIOCNT_MODE_N32 | START | IRQ | INTERNAL);
+    sio.tick(4000);
+    expect(sio.read16(SIOCNT) & START).toBe(0);
+    expect(ints.raised).toEqual([7]);
+  });
+
+  it("completes without an IRQ when bit 14 is clear", () => {
+    const sio = new Sio();
+    const ints = fakeInterrupts();
+    withFakeInterrupts(sio, ints);
+    sio.write16(SIOCNT, START | INTERNAL); // no IRQ-enable
+    sio.tick(2000);
+    expect(sio.read16(SIOCNT) & START).toBe(0); // transfer still finishes
+    expect(ints.raised).toEqual([]); // but no interrupt
+  });
+
+  it("external-clock transfer stays BUSY (nothing to clock it) and never IRQs", () => {
+    const sio = new Sio();
+    const ints = fakeInterrupts();
+    withFakeInterrupts(sio, ints);
+    sio.write16(SIOCNT, START | IRQ); // bit 0 = 0 → external clock
+    sio.tick(10000);
+    expect(sio.read16(SIOCNT) & START).toBe(START); // stuck, like a disconnected port
+    expect(ints.raised).toEqual([]);
+  });
+});

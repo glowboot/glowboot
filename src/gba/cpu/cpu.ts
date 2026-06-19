@@ -367,38 +367,35 @@ export class ArmCpu {
     if (this.prefetchValid && this.prefetchPc === pc && this.prefetchThumb === isThumb) {
       instr = this.prefetch0;
     } else {
-      // Cache miss — refill all three slots from the bus. fetchInstrAt
-      // skips chargeAccess (no watchpoint/sequentiality/128KB-cross
-      // overhead); bus.cacheMissCost layers the pipeline-refill cycle
-      // cost back in via a single per-burst calculation, and adds
-      // cart-ROM refills to cartBusBusyCycles for the prefetch-fill
-      // credit model.
+      // Cache miss (branch target) — refill all three FIFO slots for OPCODE
+      // VALUE correctness (self-modifying code). fetchInstrAt skips
+      // chargeAccess.
       instr = this.fetchInstrAt(pc, isThumb);
       this.prefetch1 = this.fetchInstrAt((pc + instrSize) | 0, isThumb);
       this.prefetch2 = this.fetchInstrAt((pc + 2 * instrSize) | 0, isThumb);
-      cacheMissCost = this.bus.cacheMissCost(pc, isThumb) | 0;
       this.prefetchValid = true;
       this.prefetchPc = pc;
       this.prefetchThumb = isThumb;
-      // resetDataAccessTracking still gets called for safety, but the
-      // fetch* path didn't touch the data-access trackers — this is
-      // now effectively a no-op on the cache-miss path.
       this.bus.resetDataAccessTracking();
-      // After a cache-miss refill, the next step's fetchCycleCost must
-      // see `seq=true` so the bus prefetch FIFO can model the prefetcher
-      // keeping up with the new linear stream. Seed lastInstrFetchAddr
-      // with `pc` so step N+1 (at pc+instrSize) sees its address as
-      // sequential to this one.
-      this.bus.lastInstrFetchAddr = pc | 0;
-      // Mark the next 2 cache-hit fetches as "free" pipeline shifts:
-      // `cacheMissCost` already paid the cart bus for prefetch1 and
-      // prefetch2's halfwords (wsN + 5*wsS for ARM). Without this,
-      // `fetchCycleCost` would charge wsN + wsS or FIFO-consume cycles
-      // again on the next two steps — double-counting the cart bus
-      // and inflating tight cart-ROM loops (MMBN memset is 24 cycles/
-      // iter with this gate, 28 without; a reference emulator
-      // measures 22).
-      this.refillFreeFetches = 2;
+      this.bus.lastInstrFetchAddr = -1;
+      // ROM targets: charge the refill per-step via the prefetch-buffer
+      // model (the prefetch unit captures it; lets it engage in short
+      // functions). Internal targets (IWRAM/BIOS/etc) have no game-pak
+      // prefetch, so the 3-stage pipeline refill is FRONT-LOADED to the branch
+      // like real hardware (the next two fetches are prepaid pipeline shifts) —
+      // without this the per-step model under-charges internal branches and
+      // skews the IWRAM-resident nba-hw-test timer / 128kb-boundary measurement loops.
+      const region = (pc >>> 24) & 0xf;
+      // EWRAM (region 2) is the one wait-stated internal region: its big
+      // refill burst + the two prepaid pipeline shifts make the measurement
+      // position-sensitive (inserting a CODE instruction pushes the END read
+      // out of the free window → a spurious +cost). Let it use the per-step
+      // model like ROM. The other 1-cycle internal regions (IWRAM/BIOS/…) keep
+      // the front-loaded refill the IWRAM-resident nba-hw-test / timer loops need.
+      if ((region < 8 || region > 0xd) && region !== 2) {
+        cacheMissCost = this.bus.cacheMissCost(pc, isThumb) | 0;
+        this.refillFreeFetches = 2;
+      }
     }
 
     // BIOS open-bus tracking — ARM7TDMI's prefetch latch holds the
@@ -414,25 +411,46 @@ export class ArmCpu {
       this.bus.accessCycles = cyclesBefore;
     }
 
-    // Per-instruction fetch cycle cost. Three cases:
-    //  - Cache MISS: 0 here; the full N+S cost is already in cacheMissCost.
-    //  - Cache HIT consuming a pipeline slot left over from the most
-    //    recent cache miss (`refillFreeFetches > 0`): 1 cycle here.
-    //    The cart bus already paid for those halfwords in
-    //    cacheMissCost, so we only count the CPU's internal pipeline
-    //    shift (1 cycle to advance F→D or D→E).
-    //  - Regular cache HIT: defer to `fetchCycleCost` (1 cycle/halfword
-    //    on FIFO hit; wsS or wsN otherwise).
+    // Per-instruction fetch cycle cost. An internal branch's front-loaded
+    // refill (cacheMissCost) puts the cost in this step → 0 here; the next two
+    // prepaid pipeline shifts (refillFreeFetches) cost 1; everything else goes
+    // through the prefetch-buffer model (hit 1 / in-flight countdown /
+    // miss full N/S).
     let fetchCost: number;
+    let fetchRegion: number;
     if (cacheMissCost !== 0) {
       fetchCost = 0;
+      fetchRegion = (pc >>> 24) & 0xf;
+      this.bus.lastInstrFetchAddr = pc | 0;
     } else if (this.refillFreeFetches > 0) {
       this.refillFreeFetches--;
       fetchCost = 1;
+      fetchRegion = (pc >>> 24) & 0xf;
+      this.bus.lastInstrFetchAddr = pc | 0;
     } else {
-      fetchCost = this.bus.fetchCycleCost(pc, instrSize === 4 ? 32 : 16);
+      // Tail-charging: the fetch the bus performs during this step is the
+      // pipeline tail (pc + 2*instrSize) — the opcode entering the 3-stage
+      // pipeline while pc executes, since the fetch pointer leads the executing
+      // instruction by two slots. Its cost is what advances the unified clock
+      // below.
+      const tail = (pc + 2 * instrSize) | 0;
+      fetchCost = this.bus.fetchCycleCost(tail, instrSize === 4 ? 32 : 16);
+      fetchRegion = (tail >>> 24) & 0xf;
+      this.bus.lastInstrFetchAddr = tail;
     }
-    this.bus.lastInstrFetchAddr = pc | 0;
+    // Unified clock: advance bus.now by this instruction's opcode fetch BEFORE
+    // executing it, the way real ARM7 charges the fetch as its own bus cycles
+    // rather than batching it into the step total — so a mid-instruction timer
+    // read samples bus.now with its own fetch already elapsed (no overhang
+    // fudge). Only a WAIT-STATED fetch (ROM region 8-D, EWRAM region 2) is
+    // visible this way: a 1-cycle internal fetch (IWRAM / BIOS / IO) is fully
+    // hidden in the pipeline and does not advance the clock ahead of the read —
+    // the IWRAM-resident nba-hw-test timer / 128kb measurement loops verify
+    // this. The step-end `bus.now = nowStart + stepCycles` still charges every
+    // fetch into the step total; this only governs intra-step visibility.
+    if (fetchRegion >= 8 || fetchRegion === 2) {
+      this.bus.now = (this.bus.now + fetchCost + cacheMissCost) | 0;
+    }
 
     if (isThumb) {
       stepThumb(this.regs, this.bus, this, instr);
@@ -440,35 +458,20 @@ export class ArmCpu {
       stepArm(this.regs, this.bus, this, instr);
     }
 
+    // The instruction's internal (I-)cycles tick the prefetch countdown like
+    // any other elapsed idle time. `lastCycles` here is the
+    // handler's internal time incl. the 1-cycle execute baseline, so the
+    // idle count is lastCycles - 1; data-access cycles already ticked it in
+    // chargeAccess.
+    const internalIdle = (this.lastCycles - 1) | 0;
+    if (internalIdle > 0) this.bus.tickPrefetch(internalIdle);
     // Total cycles = instruction's internal time + the bus accesses it
     // did + per-instruction fetch cycle + pipeline-refill cycles from
     // a cache miss. Subtract 1 because `lastCycles` already includes
-    // the single-cycle baseline for the executed instruction.
+    // the single-cycle baseline for the executed instruction. The
+    // prefetch-buffer model in fetchCycleCost yields the prefetch-aware
+    // fetch cost directly, so no separate loadPrefetchDelta is needed.
     this.lastCycles = (this.lastCycles + this.bus.accessCycles + fetchCost + cacheMissCost - 1) | 0;
-
-    // Credit the prefetcher for whatever cart-bus idle time the step
-    // produced. `cartBusBusyCycles` now tracks all cart-bus usage:
-    //   - cart-region data accesses (via `chargeAccess`)
-    //   - the cart-miss portion of instr fetches (via `fetchCycleCost`)
-    //   - cache-miss refill fetches (via the cache-miss `read*` chain,
-    //     preserved across `resetDataAccessTracking`)
-    // So the spare time available for prefetch fill is just:
-    //   total_step_cycles − cart_bus_busy
-    const cartBusy = this.bus.cartBusBusyCycles | 0;
-    let fillCycles = this.lastCycles - cartBusy;
-    // Idle cycles first pay off the pipeline-refill stream debt (the
-    // prepaid fetches cacheMissCost front-loaded — on hardware they
-    // occupy the cart bus DURING these steps), and only the excess
-    // banks prefetcher look-ahead. Back-to-back cheap instructions
-    // never pay it off (the bus stays saturated — mgba-suite timing's
-    // post-branch rows); a slow post-branch instruction (long EWRAM /
-    // IO access) does, and then earns real credit.
-    if (fillCycles > 0 && this.bus.refillStreamDebt > 0) {
-      const consumed = fillCycles < this.bus.refillStreamDebt ? fillCycles : this.bus.refillStreamDebt;
-      this.bus.refillStreamDebt -= consumed;
-      fillCycles -= consumed;
-    }
-    if (fillCycles > 0) this.bus.addCartFillCycles(fillCycles);
 
     // Post-step: check whether PC advanced linearly within the same
     // mode. If yes, shift the FIFO and fetch a new tail. If no
