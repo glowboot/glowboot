@@ -466,19 +466,18 @@ function loadWordRotated(bus: MemoryBus, addr: number): number {
   return rotate === 0 ? raw : (raw >>> rotate) | (raw << (32 - rotate)) | 0;
 }
 
-/** ARM7TDMI LDRH at a misaligned (odd) address is officially
- *  UNPREDICTABLE per the ARM ARM. The behaviour real silicon actually
- *  ships — required by T&J Tales, which derives Jerry's sprite-
- *  palette index from a deliberate byte-offset-1 halfword load — is:
- *    Rd = byte_at(addr), zero-extended to 32 bits.
- *  i.e. a misaligned LDRH degrades to LDRB at the addressed byte.
- *  The previous "byte-swap within 16 bits" interpretation set bit 8
- *  in the result via the high byte of the aligned halfword, sending
- *  the cart's `r5 << 5` SAD-offset computation into a different
- *  palette bank and rendering Jerry gray. */
+/** ARM7TDMI LDRH at a misaligned (odd) address loads the force-aligned
+ *  halfword and rotates the zero-extended 32-bit value right by 8, so the
+ *  addressed (high) byte lands in bits 7:0 and the aligned low byte wraps
+ *  up to bits 31:24 (GBATEK: `LDRH Rd,[odd] = LDRH Rd,[odd-1] ROR 8`;
+ *  jsmolka thumb test 211 pins this). The result's low byte still equals
+ *  byte_at(addr), so callers that consume only the low 8 bits — e.g. T&J
+ *  Tales deriving Jerry's sprite-palette index, whose `r5 << 5` shifts the
+ *  wrapped high byte off the top — see the same value as a plain LDRB. */
 function loadHalfwordRotated(bus: MemoryBus, addr: number): number {
-  if ((addr & 1) === 0) return bus.read16(addr >>> 0) & 0xffff;
-  return bus.read8(addr >>> 0) & 0xff;
+  const half = bus.read16(addr >>> 0) & 0xffff;
+  if ((addr & 1) === 0) return half;
+  return ((half >>> 8) | (half << 24)) >>> 0;
 }
 
 /** Format 6 — PC-relative load: `LDR Rd, [PC, #imm8 << 2]`. The
@@ -689,8 +688,10 @@ function executePushPop(regs: ArmRegisters, bus: MemoryBus, instr: number): void
 /** Format 15 — Multiple load/store: `LDMIA/STMIA Rb!, {Rlist}`.
  *
  *  Edge cases (ARM7TDMI):
- *   - Empty rlist (R0..R7 all clear): no register transferred, base
- *     advances by 0x40 (count = 16 in the equivalent ARM encoding).
+ *   - Empty rlist (R0..R7 all clear): R15 is transferred (loaded from /
+ *     stored to the base) and the base writes back +0x40 — the empty list
+ *     decodes as the 16-register ARM form whose only mapped slot is PC.
+ *     LDMIA jumps to [base] (staying Thumb); jsmolka thumb test 227 pins it.
  *   - Rb in rlist + writeback:
  *      - STMIA: if Rb is first in list, the ORIGINAL value of Rb is
  *        stored; otherwise the WRITEBACK value is stored.
@@ -703,6 +704,11 @@ function executeLoadStoreMultiple(regs: ArmRegisters, bus: MemoryBus, instr: num
 
   const baseValue = regs.r[rb]! | 0;
   if (rlist === 0) {
+    if (isLoad) {
+      regs.r[15] = (bus.read32(baseValue >>> 0) | 0) & ~1;
+    } else {
+      bus.write32(baseValue >>> 0, ((regs.r[15]! | 0) + 4) | 0);
+    }
     regs.r[rb] = (baseValue + 0x40) | 0;
     return;
   }
