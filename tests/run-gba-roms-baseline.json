@@ -130,7 +130,7 @@
   },
   "mgba-suite-video": {
     "kind": "count",
-    "pass": 4,
+    "pass": 5,
     "total": 7
   },
   "nba-bus-128kb-boundary": {

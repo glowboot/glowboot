@@ -20,7 +20,12 @@
  *   - X2 / Y2 are exclusive rights / bottoms.
  *   - Garbage rectangles where X2 > 240 OR X1 > X2 are normalised by
  *     clamping X2 to 240 (which means a wrapped X1 > X2 window extends
- *     from X1 to the right edge). Same rule applies on Y with 160.
+ *     from X1 to the right edge). The same clamp is the FALLBACK for Y, but
+ *     the PPU normally supplies a stateful vertical-active latch instead
+ *     (`win0VActive` / `win1VActive`): the window's Y flag toggles against
+ *     vcount over the full 228 lines and carries across frames, so a Y2 that
+ *     no vcount ever equals (e.g. 228) never clears and the window stays
+ *     active into the next frame — the "window offscreen reset" quirk.
  *   - X1 == X2 with X1 < 240 → the window is empty.
  *
  * OBJWIN — sprites with OAM attr-0 mode 2 carve out a region of the
@@ -69,7 +74,9 @@ export function buildWindowMaskLine(
   winin: number,
   winout: number,
   objWindowMaskRow: Uint8Array | null,
-  outRow: Uint8Array
+  outRow: Uint8Array,
+  win0VActive?: boolean,
+  win1VActive?: boolean
 ): void {
   const win0Enabled = (dispcnt & DISPCNT_WIN0_ENABLE) !== 0;
   const win1Enabled = (dispcnt & DISPCNT_WIN1_ENABLE) !== 0;
@@ -93,8 +100,13 @@ export function buildWindowMaskLine(
   const objWinEnable = (winout >>> 8) & 0x3f;
   const outsideEnable = winout & 0x3f;
 
-  const win0InRow = win0 !== null && y >= win0.y1 && y < win0.y2;
-  const win1InRow = win1 !== null && y >= win1.y1 && y < win1.y2;
+  // Vertical activity uses the PPU's stateful latch when supplied: it models
+  // the offscreen-Y2 carry-over (a window whose Y2 never matches any vcount
+  // never clears, so it stays active into the next frame). Callers that don't
+  // track the latch (the full-frame helper, unit tests) fall back to the
+  // per-frame rectangle bounds.
+  const win0InRow = win0 !== null && (win0VActive !== undefined ? win0VActive : y >= win0.y1 && y < win0.y2);
+  const win1InRow = win1 !== null && (win1VActive !== undefined ? win1VActive : y >= win1.y1 && y < win1.y2);
 
   for (let x = 0; x < SCREEN_WIDTH; x++) {
     let enable: number;
