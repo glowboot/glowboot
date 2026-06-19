@@ -21,10 +21,10 @@
  *               r7, the math tests r12 — so only the screen is reliable.
  *   fuzzarm      3 tests — randomized ARM/Thumb fuzzing. Visual pass
  *               screen → golden hash.
- *   mgba-suite  14 tests — endrift's suite (menu-navigated). 12 of the
+ *   mgba-suite  14 tests — endrift's suite (menu-navigated). 13 of the
  *               14 categories write a {pass,total} tally into an IWRAM
- *               results struct (see MGBA_COUNTER_ADDRS); video +
- *               sio-timing have no counter → golden hash.
+ *               results struct (see MGBA_COUNTER_ADDRS); only video has no
+ *               counter → golden hash (it stops on the video submenu).
  *   nba-hw-test 10 tests — NanoBoyAdvance hardware tests with a
  *               test_count/pass_count framework counter. The pure-visual
  *               ppu-* ROMs (no counter, no reference) were dropped.
@@ -1005,7 +1005,8 @@ function runTest(def: TestDef, romBytes: Uint8Array, biosBytes: Uint8Array | nul
   // results struct in IWRAM. Found by scanning for the stable pass/total
   // pair after the category settles (slots are 8 bytes apart around the
   // already-validated dma slot 0x03002e9c / memory slot 0x030032b8).
-  // sio-timing + video have no counter (0) → scored by golden hash.
+  // Only video stays 0 (no counter — the nav stops on the video submenu) →
+  // golden hash. sio-timing IS counter-scored (0x030032e4, an all-fail 0/4).
   const MGBA_COUNTER_ADDRS: Record<string, number> = {
     "mgba-suite-memory": 0x030032b8,
     "mgba-suite-io-read": 0x03002ea4,
@@ -1014,7 +1015,7 @@ function runTest(def: TestDef, romBytes: Uint8Array, biosBytes: Uint8Array | nul
     "mgba-suite-timer-irq": 0x030032ec,
     "mgba-suite-dma": 0x03002e9c,
     "mgba-suite-sio-read": 0x030032d8,
-    "mgba-suite-sio-timing": 0,
+    "mgba-suite-sio-timing": 0x030032e4,
     "mgba-suite-misc-edge": 0x030032c0,
     "mgba-suite-shifter": 0x030032d0,
     "mgba-suite-carry": 0x03002e94,
@@ -1035,7 +1036,7 @@ function runTest(def: TestDef, romBytes: Uint8Array, biosBytes: Uint8Array | nul
     "nba-dma-latch": 0x0300014c,
     "nba-dma-start-delay": 0x030001c4,
     "nba-haltcnt": 0x030004ec,
-    "nba-irq-delay": 0x030003ec,
+    "nba-irq-delay": 0x030003e8,
     "nba-ppu-vram-mirror": 0x030003f4,
     "nba-timer-reload": 0x03000424,
     "nba-timer-start-stop": 0x03000264
@@ -1090,7 +1091,10 @@ function runTest(def: TestDef, romBytes: Uint8Array, biosBytes: Uint8Array | nul
       const off = counterAddr - 0x03000000;
       const a = (iwram[off]! | (iwram[off + 1]! << 8) | (iwram[off + 2]! << 16) | (iwram[off + 3]! << 24)) >>> 0;
       const b = (iwram[off + 4]! | (iwram[off + 5]! << 8) | (iwram[off + 6]! << 16) | (iwram[off + 7]! << 24)) >>> 0;
-      if (a > 0 && b > 0 && a <= b && b < 10_000) {
+      // Allow pass=0: a known-good address with a valid total IS a real result
+      // even when every sub-test fails (e.g. sio-timing 0/4) — gating on a>0
+      // would drop it back to a hash and hide the all-fail tally.
+      if (b > 0 && a <= b && b < 10_000) {
         subtestPass = a;
         subtestTotal = b;
       }
