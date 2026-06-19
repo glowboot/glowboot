@@ -46,6 +46,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The display's V-Blank flag now clears one line early, on the last
   V-Blank line (227), matching real hardware, instead of at the top of
   the next frame.
+- **More accurate ARM7TDMI instruction edge cases.** Two CPU quirks the
+  hardware test suites pin down are now emulated: a 16-bit load from an
+  odd address rotates the aligned halfword (instead of returning only the
+  addressed byte), and a block load/store with an empty register list
+  transfers the program counter and advances the base register by 64 —
+  both matching real silicon. The jsmolka Thumb CPU suite now passes in
+  full.
 
 ## [1.4.1] — 2026-06-16
 
