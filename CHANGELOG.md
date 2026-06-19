@@ -53,6 +53,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   transfers the program counter and advances the base register by 64 —
   both matching real silicon. The jsmolka Thumb CPU suite now passes in
   full.
+- **More accurate ARM7TDMI unsigned long-multiply timing.** UMULL/UMLAL
+  now take the correct number of internal cycles. The shortcut that makes
+  a multiply finish early when the operand's upper bytes are all-ones
+  applies only to _signed_ multiplies; it was being applied to the
+  unsigned forms too, counting them as cheaper than the hardware does.
+  Signed multiplies (MUL/MLA/SMULL/SMLAL) are unchanged.
+- **Game Boy Advance timer prescaler phase is now hardware-accurate.** A
+  timer's prescaler is a free-running divider of the system clock, so its
+  phase at the moment the timer is enabled is taken from the live clock
+  rather than a per-channel counter that went stale when the same
+  register write also selected a new prescaler. This corrects the
+  first-overflow timing of timers using the slower prescalers (÷256 and
+  ÷1024), so code timed against them is no longer off by up to a full
+  prescaler tick.
 - **Game Boy Advance display windows handle off-screen edges correctly.**
   A window whose bottom edge runs past the last scanline now stays active
   through the rest of the frame and into the next one (across every row),
