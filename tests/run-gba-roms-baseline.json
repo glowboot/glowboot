@@ -129,8 +129,9 @@
     "total": 2020
   },
   "mgba-suite-video": {
-    "kind": "hash",
-    "hash": "e1973b29b8c8368202cf5018dd1070eb7d314d27637de0f8b4892279746f34d0"
+    "kind": "count",
+    "pass": 4,
+    "total": 7
   },
   "nba-bus-128kb-boundary": {
     "kind": "count",
