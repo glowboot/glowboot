@@ -23,8 +23,9 @@
  *               screen → golden hash.
  *   mgba-suite  14 tests — endrift's suite (menu-navigated). 13 of the
  *               14 categories write a {pass,total} tally into an IWRAM
- *               results struct (see MGBA_COUNTER_ADDRS); only video has no
- *               counter → golden hash (it stops on the video submenu).
+ *               results struct (see MGBA_COUNTER_ADDRS); the Video category
+ *               instead self-checks each of its 7 sub-tests' render against
+ *               an on-screen reference (runVideoComparison) for a {pass,total}.
  *   nba-hw-test 10 tests — NanoBoyAdvance hardware tests with a
  *               test_count/pass_count framework counter. The pure-visual
  *               ppu-* ROMs (no counter, no reference) were dropped.
@@ -591,27 +592,15 @@ const TESTS: readonly TestDef[] = [
     completion: { kind: "input_then_stable", window: 30, minFrames: 400 }
   },
   {
+    // Self-checking — runTest dispatches this id to runVideoComparison, which
+    // does its own navigation + Actual-vs-Expected capture across all 7
+    // sub-tests; the generic inputs/completion below are unused.
     id: "mgba-suite-video",
     suite: "mgba-suite",
     rom: "suite.gba",
     maxFrames: 2400,
-    inputs: [
-      { frame: 80, keys: 128 },
-      { frame: 100, keys: 128 },
-      { frame: 120, keys: 128 },
-      { frame: 140, keys: 128 },
-      { frame: 160, keys: 128 },
-      { frame: 180, keys: 128 },
-      { frame: 200, keys: 128 },
-      { frame: 220, keys: 128 },
-      { frame: 240, keys: 128 },
-      { frame: 260, keys: 128 },
-      { frame: 280, keys: 128 },
-      { frame: 300, keys: 128 },
-      { frame: 320, keys: 128 },
-      { frame: 340, keys: 1 }
-    ],
-    completion: { kind: "input_then_stable", window: 30, minFrames: 400 }
+    inputs: [],
+    completion: { kind: "exact_frame", frame: 1 }
   },
 
   // ── nba-hw-test — 10 counter-scored tests, no input, all auto-run ──
@@ -894,7 +883,108 @@ interface RunResult {
   subtestTotal: number | null;
 }
 
+/** Picture-region hash of the LAST per-scanline render, excluding the bottom
+ *  label strip (rows 138-159 carry the "Actual"/"Expected" text the video
+ *  tests overlay — including it would make every comparison differ). Reads
+ *  `gba.framebuffer` directly and does NOT call renderFrame(): the Layer-
+ *  toggle tests change BG enables mid-frame, so a whole-frame re-render at the
+ *  final register state would lose the per-scanline effect and false-fail. */
+const VIDEO_PICTURE_ROWS = 138;
+function videoPictureHash(gba: Gba): string {
+  const fb = gba.framebuffer;
+  return createHash("sha1")
+    .update(Buffer.from(fb.buffer, fb.byteOffset, 240 * VIDEO_PICTURE_ROWS * 4))
+    .digest("hex");
+}
+
+/** mgba-suite Video category — 7 self-checking sub-tests. Selecting one
+ *  renders OUR output ("Actual"); pressing A again renders the hardware
+ *  reference ("Expected"). A sub-test passes when the two match outside the
+ *  label strip. This replaces the old shallow submenu-only hash (which only
+ *  proved the menu drew) with a real {pass,total} tally that catches PPU
+ *  rendering bugs. Re-boots per sub-test so menu-cursor state can't drift. */
+function runVideoComparison(
+  romBytes: Uint8Array,
+  biosBytes: Uint8Array | null
+): { pass: number; total: number; last: Gba } {
+  const total = 7;
+  let pass = 0;
+  let last!: Gba;
+  for (let idx = 0; idx < total; idx++) {
+    const gba = new Gba(romBytes, biosBytes ?? undefined);
+    last = gba;
+    const press = new Map<number, GbaButton>();
+    let f = 80;
+    for (let i = 0; i < 13; i++) {
+      press.set(f, "down"); // main-menu cursor → Video
+      f += 20;
+    }
+    press.set(f, "a"); // enter the Video submenu
+    f += 40;
+    for (let i = 0; i < idx; i++) {
+      press.set(f, "down"); // submenu cursor → sub-test idx
+      f += 20;
+    }
+    press.set(f, "a"); // show Actual
+    const actualAt = f + 25;
+    f += 50;
+    press.set(f, "a"); // show Expected
+    const expectedAt = f + 25;
+    f += 50;
+    const end = f + 20;
+    let held: { btn: GbaButton; until: number } | null = null;
+    let actual = "";
+    let expected = "";
+    for (let fr = 0; fr < end; fr++) {
+      const b = press.get(fr);
+      if (b !== undefined) {
+        gba.joypad.press(b);
+        held = { btn: b, until: fr + KEY_HOLD_FRAMES };
+      }
+      if (held && fr === held.until) {
+        gba.joypad.release(held.btn);
+        held = null;
+      }
+      gba.runFrame();
+      if (fr === actualAt) actual = videoPictureHash(gba);
+      if (fr === expectedAt) expected = videoPictureHash(gba);
+    }
+    if (actual !== "" && actual === expected) pass++;
+  }
+  return { pass, total, last };
+}
+
 function runTest(def: TestDef, romBytes: Uint8Array, biosBytes: Uint8Array | null): RunResult {
+  // The Video category is self-checking (Actual vs Expected reference) — run
+  // the dedicated 7-sub-test comparison instead of the generic single-capture
+  // flow, and report it as a {pass,total} count.
+  if (def.id === "mgba-suite-video") {
+    const t0 = performance.now();
+    const { pass, total, last } = runVideoComparison(romBytes, biosBytes);
+    last.mem.ppu.renderFrame();
+    const fb = last.framebuffer;
+    const stats = summariseFrame(fb);
+    return {
+      framesRun: 0,
+      completedAt: 0,
+      error: null,
+      errorAtFrame: 0,
+      finalPc: 0,
+      cpsr: 0,
+      nonBlackPixels: stats.nonBlackPixels,
+      distinctColours: stats.distinctColours,
+      bgr555Hash: bgr555HashOf(fb),
+      rgbaSha1: "",
+      dispcnt: last.mem.ppu.dispcnt,
+      vcount: last.mem.ppu.vcount,
+      elapsedSec: (performance.now() - t0) / 1000,
+      r12: 0,
+      textDrawn: false,
+      subtestPass: pass,
+      subtestTotal: total
+    };
+  }
+
   const gba = new Gba(romBytes, biosBytes ?? undefined);
 
   /** Effective input mask for a given frame: OR of every event whose
@@ -1005,8 +1095,9 @@ function runTest(def: TestDef, romBytes: Uint8Array, biosBytes: Uint8Array | nul
   // results struct in IWRAM. Found by scanning for the stable pass/total
   // pair after the category settles (slots are 8 bytes apart around the
   // already-validated dma slot 0x03002e9c / memory slot 0x030032b8).
-  // Only video stays 0 (no counter — the nav stops on the video submenu) →
-  // golden hash. sio-timing IS counter-scored (0x030032e4, an all-fail 0/4).
+  // Video stays 0 here — it has no IWRAM tally; runTest dispatches it to
+  // runVideoComparison (Actual-vs-Expected per sub-test) instead. sio-timing
+  // IS counter-scored (0x030032e4, an all-fail 0/4).
   const MGBA_COUNTER_ADDRS: Record<string, number> = {
     "mgba-suite-memory": 0x030032b8,
     "mgba-suite-io-read": 0x03002ea4,
