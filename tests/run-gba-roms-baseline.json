@@ -12,25 +12,32 @@
     "hash": "f4c0fe5cebba30e254f1d86abc3329915b47305cf9a5a80cb10e9d42d6ab8194"
   },
   "jsmolka-arm": {
-    "kind": "r12pass"
+    "kind": "hash",
+    "hash": "59ce42abae9825c2d2579c5cd838e47d88be917e37ea36ff162d46fc5d0991e3"
   },
   "jsmolka-bios": {
-    "kind": "r12pass"
+    "kind": "hash",
+    "hash": "59ce42abae9825c2d2579c5cd838e47d88be917e37ea36ff162d46fc5d0991e3"
   },
   "jsmolka-flash128": {
-    "kind": "r12pass"
+    "kind": "hash",
+    "hash": "59ce42abae9825c2d2579c5cd838e47d88be917e37ea36ff162d46fc5d0991e3"
   },
   "jsmolka-flash64": {
-    "kind": "r12pass"
+    "kind": "hash",
+    "hash": "59ce42abae9825c2d2579c5cd838e47d88be917e37ea36ff162d46fc5d0991e3"
   },
   "jsmolka-memory": {
-    "kind": "r12pass"
+    "kind": "hash",
+    "hash": "59ce42abae9825c2d2579c5cd838e47d88be917e37ea36ff162d46fc5d0991e3"
   },
   "jsmolka-nes": {
-    "kind": "r12pass"
+    "kind": "hash",
+    "hash": "59ce42abae9825c2d2579c5cd838e47d88be917e37ea36ff162d46fc5d0991e3"
   },
   "jsmolka-ppu-hello": {
-    "kind": "r12pass"
+    "kind": "hash",
+    "hash": "56cd131fb3915fe7e410be228a8c09e99132064799f148583636ca75745bedf7"
   },
   "jsmolka-ppu-shades": {
     "kind": "hash",
@@ -41,16 +48,20 @@
     "hash": "4600c4f2749300b40f34dea969165d4d08d652543620076fb5cae249426f238d"
   },
   "jsmolka-save-none": {
-    "kind": "r12pass"
+    "kind": "hash",
+    "hash": "59ce42abae9825c2d2579c5cd838e47d88be917e37ea36ff162d46fc5d0991e3"
   },
   "jsmolka-sram": {
-    "kind": "r12pass"
+    "kind": "hash",
+    "hash": "59ce42abae9825c2d2579c5cd838e47d88be917e37ea36ff162d46fc5d0991e3"
   },
   "jsmolka-thumb": {
-    "kind": "r12pass"
+    "kind": "hash",
+    "hash": "59ce42abae9825c2d2579c5cd838e47d88be917e37ea36ff162d46fc5d0991e3"
   },
   "jsmolka-unsafe": {
-    "kind": "r12pass"
+    "kind": "hash",
+    "hash": "59ce42abae9825c2d2579c5cd838e47d88be917e37ea36ff162d46fc5d0991e3"
   },
   "mgba-suite-bios-math": {
     "kind": "count",

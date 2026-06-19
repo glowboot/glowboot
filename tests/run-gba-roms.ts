@@ -4,16 +4,21 @@
  * We run four upstream suites and grade each test against numbers the
  * ROM reports about ITSELF — no external reference hashes. The verdict
  * comes from one of three signatures: a per-test pass/total counter
- * read from IWRAM, jsmolka's r12 (= last failed sub-test, 0 on pass),
- * or — for visual-only tests with no in-ROM counter — a golden hash
- * over the framebuffer we previously baselined and re-bless on
- * verified accuracy improvements.
+ * read from IWRAM, jsmolka's r12 (the fail number its math tests stash
+ * there), or a golden hash over the framebuffer we previously baselined
+ * and re-bless on verified accuracy improvements — the hash covers both
+ * the visual-only tests and jsmolka's CPU suites, whose "All tests
+ * passed" result screen differs from any "Failed test N".
  *
  * Suites (auto-fetched on first run, SHA256-verified, pinned commits):
  *
- *   jsmolka     13 tests — ARM/Thumb/BIOS/memory/save/NES/PPU. r12 = 0
- *               means all sub-tests passed; r12 = N means sub-test N
- *               failed. The PPU sub-tests are visual (golden hash).
+ *   jsmolka     13 tests — ARM/Thumb/BIOS/memory/save/NES/PPU. The CPU
+ *               suites self-report on screen ("All tests passed" vs
+ *               "Failed test N") and are validated by the result-screen
+ *               hash; the math tests additionally stash a fail number in
+ *               r12. PPU sub-tests are visual (golden hash). NOTE: the
+ *               failed-test register is NOT uniform — the CPU suites use
+ *               r7, the math tests r12 — so only the screen is reliable.
  *   fuzzarm      3 tests — randomized ARM/Thumb fuzzing. Visual pass
  *               screen → golden hash.
  *   mgba-suite  14 tests — endrift's suite (menu-navigated). 12 of the
@@ -29,8 +34,9 @@
  * Scoring — each run is reduced to a Signature, compared to its entry in
  * the committed BASELINE (tests/run-gba-roms-baseline.json):
  *   • count   — IWRAM pass/total tally (counter tests)
- *   • r12pass / r12fail #N — jsmolka CPU pass/fail
- *   • hash    — golden BGR555 framebuffer hash (visual-only tests)
+ *   • r12fail #N — jsmolka math-test failure number
+ *   • hash    — golden BGR555 framebuffer hash (visual-only tests +
+ *               jsmolka CPU result screens)
  * Verdicts: pass / improve / regress / fail (known-bad) / changed / new.
  * The run exits non-zero on regress, changed, crash, or unimpl. After a
  * real, verified accuracy change, re-record the baseline with `--bless`.
@@ -703,7 +709,8 @@ const TESTS: readonly TestDef[] = [
 // Every test self-reports from ROM state — we don't compare against any
 // external reference set, only the local committed baseline:
 //   • counter tests (mgba-suite + nba-hw-test): IWRAM pass/total tally
-//   • jsmolka / CPU tests: r12 (0 = all passed; N = sub-test N failed)
+//   • jsmolka CPU tests: golden hash of the result screen ("All tests
+//     passed" vs "Failed test N"); math tests also stash r12 on failure
 //   • visual-only tests with no counter (fuzzarm, mgba video / sio-timing):
 //     a golden BGR555 framebuffer hash
 // Each result is compared to its BASELINE entry; the run FAILS (exit 1) on
@@ -713,7 +720,6 @@ const TESTS: readonly TestDef[] = [
 
 type Signature =
   | { kind: "count"; pass: number; total: number }
-  | { kind: "r12pass" }
   | { kind: "r12fail"; test: number }
   | { kind: "hash"; hash: string };
 
@@ -739,15 +745,18 @@ function writeBaseline(b: Record<string, Signature>): void {
 }
 
 /** Reduce a run to its self-reported signature (see BASELINE comment).
- *  r12 is only meaningful for jsmolka (its pass/fail convention); other
- *  suites can leave junk in r12, so they fall through to counter-or-hash. */
+ *  jsmolka has no single pass/fail register — the math tests stash the
+ *  result in r12, but the CPU-instruction suites put the failed sub-test
+ *  number in r7 (and arm even reuses r7 as a scratch pointer). So r12 only
+ *  catches the math-style failures; everything else is validated by the
+ *  golden framebuffer hash of the result screen ("All tests passed" vs
+ *  "Failed test N" render differently), which is the actual ground truth. */
 function signatureOf(test: TestDef, r: RunResult): Signature {
   if (r.subtestPass !== null && r.subtestTotal !== null) {
     return { kind: "count", pass: r.subtestPass, total: r.subtestTotal };
   }
-  if (test.suite === "jsmolka") {
-    if (r.r12 !== 0) return { kind: "r12fail", test: r.r12 };
-    if (r.textDrawn) return { kind: "r12pass" };
+  if (test.suite === "jsmolka" && r.r12 !== 0) {
+    return { kind: "r12fail", test: r.r12 };
   }
   return { kind: "hash", hash: r.bgr555Hash };
 }
@@ -1158,8 +1167,6 @@ function describeSig(s: Signature): string {
   switch (s.kind) {
     case "count":
       return `${s.pass}/${s.total}`;
-    case "r12pass":
-      return "r12=0";
     case "r12fail":
       return `fail #${s.test}`;
     case "hash":
@@ -1181,12 +1188,7 @@ function verdictFor(test: TestDef, r: RunResult, base: Signature | undefined): R
     if (sig.pass > base.pass) return { verdict: "improve", detail: `${sig.pass}/${sig.total} (was ${base.pass})` };
     return { verdict: "pass", detail: `${sig.pass}/${sig.total}` };
   }
-  if (base.kind === "r12pass") {
-    if (sig.kind === "r12pass") return { verdict: "pass", detail: "r12=0" };
-    return { verdict: "regress", detail: describeSig(sig) };
-  }
   if (base.kind === "r12fail") {
-    if (sig.kind === "r12pass") return { verdict: "improve", detail: `r12=0 (was fail #${base.test})` };
     if (sig.kind === "r12fail" && sig.test === base.test) return { verdict: "fail", detail: `#${sig.test} (known)` };
     return { verdict: "changed", detail: describeSig(sig) };
   }
