@@ -96,8 +96,10 @@ export function stepArm(regs: ArmRegisters, bus: MemoryBus, cpu?: ArmCpu, prefet
           // — designed to exercise each m bucket.
           if (cpu !== undefined) {
             const rs = regs.r[(instr >>> 8) & 0xf]! | 0;
-            const m = multiplyMCycles(rs);
             const isLong = ((instr >>> 23) & 1) === 1;
+            // Bit 22 = U (signed) for the long variants; UMULL/UMLAL
+            // (long, U=0) scan unsigned. MUL/MLA (not long) are signed.
+            const m = multiplyMCycles(rs, !isLong || ((instr >>> 22) & 1) === 1);
             const isAcc = ((instr >>> 21) & 1) === 1;
             cpu.lastCycles = 1 + m + (isAcc ? 1 : 0) + (isLong ? 1 : 0);
           }
@@ -708,16 +710,18 @@ function executeHalfwordTransfer(regs: ArmRegisters, bus: MemoryBus, instr: numb
  *  m = 1 if Rs[31:8]  is all 0 or all 1
  *  m = 2 if Rs[31:16] is all 0 or all 1
  *  m = 3 if Rs[31:24] is all 0 or all 1
- *  m = 4 otherwise. The signed and unsigned variants use the same
- *  formula — the booth recoder collapses runs of 0s OR 1s in either
- *  direction. Exported so the Thumb MUL path can use the same shape. */
-export function multiplyMCycles(rs: number): number {
+ *  m = 4 otherwise. The all-ones early-out (`0xffffff` / `0xffff` /
+ *  `0xff`) is SIGNED ONLY — UMULL/UMLAL multiply unsigned, so the
+ *  booth recoder only collapses runs of leading 0s, not 1s. (MUL/MLA
+ *  and SMULL/SMLAL are signed.) Exported so the Thumb MUL path (always
+ *  signed) can use the same shape. */
+export function multiplyMCycles(rs: number, isSigned = true): number {
   const high24 = (rs >>> 8) & 0xffffff;
-  if (high24 === 0 || high24 === 0xffffff) return 1;
+  if (high24 === 0 || (isSigned && high24 === 0xffffff)) return 1;
   const high16 = (rs >>> 16) & 0xffff;
-  if (high16 === 0 || high16 === 0xffff) return 2;
+  if (high16 === 0 || (isSigned && high16 === 0xffff)) return 2;
   const high8 = (rs >>> 24) & 0xff;
-  if (high8 === 0 || high8 === 0xff) return 3;
+  if (high8 === 0 || (isSigned && high8 === 0xff)) return 3;
   return 4;
 }
 
