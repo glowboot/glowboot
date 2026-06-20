@@ -232,3 +232,40 @@ describe("MappedBus + Timer wiring", () => {
     expect(mem.apu.fifoA.fill).toBe(3); // one sample popped
   });
 });
+
+describe("Timer — master-clock wrap past 2^31", () => {
+  it("keeps ticking Direct Sound through the signed-32-bit clock wrap", () => {
+    const ic = new InterruptController();
+    const apu = new Apu();
+    let overflows = 0;
+    const pop = apu.onTimerOverflow.bind(apu);
+    apu.onTimerOverflow = (i: 0 | 1) => {
+      overflows++;
+      pop(i);
+    };
+    const timer = new Timer(ic, apu);
+    // Timer 0, reload 0, prescaler 1 → overflows every 0x10000 cycles and
+    // pops a Direct Sound FIFO sample each time.
+    timer.write16(0x00, 0x0000);
+    timer.write16(0x02, 0xc0); // enable | IRQ | prescaler ÷1
+
+    // Walk the master clock across a full signed-32-bit cycle (2^32 cycles
+    // ≈ 256 s of play), exactly as runFrame does — bus.now is masked with
+    // `| 0`, so it crosses +2^31 into the negative half and wraps back to
+    // 0. The buggy build read the negative half as "unsynced" and stopped
+    // ticking there, halving the overflow count and silencing audio for
+    // ~128 s of every 256 s.
+    let now = 0;
+    timer.advanceTo(now); // initial sync
+    const STEP = 0x10_0000;
+    const STEPS = 0x1000; // STEP * STEPS = 2^32 cycles
+    for (let i = 0; i < STEPS; i++) {
+      now = (now + STEP) | 0;
+      timer.advanceTo(now);
+    }
+
+    // 2^32 / 0x10000 = 65536 expected overflows; the slack covers the
+    // enable delay + start phase. The buggy build yields only ~32768.
+    expect(overflows).toBeGreaterThan(60000);
+  });
+});
