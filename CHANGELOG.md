@@ -5,6 +5,19 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Game Boy Advance audio no longer cuts out after about two minutes.** A
+  timer regression in 1.5.0's unified-clock rework tied the timer's
+  "is it synced yet?" check to the sign of the master-clock counter — which
+  legitimately goes negative once the clock passes 2^31 ticks (~128 seconds
+  of play). The timer then stopped advancing for every other ~128-second
+  window, freezing the Direct Sound FIFOs and silencing music and effects
+  until the counter wrapped back around. Audio now plays continuously through
+  arbitrarily long sessions.
+
 ## [1.5.0] — 2026-06-19
 
 ### Added

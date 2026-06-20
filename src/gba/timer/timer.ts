@@ -107,9 +107,16 @@ export class Timer extends BaseIoHandler {
   /** Master-clock value (bus.now) this timer has been advanced to. The
    *  timer is clock-derived: it never advances on its own, only when
    *  `advanceTo` pushes it to a `now`. Tracks bus.now so a mid-instruction
-   *  read samples the exact cycle. -1 = unsynced (first advanceTo rebases
-   *  rather than ticking a bogus delta, e.g. right after deserialize). */
-  private clock = -1;
+   *  read samples the exact cycle. */
+  private clock = 0;
+  /** Whether {@link clock} holds a real sample yet. Kept separate from the
+   *  clock VALUE rather than reusing a negative sentinel: `clock` is
+   *  `bus.now | 0`, which legitimately goes negative once the master clock
+   *  passes 2^31 (~128 s of play), so its sign cannot also mean "unsynced".
+   *  It did, and that froze the timer — and with it Direct Sound — for every
+   *  other 128 s window. `false` after construction / deserialize so the
+   *  next advanceTo rebases instead of ticking a bogus delta. */
+  private synced = false;
   /** Absolute master-clock value of the next event the runFrame loop must
    *  observe the timer at (soonest overflow, or a deferred-write apply).
    *  `runFrame` skips the per-step advanceTo until bus.now reaches this —
@@ -131,7 +138,7 @@ export class Timer extends BaseIoHandler {
    *  reliable even when no timer is enabled (a genuinely idle 64 s gap
    *  re-arms with a harmless no-op advanceTo). */
   private armNextEvent(): void {
-    if (this.clock < 0) {
+    if (!this.synced) {
       this.nextEventClock = 0x7fffffff;
       return;
     }
@@ -154,7 +161,8 @@ export class Timer extends BaseIoHandler {
    *  stale read the nba-hw-test timer suite expects — while two reads bracketing a
    *  loop still diff to the exact elapsed cycles mgba-suite-timing wants. */
   advanceTo(now: number): void {
-    if (this.clock < 0) {
+    if (!this.synced) {
+      this.synced = true;
       this.clock = now | 0;
       this.armNextEvent();
       return;
@@ -274,7 +282,9 @@ export class Timer extends BaseIoHandler {
       // 8b/10b = prescaler 256/1024) whose first overflow lands up to a full
       // tick off when the phase modulus is wrong.
       const prescaler = PRESCALERS[ch.control & CNT_PRESCALER_MASK]!;
-      if (this.clock >= 0 && prescaler > 1) ch.prescalerSubticks = this.clock % prescaler;
+      // `clock` can be negative (master clock past 2^31), so fold the
+      // modulus back into a non-negative prescaler phase.
+      if (this.synced && prescaler > 1) ch.prescalerSubticks = ((this.clock % prescaler) + prescaler) % prescaler;
     }
   }
 
@@ -444,6 +454,6 @@ export class Timer extends BaseIoHandler {
     // Rebase the master-clock reference: the next advanceTo re-anchors to
     // the live bus.now rather than ticking a bogus delta against a clock
     // value from the saving run.
-    this.clock = -1;
+    this.synced = false;
   }
 }
