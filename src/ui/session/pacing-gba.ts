@@ -37,6 +37,16 @@ export function nextFrameBudget(
   // slow-mo to silently halve the catch-up budget.
   const cap = maxCatchupFrames * Math.max(1, speedMultiplier);
   let toRun = Math.floor(accumulated);
-  if (toRun > cap) toRun = cap;
-  return { toRun, newDebt: accumulated - toRun };
+  let newDebt = accumulated - toRun;
+  if (toRun > cap) {
+    // Stall recovery (tab backgrounded so rAF paused, breakpoint, a long
+    // GC): run the cap and DROP the backlog instead of carrying it as
+    // debt. Carrying it replays the entire hidden gap as a sustained
+    // multi-second burst at the cap rate after refocus — the game runs
+    // ~4× too fast and the heavy per-tick work collapses the render rate.
+    // The GB pacer avoids this by clamping its accumulator; mirror that.
+    toRun = cap;
+    newDebt = 0;
+  }
+  return { toRun, newDebt };
 }
