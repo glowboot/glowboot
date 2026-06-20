@@ -5,7 +5,7 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.1] — 2026-06-20
 
 ### Fixed
 
@@ -17,6 +17,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   window, freezing the Direct Sound FIFOs and silencing music and effects
   until the counter wrapped back around. Audio now plays continuously through
   arbitrarily long sessions.
+- **Returning to a backgrounded tab no longer fast-forwards the Game Boy
+  Advance.** While a tab is hidden the browser pauses the animation loop; on
+  return the GBA pacer replayed the entire hidden gap as a sustained catch-up
+  burst — the game (and its music) ran several times too fast and the frame
+  rate collapsed to ~20 FPS until it caught up. The pacer now drops the
+  backlog after a stall, the way the Game Boy pacer already did, so refocus
+  snaps straight back to normal speed.
 
 ## [1.5.0] — 2026-06-19
 
