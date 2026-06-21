@@ -363,7 +363,12 @@ export class Sio extends BaseIoHandler {
         if ((newMode === "N8" || newMode === "N32") && !wasBusy && (v & SIOCNT_BUSY) !== 0 && (v & 0x0001) !== 0) {
           this.pendingSerial32 = newMode === "N32";
           const cyclesPerBit = (v & 0x0002) !== 0 ? 8 : 64; // SIOCNT bit 1: 2 MHz vs 256 KHz
-          this.pendingSerialCycles = cyclesPerBit * (newMode === "N32" ? 32 : 8);
+          // A Normal-mode transfer also pays a fixed ~19-cycle overhead beyond
+          // the per-bit shifting (internal-clock sync + shift-register load +
+          // BUSY-clear latency), independent of bit count and baud — pinned by
+          // mgba-suite-sio-timing, which measures the same +19 across all four
+          // Normal8/32 × 256k/2M configs.
+          this.pendingSerialCycles = cyclesPerBit * (newMode === "N32" ? 32 : 8) + 19;
         }
         return;
       }
