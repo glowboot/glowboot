@@ -50,6 +50,18 @@ const NINTENDO_BIOS_CHECKSUM = 0xbaae187f | 0;
  *  approximation below on every HLE SWI hit keeps the cart's
  *  IRQ/timer state in step with what real BIOS would produce. */
 const SWI_DISPATCH_CYCLES = 25;
+/** CpuSet's BIOS routine is far heavier than the bare dispatch — register
+ *  validation, the mode/loop setup, and a slow LDRH/STRH (or LDM/STM) body.
+ *  nba-hw-test haltcnt's TIME-IWRAM probe (a count-1 CpuSet measured to the
+ *  cycle, IWRAM-resident so no cart-fetch noise) pins the per-call overhead
+ *  at this on top of the dispatch. */
+const CPUSET_SWI_OVERHEAD = 77;
+
+/** Exception-entry/return overhead charged on top of the per-input work
+ *  of the iterative math SWIs (Sqrt, ArcTan) so their measured cost lands
+ *  on the mgba-suite timing expecteds. Div folds the same constant into
+ *  its inline `31` (= 11 BIOS-routine base + 20 entry overhead). */
+const SWI_MATH_OVERHEAD = 20;
 
 /** Diagnostic hook fired around every handled SWI dispatch. Off by
  *  default — `setSwiTraceHook(fn)` enables, `setSwiTraceHook(null)`
@@ -115,6 +127,35 @@ export function dispatchSwi(
     r3In = regs.r[3]! | 0;
   }
   const handled = dispatchSwiInner(swiNumber, regs, bus, cpu, interrupts);
+  // A real SWI returns via `movs pc, lr`, refilling the 3-stage pipeline
+  // from the CALLER's memory region. Our HLE returns inline (linear PC
+  // advance) so the step loop never charges that refill. The IWRAM
+  // baseline is already folded into SWI_DISPATCH_CYCLES (IWRAM SWI timing
+  // cells pass), so charge only the EXTRA a slower caller region pays
+  // over IWRAM — zero for IWRAM callers, the wait-stated refill delta for
+  // EWRAM / ROM. Skip the suspending SWIs (SoftReset/Halt/Stop/IntrWait/
+  // VBlankIntrWait) — their refill happens whenever they eventually wake,
+  // not at dispatch.
+  const n = swiNumber & 0xff;
+  if (handled && n !== 0x00 && n !== 0x02 && n !== 0x03 && n !== 0x04 && n !== 0x05) {
+    const isThumb = (regs.cpsr & CPSR_T) !== 0;
+    // cacheMissCost models a 3-fetch refill; the SWI-return refill bills one
+    // sequential fetch fewer for an ARM (32-bit) caller. That fetch costs
+    // one `wsS` at the caller region (the 16-bit seq-access cost, recoverable
+    // as branchReloadCost/2); subtracting it lands the prefetch-OFF ROM and
+    // EWRAM cells exactly across every WAITCNT config (incl. the S=1 ones).
+    const returnPc = regs.r[15]! | 0;
+    const armAdj = isThumb ? 0 : bus.branchReloadCost(returnPc, 16) / 2;
+    const extra = bus.cacheMissCost(returnPc, isThumb) - bus.cacheMissCost(0x03000000, isThumb) - armAdj;
+    if (extra > 0) bus.accessCycles += extra;
+    // The BIOS routine ran non-fetch bus cycles, so the post-SWI opcode
+    // fetch is non-sequential (the same rule as a multiply's internal
+    // cycles). Charged via accessCycles, not chargeAccess, so set the break
+    // explicitly. The exception also drains the game-pak prefetch buffer, so
+    // a prefetch-ON caller's next fetch is a miss, not a buffered hit.
+    bus.flushPrefetchFifo();
+    bus.internalCyclesSinceLastFetch = true;
+  }
   // Real BIOS leaves its open-bus latch holding GBATEK's "after SWI"
   // value (the word prefetched while the SWI epilogue ran) on every
   // SWI return — carts and mgba-suite memory's "BIOS load" rows read
@@ -177,7 +218,7 @@ function dispatchSwiInner(
       biosArcTan2(regs, bus);
       return true;
     case 0x0b:
-      biosCpuSet(regs, bus);
+      biosCpuSet(regs, bus, cpu);
       return true;
     case 0x0c:
       biosCpuFastSet(regs, bus);
@@ -406,11 +447,18 @@ function biosDiv(regs: ArmRegisters, bus: MemoryBus): void {
   regs.r[0] = quot;
   regs.r[1] = rem;
   regs.r[3] = Math.abs(quot) | 0;
-  // Real BIOS cost: 4 (prologue) + 13 * loops + 7 (epilogue). `loops`
-  // is the bit-width difference of the inputs, ≤32. Approximate as a
-  // fixed mid-range cost — the cart can't observe the exact value,
-  // only the total IRQ/timer drift over many calls.
-  bus.accessCycles += SWI_DISPATCH_CYCLES + 100;
+  bus.accessCycles += divCycles(num, den);
+}
+
+/** Real BIOS Div is a restoring shift-subtract loop: its cost scales with
+ *  the bit-width gap between the (absolute) operands — ~13 cycles per loop
+ *  plus a fixed prologue/epilogue, pinned by the mgba-suite timing
+ *  expecteds (0x12345678/0xFF measures 338 from IWRAM,
+ *  0xFF/0x12345678 measures 78). The cart observes this as IRQ/timer drift
+ *  over a division-heavy loop, so a flat approximation accumulates error. */
+function divCycles(num: number, den: number): number {
+  const loops = Math.max(1, Math.clz32(Math.abs(den)) - Math.clz32(Math.abs(num)));
+  return SWI_DISPATCH_CYCLES + 31 + 13 * loops;
 }
 
 /** SWI 0x07 — DivArm(r0=denominator, r1=numerator). Same outputs as
@@ -433,25 +481,33 @@ function biosSqrt(regs: ArmRegisters, bus: MemoryBus): void {
   const x = regs.r[0]! >>> 0;
   if (x === 0) {
     regs.r[0] = 0;
-    bus.accessCycles += SWI_DISPATCH_CYCLES + 40;
+    // Zero input takes a fixed early exit in the real BIOS routine.
+    bus.accessCycles += SWI_DISPATCH_CYCLES + SWI_MATH_OVERHEAD + 53;
     return;
   }
+  // `cyc` mirrors the real BIOS's per-iteration cost so a sqrt-heavy
+  // cart loop drifts the timer/IRQ phase the same way hardware does.
+  let cyc = 15;
   let upper = x;
   let bound = 1;
   while (bound < upper) {
     upper = upper >>> 1;
     bound = (bound << 1) >>> 0;
+    cyc += 6;
   }
   for (;;) {
+    cyc += 6;
     upper = x;
     let accum = 0;
     let lower = bound;
     for (;;) {
+      cyc += 5;
       const oldLower = lower;
       if (lower <= upper >>> 1) lower = (lower << 1) >>> 0;
       if (oldLower >= upper >>> 1) break;
     }
     for (;;) {
+      cyc += 8;
       accum = (accum << 1) >>> 0;
       if (upper >= lower) {
         accum = (accum + 1) >>> 0;
@@ -469,19 +525,47 @@ function biosSqrt(regs: ArmRegisters, bus: MemoryBus): void {
     }
   }
   regs.r[0] = bound | 0;
-  bus.accessCycles += SWI_DISPATCH_CYCLES + 40;
+  bus.accessCycles += SWI_DISPATCH_CYCLES + SWI_MATH_OVERHEAD + cyc;
 }
 
 /** SWI 0x09 — ArcTan(r0). Input: signed Q1.14 in r0. Output: signed
  *  Q1.14 result in r0, in the range (-pi/2, pi/2) = (-0x4000, 0x4000).
  *  The 16-bit result is sign-extended to 32 bits. */
 function biosArcTan(regs: ArmRegisters, bus: MemoryBus): void {
-  const r = arcTanPolynomial(regs.r[0]! | 0);
+  const i = regs.r[0]! | 0;
+  const r = arcTanPolynomial(i);
   regs.r[0] = r.value;
   regs.r[1] = r.a;
   regs.r[3] = r.b;
-  // Real BIOS cost: ~37 cycles base + 7 polynomial iterations.
-  bus.accessCycles += SWI_DISPATCH_CYCLES + 50;
+  bus.accessCycles += SWI_DISPATCH_CYCLES + SWI_MATH_OVERHEAD + arcTanCycles(i);
+}
+
+/** Real BIOS ArcTan cost: a 37-cycle base plus one multiply-stall per
+ *  polynomial term, where each multiply's cost depends on how many
+ *  high bytes of the operand are all-0 or all-1 (the ARM7 booth
+ *  multiplier's early-out), so a trig-heavy cart drifts its timer
+ *  phase like hardware. */
+function arcTanCycles(i: number): number {
+  let cyc = 37 + mulWait(Math.imul(i, i));
+  const a = -(Math.imul(i, i) >> 14) | 0;
+  cyc += mulWait(Math.imul(0xa9, a));
+  let b = (Math.imul(0xa9, a) >> 14) + 0x390;
+  for (const k of [0x91c, 0xfb6, 0x16aa, 0x2081, 0x3651]) {
+    cyc += mulWait(Math.imul(b, a));
+    b = (Math.imul(b, a) >> 14) + k;
+  }
+  cyc += mulWait(Math.imul(b, a));
+  return cyc;
+}
+
+/** ARM7TDMI multiply-cycle count: 1–4 internal cycles depending on the
+ *  number of leading all-0 / all-1 bytes in the multiplier operand. */
+function mulWait(r: number): number {
+  r = r | 0;
+  if ((r & 0xffffff00) === (0xffffff00 | 0) || !(r & 0xffffff00)) return 1;
+  if ((r & 0xffff0000) === (0xffff0000 | 0) || !(r & 0xffff0000)) return 2;
+  if ((r & 0xff000000) === (0xff000000 | 0) || !(r & 0xff000000)) return 3;
+  return 4;
 }
 
 /** The exact 7-term polynomial the real BIOS ArcTan runs, including
@@ -584,6 +668,13 @@ function biosMidiKey2Freq(regs: ArmRegisters, bus: MemoryBus): void {
 const CPUSET_FILL = 1 << 24;
 const CPUSET_WORD = 1 << 26;
 
+/** CpuFastSet loop overhead, charged ON TOP of the data accesses the copy
+ *  loop already books through read32/write32. `_BURST_` is the per-8-word
+ *  ldmia/stmia/subs/bne iteration cost (instruction fetch + branch refill +
+ *  ldmia internal cycle); `_ENTRY_` is the one-time SWI prologue/epilogue. */
+const CPUFASTSET_BURST_CYCLES = 7;
+const CPUFASTSET_ENTRY_CYCLES = 68;
+
 /** Model the effective LDRH-then-STRH halfword the real BIOS CpuSet
  *  loop writes for an unaligned src. ARM7TDMI LDRH at an odd address
  *  loads the aligned halfword and ROR-8s its zero-extended 32-bit
@@ -621,7 +712,17 @@ function ldrhStorePayload(bus: MemoryBus, addr: number): number {
  *  Cycle cost: BIOS uses an LDRH/STRH loop (halfword) or LDM/STM
  *  (word) — roughly 6 cycles per halfword or per word, plus
  *  per-call dispatch overhead. */
-function biosCpuSet(regs: ArmRegisters, bus: MemoryBus): void {
+function biosCpuSet(regs: ArmRegisters, bus: MemoryBus, cpu: ArmCpu): void {
+  // The real BIOS runs the SWI body with IME=1 (verified by watching the
+  // Nintendo BIOS bracket SWIs with IME=1/IME=0). Carts exploit this by
+  // CpuSet-ing a zero onto HALTCNT (0x4000300): that halt must observe the
+  // IME=1 the BIOS established, not the IME=0 the cart left — nba-hw-test
+  // haltcnt CPUSET expects the halt to WAIT, where a bare HALTCNT write
+  // (IME=0) resumes at once. Restored before returning so the caller's IME
+  // is untouched; the halt's `haltImeSnapshot` has already captured the 1.
+  const ic = cpu.interrupts;
+  const savedIme = ic !== null ? ic.ime : 0;
+  if (ic !== null) ic.ime = 1;
   const src = regs.r[0]! | 0;
   // Real BIOS validates the source pointer and refuses to copy from
   // below EWRAM (the protected BIOS region and the 0x01 unmapped gap)
@@ -629,6 +730,7 @@ function biosCpuSet(regs: ArmRegisters, bus: MemoryBus): void {
   // (out-of-bounds) load" swi rows read back the dst's prior zeros.
   if (src >>> 24 < 0x02) {
     bus.accessCycles += SWI_DISPATCH_CYCLES;
+    if (ic !== null) ic.ime = savedIme;
     return;
   }
   let dst = regs.r[1]! | 0;
@@ -653,7 +755,8 @@ function biosCpuSet(regs: ArmRegisters, bus: MemoryBus): void {
       dst = (dst + step) | 0;
     }
   }
-  bus.accessCycles += SWI_DISPATCH_CYCLES + 5 * count;
+  bus.accessCycles += SWI_DISPATCH_CYCLES + CPUSET_SWI_OVERHEAD + 5 * count;
+  if (ic !== null) ic.ime = savedIme;
 }
 
 /** SWI 0x0C — CpuFastSet(src=r0, dst=r1, control=r2).
@@ -668,12 +771,7 @@ function biosCpuSet(regs: ArmRegisters, bus: MemoryBus): void {
  *  copy mode, the fill value itself in fill mode) — real BIOS uses
  *  `LDMIA src!, {r2, r3, r4, r5, r6, r7, r8, lr}` so r3 gets the
  *  word at offset +4 within each burst; r2 is left at the input
- *  control word.
- *
- *  Cycle cost: BIOS uses LDM/STM with 8-word bursts — roughly 1.5
- *  cycles per word in IWRAM (1S + a bit of bookkeeping). The dispatch
- *  overhead is the same `SWI_DISPATCH_CYCLES` as every other handled
- *  SWI. */
+ *  control word. */
 function biosCpuFastSet(regs: ArmRegisters, bus: MemoryBus): void {
   const src = regs.r[0]! | 0;
   // Same source validation as CpuSet — real BIOS rejects src < EWRAM.
@@ -713,7 +811,14 @@ function biosCpuFastSet(regs: ArmRegisters, bus: MemoryBus): void {
   regs.r[0] = cur | 0;
   regs.r[1] = dst | 0;
   regs.r[3] = r3Residue | 0;
-  bus.accessCycles += SWI_DISPATCH_CYCLES + ((count * 3) >>> 2);
+  // The copy loop's read32/write32 already charged the real memory-access
+  // cycles (the bulk of the cost — e.g. 512×6 = 3072 for a 256-word
+  // EWRAM↔EWRAM copy). On top of that, charge the BIOS's per-burst loop
+  // overhead: each 8-word ldmia/stmia/subs/bne iteration costs ~7 cycles
+  // of instruction fetch + branch refill + the ldmia internal cycle, plus
+  // a one-time prologue/epilogue. Lands the mgba-suite CpuSet timing IWRAM
+  // cells (256-word copy = 3397 ARM / 3403 Thumb) exactly.
+  bus.accessCycles += SWI_DISPATCH_CYCLES + CPUFASTSET_ENTRY_CYCLES + CPUFASTSET_BURST_CYCLES * (count >>> 3);
 }
 
 // ─── Halt / IRQ wait ─────────────────────────────────────────────────
@@ -721,6 +826,7 @@ function biosCpuFastSet(regs: ArmRegisters, bus: MemoryBus): void {
 /** SWI 0x02 — Halt. Stops the CPU until any enabled IRQ fires. The
  *  step loop releases the halt when `(IE & IF) != 0`. */
 function biosHalt(cpu: ArmCpu): void {
+  cpu.haltImeSnapshot = (cpu.interrupts?.ime ?? 1) & 1;
   cpu.halted = true;
   cpu.intrWaitMask = 0;
 }

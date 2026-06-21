@@ -51,6 +51,10 @@ export interface MemoryBus {
    *  detect sequential vs non-sequential fetches. ArmCpu writes this
    *  on every step and resets it to -1 on prefetch invalidation. */
   lastInstrFetchAddr: number;
+  /** Set by ArmCpu after an instruction that spent internal cycles. Like a
+   *  data access, it makes the next code fetch non-sequential (consumed in
+   *  `fetchCycleCost`). */
+  internalCyclesSinceLastFetch: boolean;
   /** Unified bus clock in CPU cycles. The CPU advances it by each opcode
    *  fetch before executing (Cpu.step); the bus advances it per data access.
    *  Timer reads sample it directly. */
@@ -65,6 +69,15 @@ export interface MemoryBus {
    *  `chargeAccess`, so cacheMissCost is what folds the bus timing
    *  back in. */
   cacheMissCost(pc: number, isThumb: boolean): number;
+  /** Cost of the two pipeline-reload fetches a ROM/EWRAM branch performs
+   *  via the uncharged FIFO refill (internal regions front-load these via
+   *  `cacheMissCost`). 0 on buses without a wait-state model. */
+  branchReloadCost(addr: number, width: 16 | 32): number;
+  /** Whether `addr` is currently sitting in the game-pak prefetch buffer
+   *  (buffered or in-flight) — a short forward branch into it is satisfied
+   *  from the buffer, so it skips the pipeline-reload charge. Always false
+   *  on buses without a prefetcher. */
+  prefetchCovers(addr: number): boolean;
   /** Advance the prefetch-buffer countdown by `cycles` of elapsed
    *  internal (non-fetch) time. No-op on buses without a prefetcher. */
   tickPrefetch(cycles: number): void;
@@ -90,6 +103,7 @@ export class FlatBus implements MemoryBus {
   accessCycles = 0;
   /** FlatBus reports every fetch as 1 cycle and models no prefetch. */
   lastInstrFetchAddr = -1;
+  internalCyclesSinceLastFetch = false;
   now = 0;
 
   constructor(size = 0x10000) {
@@ -112,6 +126,14 @@ export class FlatBus implements MemoryBus {
     // 3 instruction fetches × 1 cycle each on a flat (no-wait-state)
     // bus. ARM costs 6 cycles (3 × 2 halfwords); Thumb costs 3.
     return isThumb ? 3 : 6;
+  }
+
+  branchReloadCost(): number {
+    return 0;
+  }
+
+  prefetchCovers(): boolean {
+    return false;
   }
 
   tickPrefetch(): void {}

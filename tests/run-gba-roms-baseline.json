@@ -110,7 +110,7 @@
   },
   "mgba-suite-sio-timing": {
     "kind": "count",
-    "pass": 0,
+    "pass": 4,
     "total": 4
   },
   "mgba-suite-timer-irq": {
@@ -125,7 +125,7 @@
   },
   "mgba-suite-timing": {
     "kind": "count",
-    "pass": 1251,
+    "pass": 1726,
     "total": 2020
   },
   "mgba-suite-video": {
@@ -160,7 +160,7 @@
   },
   "nba-haltcnt": {
     "kind": "count",
-    "pass": 1,
+    "pass": 3,
     "total": 6
   },
   "nba-irq-delay": {

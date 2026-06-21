@@ -162,6 +162,16 @@ interface LayerRowRef {
   row: Uint32Array;
 }
 
+/** Front-to-back order. Lower priority number sits in front; at equal
+ *  priority OBJ wins over BG (hardware tie-break); within BGs at equal
+ *  priority the lower BG index is on top. Module-level so the per-scanline
+ *  sort reuses one comparator rather than allocating a closure each line. */
+function compareLayers(a: LayerRowRef, b: LayerRowRef): number {
+  if (a.priority !== b.priority) return a.priority - b.priority;
+  if (a.kind !== b.kind) return a.kind === "OBJ" ? -1 : 1;
+  return a.index - b.index;
+}
+
 export class Ppu implements IoHandler {
   dispcnt = 0;
   dispstat = 0;
@@ -980,8 +990,13 @@ export class Ppu implements IoHandler {
       });
     }
 
-    // Append OBJ layers (already rendered above) in priority order so
-    // the front-to-back sort below picks them up alongside BG layers.
+    this.finishLine(y, layers, usedPriorities, maskRow);
+  }
+
+  /** Append the OBJ layers (in priority order) to the BG layers collected
+   *  for the scanline, sort the whole list front-to-back, and composite.
+   *  Shared tail of the tile-mode and bitmap-mode dispatchers. */
+  private finishLine(y: number, layers: LayerRowRef[], usedPriorities: number, maskRow: Uint8Array | null): void {
     if ((this.dispcnt & DISPCNT_OBJ_ENABLE) !== 0) {
       for (let p = 0; p < 4; p++) {
         if (usedPriorities & (1 << p)) {
@@ -996,16 +1011,7 @@ export class Ppu implements IoHandler {
         }
       }
     }
-
-    // Front-to-back sort. Lower priority number → in front.
-    // At equal priority, OBJ wins over BG (per hardware tie-break).
-    // Within BGs at equal priority, lower BG index sits on top.
-    layers.sort((a, b) => {
-      if (a.priority !== b.priority) return a.priority - b.priority;
-      if (a.kind !== b.kind) return a.kind === "OBJ" ? -1 : 1;
-      return a.index - b.index;
-    });
-
+    layers.sort(compareLayers);
     this.composeLine(y, layers, maskRow);
   }
 
@@ -1201,26 +1207,7 @@ export class Ppu implements IoHandler {
       this.renderBitmapRow(y, mode, row);
       layers.push({ kind: "BG", priority: this.bgcnt[2]! & 0x3, index: 2, layerEnum: LAYER_BG0 + 2, winBit: 2, row });
     }
-    if ((this.dispcnt & DISPCNT_OBJ_ENABLE) !== 0) {
-      for (let p = 0; p < 4; p++) {
-        if (usedPriorities & (1 << p)) {
-          layers.push({
-            kind: "OBJ",
-            priority: p,
-            index: 0,
-            layerEnum: LAYER_OBJ,
-            winBit: 4,
-            row: this.getObjRowUnsafe(p)
-          });
-        }
-      }
-    }
-    layers.sort((a, b) => {
-      if (a.priority !== b.priority) return a.priority - b.priority;
-      if (a.kind !== b.kind) return a.kind === "OBJ" ? -1 : 1;
-      return a.index - b.index;
-    });
-    this.composeLine(y, layers, maskRow);
+    this.finishLine(y, layers, usedPriorities, maskRow);
   }
 
   /** Render one scanline of the active bitmap mode into `row` as RGBA,

@@ -285,7 +285,10 @@ export class MappedBus implements MemoryBus {
    *  non-sequential on ARM7 even though PC advanced linearly. Set in
    *  chargeAccess, consumed by fetchCycleCost. */
   private dataSinceLastFetch = false;
-  private dataBreakNow = false;
+  /** Set by ArmCpu after an instruction that spent internal cycles
+   *  (multiply / load / shifted-ALU / SWI). Like a data access, it makes
+   *  the next code fetch non-sequential — consumed in `fetchCycleCost`. */
+  internalCyclesSinceLastFetch = false;
   /** Last instruction-fetch address used by `fetchCycleCost` to detect
    *  sequential vs non-sequential cart fetches. ArmCpu invalidates
    *  this (to -1) whenever the prefetch FIFO is flushed (branches,
@@ -369,14 +372,15 @@ export class MappedBus implements MemoryBus {
    *  halfword cost gets cached for subsequent fill-credit conversion. */
   fetchCycleCost(addr: number, width: 16 | 32): number {
     const region = (addr >>> 24) & 0xf;
-    // A data access breaks the opcode fetch happening 2 instructions ahead in
-    // the 3-stage pipeline (the executing instruction was already fetched), so
-    // the break surfaces one fetch LATER than the data access — delay it by a
-    // single-stage shift. (str→END: END is 1 ahead, not broken → S; str→mul→END:
-    // END is 2 ahead, broken → N. Matches the suite's calibration vs multiply.)
-    const brokeStream = this.dataBreakNow;
-    this.dataBreakNow = this.dataSinceLastFetch;
+    // A code fetch is sequential only if the PREVIOUS bus cycle was a
+    // sequential fetch. Both a data access AND an instruction's internal
+    // cycles break that: each makes the immediately-following fetch
+    // non-sequential. (Modelling only the data break — and faking the
+    // internal-cycle break for multiply via a one-fetch shift — mis-places
+    // the break onto the trailing fetch of zero-I-cycle sequences.)
+    const brokeStream = this.dataSinceLastFetch || this.internalCyclesSinceLastFetch;
     this.dataSinceLastFetch = false;
+    this.internalCyclesSinceLastFetch = false;
     const halfwordsNeeded = width >>> 4; // 1 for Thumb, 2 for ARM
     // Internal / SRAM code: no Game-Pak prefetch buffer. EWRAM sits on a
     // 16-bit 3-wait bus (Thumb 3 / ARM 6); IWRAM/BIOS/IO are 1-cycle.
@@ -442,12 +446,10 @@ export class MappedBus implements MemoryBus {
   }
 
   /** A cart-bus data access (or leaving ROM execution) halts the prefetch
-   *  unit. Hardware applies a 1-cycle penalty if the unit was finishing a
-   *  halfword — returned so the caller can add it to the data access. */
-  private stopPrefetch(): number {
-    if (!this.pfActive) return 0;
+   *  unit. The hardware's 1-cycle penalty for stopping mid-halfword is not
+   *  modelled. */
+  private stopPrefetch(): void {
     this.pfActive = false;
-    return 0;
   }
 
   /** Drain the prefetch buffer — call this on any non-linear PC change
@@ -455,9 +457,10 @@ export class MappedBus implements MemoryBus {
    *  fetch is a miss and re-engages the prefetch unit. */
   flushPrefetchFifo(): void {
     this.pfActive = false;
-    // A branch already forces the target fetch non-sequential, and the
-    // pre-branch data-break shift must not leak into the new stream.
-    this.dataBreakNow = false;
+    // A branch already forces the target fetch non-sequential; the
+    // pre-branch data / internal-cycle breaks must not leak into the new
+    // stream.
+    this.internalCyclesSinceLastFetch = false;
     this.dataSinceLastFetch = false;
   }
 
@@ -837,6 +840,27 @@ export class MappedBus implements MemoryBus {
    *  the burst straddles the last few bytes of a bank) and DMA-active
    *  is ignored (CPU is stalled during DMA, so a cache miss can't
    *  happen mid-DMA anyway). */
+  branchReloadCost(addr: number, width: 16 | 32): number {
+    // Two sequential opcode fetches (the pipeline reload) at the target
+    // region: each costs `halfwords * wsS` (the seq-fetch cost the
+    // prefetch model uses), so the reload is twice that.
+    const wsS = REGION_S_CYCLES_16[(addr >>> 24) & 0xf] ?? 1;
+    return 2 * (width >>> 4) * wsS;
+  }
+
+  prefetchCovers(addr: number): boolean {
+    // An ACTIVE prefetch unit is fetching forward up to `pfCapacity` opcodes
+    // ahead of its head. A forward branch landing anywhere in that reach is
+    // serviced from the buffer (a buffered hit or a short in-flight countdown
+    // wait) rather than a full pipeline reload. A cold unit (just flushed /
+    // mid-miss) covers nothing, so a forward branch off it still reloads.
+    if (!this.pfActive) return false;
+    const a = addr >>> 0;
+    const lo = this.pfHeadAddr >>> 0;
+    const hi = (this.pfHeadAddr + this.pfCapacity * this.pfWidth) >>> 0;
+    return a >= lo && a < hi && (a - lo) % this.pfWidth === 0;
+  }
+
   cacheMissCost(pc: number, isThumb: boolean): number {
     const region = (pc >>> 24) & 0xf;
     const wsN = REGION_N_CYCLES_16[region] ?? 1;
