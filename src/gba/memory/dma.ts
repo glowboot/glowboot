@@ -665,6 +665,11 @@ export class Dma extends BaseIoHandler {
     if (eepromWrite) this.eeprom!.endDmaTransfer(/* write */ true);
     else if (eepromRead) this.eeprom!.endDmaTransfer(/* write */ false);
     this.bus.dmaActive = false;
+    // A DMA ties up the system bus, so the CPU's game-pak prefetch unit is
+    // invalidated: the first CPU opcode fetch after the transfer is forced
+    // non-sequential (a prefetch miss), not a buffered hit. nba-hw-test
+    // dma/force-nseq-access measures exactly this on the post-DMA fetches.
+    this.bus.flushPrefetchFifo();
     ch.xferActive = false;
     this.finishChannel(ch, src, dst);
     // Transfer ran to completion — drop it from the pump's runnable set.

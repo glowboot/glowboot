@@ -214,15 +214,27 @@ describe("BIOS HLE — Halt (0x02)", () => {
   it("plain Halt releases when any enabled+pending IRQ fires (CPSR.I ignored)", () => {
     const { cpu, ic } = makeFixture();
     cpu.regs.cpsr |= CPSR_I; // Halt ignores the mask
-    dispatchSwi(0x02, cpu.regs, cpu.bus, cpu, ic);
-    expect(cpu.halted).toBe(true);
-    // No IRQ yet: step is a no-op, halt stays set.
-    cpu.step();
-    expect(cpu.halted).toBe(true);
-    // Raise an enabled VBlank IRQ.
+    // A wakeable halt (IME on + an enabled source) parks until the IF bit fires.
     ic.ime = 1;
     ic.ie = 1 << IRQ_VBLANK;
+    dispatchSwi(0x02, cpu.regs, cpu.bus, cpu, ic);
+    expect(cpu.halted).toBe(true);
+    // No IRQ pending yet: step is a no-op, halt stays set.
+    cpu.step();
+    expect(cpu.halted).toBe(true);
+    // Raise the enabled VBlank IRQ.
     ic.raise(IRQ_VBLANK);
+    cpu.step();
+    expect(cpu.halted).toBe(false);
+  });
+
+  it("plain Halt that no IRQ can wake (IME=0) resumes immediately", () => {
+    const { cpu, ic } = makeFixture();
+    ic.ime = 0; // master enable off — no IRQ could ever release this halt
+    ic.ie = 1 << IRQ_VBLANK;
+    dispatchSwi(0x02, cpu.regs, cpu.bus, cpu, ic);
+    expect(cpu.halted).toBe(true);
+    // Real hardware resumes such a halt at once rather than hang.
     cpu.step();
     expect(cpu.halted).toBe(false);
   });

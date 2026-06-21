@@ -84,19 +84,19 @@ export function stepThumb(regs: ArmRegisters, bus: MemoryBus, cpu?: ArmCpu, pref
     if (((instr >>> 12) & 1) === 0) {
       const sub = (instr >>> 10) & 0x3;
       if (sub === 0b00) {
+        const op = (instr >>> 6) & 0xf;
+        // Thumb MUL (op 0b1101 = `MUL Rd, Rm` → `Rd = Rm * Rd`) keys its
+        // booth m-cycle count off the ORIGINAL Rd, which executeAluOp is
+        // about to overwrite with the product — sample it first.
+        const mulRs = op === 0b1101 ? regs.r[instr & 0x7]! | 0 : 0;
         executeAluOp(regs, instr);
         // ALU ops with register-shifted operand spend an extra I cycle.
         // The format 4 opcodes that read a shift register are LSL/LSR/ASR/ROR
         // (opcodes 0b0010, 0b0011, 0b0100, 0b0111).
-        const op = (instr >>> 6) & 0xf;
         if (op === 0b0010 || op === 0b0011 || op === 0b0100 || op === 0b0111) cycles = 2;
-        // Thumb MUL (op 0b1101) — same booth-recoder m factor as ARM MUL
-        // per ARM7TDMI TRM. The destination is Rd (low reg), source for
-        // booth is Rd (the multiplier). 1 cycle base + m internal cycles.
-        else if (op === 0b1101) {
-          const rd = instr & 0x7;
-          cycles = 1 + multiplyMCycles(regs.r[rd]! | 0);
-        }
+        // Thumb MUL — same booth-recoder m factor as ARM MUL per ARM7TDMI
+        // TRM. 1 cycle base + m internal cycles.
+        else if (op === 0b1101) cycles = 1 + multiplyMCycles(mulRs);
       } else if (sub === 0b01) {
         // Hi-register / BX. BX (op=0b11) and writes to PC trigger a
         // pipeline refill, but the actual refill cost is region-aware

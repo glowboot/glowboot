@@ -61,6 +61,22 @@ export class ArmCpu {
    *  `haltedCycles` field. */
   haltedCycles = 0;
 
+  /** IME bit-0 sampled at the instant the CPU ENTERED a plain Halt. The
+   *  release decision (`checkHaltRelease`) reads this, not the live IME:
+   *  an HLE BIOS SWI that triggers the halt (CpuSet writing HALTCNT) runs
+   *  with IME=1 like the real BIOS but restores IME=0 before the deferred
+   *  halt is processed, so the live IME would wrongly read 0. Verified
+   *  against the real BIOS (it brackets SWIs with IME=1/IME=0). Defaults
+   *  to 1 so a halt with no recorded entry (deserialize) waits. */
+  haltImeSnapshot = 1;
+
+  /** Set when the previous step was a SHORT FORWARD branch — one whose
+   *  target falls inside the game-pak prefetch buffer's look-ahead window.
+   *  Hardware satisfies such a branch from the buffer (no full pipeline
+   *  reload), so the next step skips the branch-reload charge. Backward /
+   *  long branches (and exception returns) flush the buffer and DO reload. */
+  branchShortFwd = false;
+
   /** Mask of IRQ bits (in IF layout) IntrWait is waiting on. The CPU
    *  releases halt when the BIOS interrupt-check flag at 0x03007FF8
    *  has any of these bits set (the user's IRQ handler ORs consumed
@@ -364,6 +380,7 @@ export class ArmCpu {
 
     let instr: number;
     let cacheMissCost = 0;
+    const wasCacheMiss = !(this.prefetchValid && this.prefetchPc === pc && this.prefetchThumb === isThumb);
     if (this.prefetchValid && this.prefetchPc === pc && this.prefetchThumb === isThumb) {
       instr = this.prefetch0;
     } else {
@@ -464,14 +481,29 @@ export class ArmCpu {
     // idle count is lastCycles - 1; data-access cycles already ticked it in
     // chargeAccess.
     const internalIdle = (this.lastCycles - 1) | 0;
-    if (internalIdle > 0) this.bus.tickPrefetch(internalIdle);
+    if (internalIdle > 0) {
+      this.bus.tickPrefetch(internalIdle);
+      // Internal cycles break bus sequentiality: the next code fetch is
+      // non-sequential (the bus did a non-fetch cycle in between).
+      this.bus.internalCyclesSinceLastFetch = true;
+    }
     // Total cycles = instruction's internal time + the bus accesses it
     // did + per-instruction fetch cycle + pipeline-refill cycles from
     // a cache miss. Subtract 1 because `lastCycles` already includes
     // the single-cycle baseline for the executed instruction. The
     // prefetch-buffer model in fetchCycleCost yields the prefetch-aware
     // fetch cost directly, so no separate loadPrefetchDelta is needed.
-    this.lastCycles = (this.lastCycles + this.bus.accessCycles + fetchCost + cacheMissCost - 1) | 0;
+    // ROM / EWRAM branch reload: these regions use the per-step prefetch
+    // model (no front-loaded cacheMissCost), so the two pipeline-reload
+    // fetches the FIFO refill did via uncharged fetchInstrAt are never
+    // billed. Add them directly (NOT via the free-fetch front-load, which
+    // bypasses the per-step prefetch model the rest of ROM execution needs).
+    let branchReload = 0;
+    if (wasCacheMiss && !this.branchShortFwd) {
+      const reg = (pc >>> 24) & 0xf;
+      if (reg === 2 || (reg >= 8 && reg <= 0xd)) branchReload = this.bus.branchReloadCost(pc, isThumb ? 16 : 32) | 0;
+    }
+    this.lastCycles = (this.lastCycles + this.bus.accessCycles + fetchCost + cacheMissCost + branchReload - 1) | 0;
 
     // Post-step: check whether PC advanced linearly within the same
     // mode. If yes, shift the FIFO and fetch a new tail. If no
@@ -479,6 +511,7 @@ export class ArmCpu {
     const pcAfter = this.regs.r[15]! | 0;
     const isThumbAfter = this.regs.tFlag;
     if (isThumbAfter === isThumb && pcAfter === ((pc + instrSize) | 0)) {
+      this.branchShortFwd = false;
       this.prefetch0 = this.prefetch1;
       this.prefetch1 = this.prefetch2;
       // fetchInstrAt skips chargeAccess: this refill happens after
@@ -489,6 +522,13 @@ export class ArmCpu {
       this.prefetch2 = this.fetchInstrAt((pcAfter + 2 * instrSize) | 0, isThumb);
       this.prefetchPc = pcAfter;
     } else {
+      // A forward branch whose target is ALREADY in the game-pak prefetch
+      // buffer stays in the prefetch stream → no full pipeline reload next
+      // step. Gate on the live buffer contents (not just distance): a
+      // short forward branch off a cold buffer still misses and reloads.
+      // Same-ISA only; an ISA switch always reloads.
+      const tgt = pcAfter >>> 0;
+      this.branchShortFwd = isThumbAfter === isThumb && tgt > pc >>> 0 && this.bus.prefetchCovers(tgt);
       this.prefetchValid = false;
       this.bus.flushPrefetchFifo();
     }
@@ -549,6 +589,16 @@ export class ArmCpu {
     }
     // Plain Halt — wake on any enabled+pending IRQ, regardless of
     // CPSR.I (Halt ignores the mask; the BIOS just stops the clock).
+    // A halt that NO interrupt could ever wake — master enable off
+    // (IME=0) or nothing enabled (IE=0) — resumes immediately instead
+    // of stalling to the next event, matching real hardware: an
+    // unwakeable HALT breaks out at once. nba-hw-test haltcnt's DIRECT /
+    // TIME probes rely on this: an IME=0 HALT consumes only the cycles
+    // of the instructions around it, not the full timer period.
+    if (this.haltImeSnapshot === 0 || this.interrupts.ie === 0) {
+      this.halted = false;
+      return true;
+    }
     if ((this.interrupts.ie & this.interrupts.if_) === 0) return false;
     this.halted = false;
     return true;

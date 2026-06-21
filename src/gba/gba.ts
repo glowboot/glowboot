@@ -382,6 +382,7 @@ export class Gba {
     // HALTCNT writes flip the CPU to halted; release follows the same
     // (IE & IF) != 0 path as biosHalt.
     this.mem.power.onHalt = () => {
+      this.cpu.haltImeSnapshot = (this.cpu.interrupts?.ime ?? 1) & 1;
       this.cpu.halted = true;
       this.cpu.intrWaitMask = 0;
     };

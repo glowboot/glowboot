@@ -2,6 +2,29 @@ import { describe, expect, it } from "vitest";
 
 import { makeGbaMemoryMap, MappedBus } from "./mapped-bus.js";
 
+describe("prefetchCovers — short-forward branch coverage", () => {
+  it("covers the active prefetch unit's reach, but nothing on a cold unit", () => {
+    const bus = new MappedBus();
+    bus.prefetchEnabled = true;
+
+    // Cold unit: a forward branch off it still reloads.
+    expect(bus.prefetchCovers(0x08000002)).toBe(false);
+
+    // Engage the unit via a Thumb ROM fetch miss. Head = addr + width
+    // (0x08000002); reach = capacity(8) * width(2) = 16 bytes.
+    bus.fetchCycleCost(0x08000000, 16);
+    expect(bus.prefetchCovers(0x08000002)).toBe(true); // head
+    expect(bus.prefetchCovers(0x08000010)).toBe(true); // last in reach
+    expect(bus.prefetchCovers(0x08000012)).toBe(false); // beyond reach
+    expect(bus.prefetchCovers(0x08000003)).toBe(false); // misaligned
+    expect(bus.prefetchCovers(0x03000000)).toBe(false); // different region
+
+    // A long / backward branch flushes the unit → covers nothing again.
+    bus.flushPrefetchFifo();
+    expect(bus.prefetchCovers(0x08000002)).toBe(false);
+  });
+});
+
 describe("MappedBus regions", () => {
   it("reads and writes within a single region", () => {
     const bus = new MappedBus();

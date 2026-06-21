@@ -80,6 +80,12 @@ export function stepArm(regs: ArmRegisters, bus: MemoryBus, cpu?: ArmCpu, prefet
       // bits 7:4 = 1001: multiply (bit 24 = 0) or SWP (bit 24 = 1).
       if (bits74 === 0b1001) {
         if (((instr >>> 24) & 1) === 0) {
+          // m-cycle count keys off Rs, which must be sampled BEFORE the
+          // multiply runs: the common `MUL Rd, Rm, Rs` form with Rd == Rs
+          // (e.g. mgba-suite's `mul r3, r2` → `MUL r3, r2, r3`) overwrites
+          // Rs with the product, so reading it afterwards would derive m
+          // from the result instead of the operand.
+          const rs = cpu !== undefined ? regs.r[(instr >>> 8) & 0xf]! | 0 : 0;
           executeMultiply(regs, instr);
           // ARM7TDMI multiply cycles (TRM §6.20):
           //   MUL/MLA  : 1S + mI         where m = booth-style early-
@@ -95,7 +101,6 @@ export function stepArm(regs: ArmRegisters, bus: MemoryBus, cpu?: ArmCpu, prefet
           // mgba-suite-timing probes 10 operand patterns per variant
           // — designed to exercise each m bucket.
           if (cpu !== undefined) {
-            const rs = regs.r[(instr >>> 8) & 0xf]! | 0;
             const isLong = ((instr >>> 23) & 1) === 1;
             // Bit 22 = U (signed) for the long variants; UMULL/UMLAL
             // (long, U=0) scan unsigned. MUL/MLA (not long) are signed.
