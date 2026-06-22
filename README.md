@@ -1168,19 +1168,22 @@ edges:
 
 GBA accuracy is measured by `npm run test:gba-roms` against jsmolka,
 fuzzarm, mgba-suite, and nba-emu/hw-test. The current baseline is
-40/40 verdicts passing with 5776/7072 counter sub-tests cleared;
+40/40 verdicts passing with 6257/7072 counter sub-tests cleared;
 mgba-suite's memory (1552/1552) and dma (1256/1256) categories pass
 in full.
 Known gaps:
 
 - **HLE BIOS, not a real BIOS image.** The engine reimplements the
   GBA BIOS at the SWI-vector level — math, memory, decompression,
-  IntrWait. Cycle costs of HLE SWIs are mid-range approximations,
-  not the exact 4 + 13×loops + 7 cycles a real division takes; the
-  net IRQ / timer drift is small enough that no shipping cart we've
-  tested wedges on it, but it's why a few mgba-suite-timing sub-tests
-  fall short. A real Nintendo BIOS can be dropped in at
-  `tests/gba-roms/gba_bios.bin` and the test runner will use it.
+  IntrWait. The math and copy functions (Div, Sqrt, ArcTan, CpuSet,
+  CpuFastSet) charge operand-dependent cycle costs that follow the real
+  BIOS loop structure; what stays approximate is the fixed per-call
+  dispatch / entry overhead rather than the exact mode-switch and
+  register-save sequence, which is why a few mgba-suite-timing sub-tests
+  still fall short. The net IRQ / timer drift is small enough that no
+  shipping cart we've tested wedges on it. A real Nintendo BIOS can be
+  dropped in at `tests/gba-roms/gba_bios.bin` and the test runner will
+  use it.
 - **Cycle accuracy is per-instruction, not per-bus-cycle.** Each
   instruction's opcode fetch is charged on the bus clock the moment it
   happens, so a mid-instruction timer read lands at the right cycle, but

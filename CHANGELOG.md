@@ -5,6 +5,29 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] — 2026-06-22
+
+### Changed
+
+- **More hardware-accurate Game Boy Advance timing.** A further pass over the
+  GBA's cycle timing, building on 1.5.0's unified clock. The BIOS math and copy
+  routines (Div, Sqrt, ArcTan, CpuSet, CpuFastSet) now charge operand-dependent
+  cycle costs instead of a flat approximation; HALT wake-up, interrupt entry,
+  and serial-port (SIO) transfer timing match hardware more closely; and a
+  branch's pipeline reload is modelled against the game-pak prefetch buffer, so
+  a short forward branch whose target is already prefetched no longer pays a
+  full reload. The net effect is that timing-sensitive games keep their
+  interrupt and timer state better aligned with real hardware, reducing drift
+  over long sessions.
+
+### Fixed
+
+- **"Reset to defaults" in Display settings now also resets the screen size.**
+  Resetting the Display settings snapped the screen-size slider back to 100% on
+  screen, but the change was not saved — reloading the page restored the old
+  size. Reset now clears the stored screen size alongside the other display
+  settings, so it persists.
+
 ## [1.5.1] — 2026-06-20
 
 ### Fixed
