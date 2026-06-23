@@ -581,7 +581,22 @@ export class MappedBus implements MemoryBus {
     }
     const halfCycles = isSequential ? (REGION_S_CYCLES_16[region] ?? 1) : (REGION_N_CYCLES_16[region] ?? 1);
     const bonus = width === 32 ? (REGION_S_BONUS_32[region] ?? 0) : 0;
-    const cycles = halfCycles + bonus;
+    let cycles = halfCycles + bonus;
+    // Game-Pak prefetch stall: when a cart data access interrupts the prefetch
+    // unit while it is finishing a halfword fetch, the cart bus can't begin the
+    // data access until that in-flight fetch settles — a 1-cycle stall (GBATEK).
+    // The penalty only lands at two exact points in the fetch: the final cycle
+    // (countdown == 1), or — for a word (ARM) fetch streaming two halfwords —
+    // the midpoint (countdown == duty/2 + 1). An intermediate position is not
+    // caught (the cart bus is between sub-accesses); a stop on a fetch boundary
+    // (countdown == duty) has no penalty.
+    if (isCart && this.pfActive && this.pfCount < this.pfCapacity) {
+      const half = (this.pfDuty >> 1) + 1;
+      const isThumb = this.pfCapacity === 8;
+      if (this.pfCountdown === 1 || (!isThumb && this.pfCountdown === half)) {
+        cycles += 1;
+      }
+    }
     this.accessCycles += cycles;
     this.lastAccessCost = cycles;
     // Master clock advances per access so a mid-instruction peripheral read
