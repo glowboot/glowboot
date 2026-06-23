@@ -682,6 +682,20 @@ export class Dma extends BaseIoHandler {
     // 4 × 32-bit words; SAD increments, DAD fixed.
     let src = ch.shadowSad | 0;
     const dst = ch.shadowDad | 0;
+    // A FIFO refill is triggered by a timer overflow and runs AFTER the step
+    // has already reconciled `bus.now` to nowStart + stepCycles. Its
+    // per-access bus-clock cost (`bus.now += cycles` inside read32 / write32)
+    // would therefore advance the master clock independently of the CPU/PPU
+    // step accounting. The clock-derived timer rides bus.now, so that makes
+    // the timer — and the Direct Sound pop rate it drives — run a few tenths
+    // of a percent fast relative to the PPU / V-Blank clock. The cart's DS
+    // double-buffer, re-armed on V-Blank, then slips one refill every ~0.3 s:
+    // an audible crackle. Snapshot bus.now and restore it afterwards so the
+    // refill is clock-neutral, keeping only the intentional per-transfer
+    // timing charge (advanceForTransfer, tracked via preTickedThisStep) that
+    // the cart-bus accuracy tests rely on for ROM-sourced FIFO streams.
+    const savedNow = this.bus.now;
+    const savedPreTick = this.preTickedThisStep;
     this.bus.dmaActive = true;
     this.bus.dmaFirstCartAccess = true;
     for (let i = 0; i < 4; i++) {
@@ -691,6 +705,7 @@ export class Dma extends BaseIoHandler {
       if (touchesCart) this.advanceForTransfer();
     }
     this.bus.dmaActive = false;
+    this.bus.now = (savedNow + (this.preTickedThisStep - savedPreTick)) | 0;
     this.finishChannel(ch, src, dst);
   }
 
