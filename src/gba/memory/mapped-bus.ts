@@ -464,6 +464,21 @@ export class MappedBus implements MemoryBus {
     this.dataSinceLastFetch = false;
   }
 
+  /** Settle the prefetch unit after a DMA. The post-DMA opcode fetch is
+   *  always non-sequential (the DMA broke the instruction stream), so the
+   *  sequentiality trackers reset either way. A cart-bus DMA also drains
+   *  the prefetch buffer (the Game Pak was tied up); a non-cart DMA leaves
+   *  an active buffer intact — it kept filling during the transfer, so the
+   *  post-DMA fetch may land as a buffered hit rather than a fresh miss. */
+  endDmaPrefetch(touchedCart: boolean): void {
+    if (touchedCart || !this.pfActive) {
+      this.flushPrefetchFifo();
+    } else {
+      this.internalCyclesSinceLastFetch = false;
+      this.dataSinceLastFetch = false;
+    }
+  }
+
   resetAccessCycles(): void {
     this.accessCycles = 0;
     this.prevAccessAddr = -1;

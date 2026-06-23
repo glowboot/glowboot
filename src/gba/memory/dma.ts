@@ -561,6 +561,12 @@ export class Dma extends BaseIoHandler {
       this.hasHigherHBlankDma(ch.index) &&
       ch.shadowCnt * (ch.word ? 8 : 4) > CYCLES_PER_SCANLINE;
     let lastSyncNow = this.bus.now | 0;
+    // Whether any transfer used the cart bus. A DMA that never touches the
+    // cart bus leaves the Game-Pak prefetch unit free to keep streaming
+    // (the per-access non-cart path already ticks it during the transfer);
+    // only a cart-bus DMA invalidates the buffer and forces the post-DMA
+    // fetch non-sequential.
+    let dmaTouchedCart = false;
     while (left > 0) {
       // Preemption bail point: a higher-priority channel becoming runnable
       // mid-transfer sets `shouldReenter`; save the partial progress and
@@ -650,6 +656,7 @@ export class Dma extends BaseIoHandler {
       // read). For every non-split case timingSrc === src, so this is
       // a no-op there.
       const touchesCart = inCartRegion(timingSrc) || inCartRegion(dst);
+      if (touchesCart) dmaTouchedCart = true;
       src = (src + srcStep) | 0;
       timingSrc = (timingSrc + timingStep) | 0;
       dst = (dst + destStep) | 0;
@@ -665,11 +672,13 @@ export class Dma extends BaseIoHandler {
     if (eepromWrite) this.eeprom!.endDmaTransfer(/* write */ true);
     else if (eepromRead) this.eeprom!.endDmaTransfer(/* write */ false);
     this.bus.dmaActive = false;
-    // A DMA ties up the system bus, so the CPU's game-pak prefetch unit is
-    // invalidated: the first CPU opcode fetch after the transfer is forced
-    // non-sequential (a prefetch miss), not a buffered hit. nba-hw-test
-    // dma/force-nseq-access measures exactly this on the post-DMA fetches.
-    this.bus.flushPrefetchFifo();
+    // The post-DMA opcode fetch is always non-sequential (the DMA broke the
+    // CPU's instruction stream). A cart-bus DMA additionally invalidates the
+    // Game-Pak prefetch buffer (the cart bus was busy); a DMA that never
+    // touched the cart bus left the buffer free to keep streaming, so the
+    // post-DMA fetch can still be a buffered hit. nba-hw-test
+    // dma/force-nseq-access measures the cart-bus case.
+    this.bus.endDmaPrefetch(dmaTouchedCart);
     ch.xferActive = false;
     this.finishChannel(ch, src, dst);
     // Transfer ran to completion — drop it from the pump's runnable set.
