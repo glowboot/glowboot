@@ -1168,7 +1168,7 @@ edges:
 
 GBA accuracy is measured by `npm run test:gba-roms` against jsmolka,
 fuzzarm, mgba-suite, and nba-emu/hw-test. The current baseline is
-40/40 verdicts passing with 6257/7072 counter sub-tests cleared;
+40/40 verdicts passing with 6283/7072 counter sub-tests cleared;
 mgba-suite's memory (1552/1552) and dma (1256/1256) categories pass
 in full.
 Known gaps:

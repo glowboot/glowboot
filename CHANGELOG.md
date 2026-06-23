@@ -5,7 +5,19 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.3] — 2026-06-23
+
+### Changed
+
+- **More hardware-accurate Game Boy Advance prefetch timing.** Two refinements
+  to the Game-Pak prefetch model, building on 1.5.2. The 1-cycle stall charged
+  when a cartridge access interrupts the prefetch unit mid-fetch now lands only
+  at the two exact points real hardware charges it, instead of across the whole
+  fetch — correcting a small over-count on block loads such as `LDMIA`. And a
+  DMA that never touches the cartridge bus now leaves the prefetch buffer
+  streaming rather than always flushing it, correcting an over-count on
+  prefetch-enabled transfers. Together these lift the mgba-suite timing score
+  from 1728 to 1752 of 2020 sub-tests, with no change to any other category.
 
 ### Fixed
 
