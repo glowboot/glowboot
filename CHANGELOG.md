@@ -5,6 +5,20 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Crackling on Direct Sound-heavy Game Boy Advance music.** Some GBA games
+  (those that stream their music through Direct Sound) developed a faint,
+  music-dependent crackle starting in 1.5.0. The cause was a timing leak: a
+  sound-FIFO refill runs from a timer overflow, and its memory-access cost was
+  advancing the master clock on its own, drifting the audio timer ~0.3% fast
+  against the screen-refresh clock. The game's double-buffered audio then
+  slipped a fraction every few seconds, producing the crackle. Refills are now
+  clock-neutral, so the audio stays locked to the rest of the system. The
+  Direct Sound output is once again bit-identical to 1.4.x.
+
 ## [1.5.2] — 2026-06-22
 
 ### Changed
