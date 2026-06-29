@@ -55,8 +55,7 @@ export type KeyBindings = Record<Button, string>;
  *    don't collapse to the same binding.
  */
 export type GamepadBinding =
-  | { type: "button"; index: number }
-  | { type: "axis"; index: number; sign: -1 | 1; value?: number };
+  { type: "button"; index: number } | { type: "axis"; index: number; sign: -1 | 1; value?: number };
 
 /** `null` means the slot has been explicitly cleared — the button is
  *  unmapped until the user re-captures or Reset-gamepad restores the

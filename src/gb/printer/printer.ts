@@ -55,17 +55,7 @@ const RESPONSE_ALIVE = 0x81;
 const PRINT_DURATION_MS = 150;
 
 type PrinterState =
-  | "magic1"
-  | "magic2"
-  | "cmd"
-  | "comp"
-  | "lenLo"
-  | "lenHi"
-  | "data"
-  | "ckLo"
-  | "ckHi"
-  | "alive"
-  | "status";
+  "magic1" | "magic2" | "cmd" | "comp" | "lenLo" | "lenHi" | "data" | "ckLo" | "ckHi" | "alive" | "status";
 
 export interface PrintedPage {
   /** Always 160 — matches the Game Boy screen width. */

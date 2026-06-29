@@ -708,9 +708,7 @@ const TESTS: readonly TestDef[] = [
 // lock in with `--bless`, which rewrites the baseline file.
 
 type Signature =
-  | { kind: "count"; pass: number; total: number }
-  | { kind: "r12fail"; test: number }
-  | { kind: "hash"; hash: string };
+  { kind: "count"; pass: number; total: number } | { kind: "r12fail"; test: number } | { kind: "hash"; hash: string };
 
 /** HLE is the only committed baseline — it's the BIOS configuration the
  *  browser ships, and the only one verifiable without a (gitignored,
