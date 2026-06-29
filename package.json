@@ -33,7 +33,7 @@
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",
     "@types/pngjs": "^6.0.5",
-    "adm-zip": "^0.5.17",
+    "adm-zip": "^0.5.18",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-simple-import-sort": "^13.0.0",
