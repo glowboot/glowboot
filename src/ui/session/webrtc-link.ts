@@ -35,10 +35,7 @@ type SignalMsg =
   | { type: "rtc-ice"; candidate: RTCIceCandidateInit | null };
 
 type RoomMsg =
-  | { type: "joined"; paired: boolean }
-  | { type: "peer-joined" }
-  | { type: "peer-left" }
-  | { type: "room-full" };
+  { type: "joined"; paired: boolean } | { type: "peer-joined" } | { type: "peer-left" } | { type: "room-full" };
 
 type WireMsg = RoomMsg | RelayMsg | SignalMsg;
 

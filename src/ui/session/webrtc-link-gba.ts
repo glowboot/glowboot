@@ -28,8 +28,7 @@ import { dispatchLinkStatus } from "./link-status.js";
  */
 
 type RelayMsg =
-  | { type: "multi-start"; seq: number; masterData: number }
-  | { type: "multi-reply"; seq: number; slaveData: number };
+  { type: "multi-start"; seq: number; masterData: number } | { type: "multi-reply"; seq: number; slaveData: number };
 
 type SignalMsg =
   | { type: "rtc-offer"; sdp: string }
@@ -37,10 +36,7 @@ type SignalMsg =
   | { type: "rtc-ice"; candidate: RTCIceCandidateInit | null };
 
 type RoomMsg =
-  | { type: "joined"; paired: boolean }
-  | { type: "peer-joined" }
-  | { type: "peer-left" }
-  | { type: "room-full" };
+  { type: "joined"; paired: boolean } | { type: "peer-joined" } | { type: "peer-left" } | { type: "room-full" };
 
 type WireMsg = RoomMsg | RelayMsg | SignalMsg;
 
