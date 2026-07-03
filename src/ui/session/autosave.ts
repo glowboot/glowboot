@@ -1,5 +1,6 @@
 import * as SaveRam from "../persistence/save-ram.js";
 import * as SaveRamGba from "../persistence/save-ram-gba.js";
+import * as SaveRamNes from "../persistence/save-ram-nes.js";
 import * as SaveState from "../persistence/save-state.js";
 import { state } from "../state.js";
 import { flushPlayTime, startPlayTimer } from "./play-time.js";
@@ -21,6 +22,7 @@ import { flushPlayTime, startPlayTimer } from "./play-time.js";
 setInterval(() => {
   if (state.gb) void SaveRam.save(state.gb.cart);
   if (state.gba) void SaveRamGba.save(state.gba);
+  if (state.nes) void SaveRamNes.save(state.nes);
 }, 2000);
 
 document.addEventListener("visibilitychange", () => {
@@ -33,9 +35,13 @@ document.addEventListener("visibilitychange", () => {
       void SaveRamGba.save(state.gba, true);
       void SaveState.saveAutoState(state.gba);
     }
+    if (state.nes) {
+      void SaveRamNes.save(state.nes, true);
+      void SaveState.saveAutoState(state.nes);
+    }
     // Play-time tracker is engine-agnostic (it keys off state.playTrackingId
-    // which is set by both rom-loader paths). Fire once if anything's running.
-    if (state.gb || state.gba) void flushPlayTime();
+    // which is set by every rom-loader path). Fire once if anything's running.
+    if (state.gb || state.gba || state.nes) void flushPlayTime();
     // Stamp the RTC pause marker only if nothing else has. Pairs with the
     // resume branch below (and with togglePause) so a multi-hour hide
     // credits the cart clock on whichever path the user resumes through.
@@ -46,7 +52,7 @@ document.addEventListener("visibilitychange", () => {
       state.gb.cart.advanceRtcByWallMs(Date.now() - state.rtcWallPauseMs);
       state.rtcWallPauseMs = 0;
     }
-    if ((state.gb || state.gba) && !state.paused) startPlayTimer();
+    if ((state.gb || state.gba || state.nes) && !state.paused) startPlayTimer();
   }
 });
 
@@ -59,5 +65,9 @@ window.addEventListener("beforeunload", () => {
     void SaveRamGba.save(state.gba, true);
     void SaveState.saveAutoState(state.gba);
   }
-  if (state.gb || state.gba) void flushPlayTime();
+  if (state.nes) {
+    void SaveRamNes.save(state.nes, true);
+    void SaveState.saveAutoState(state.nes);
+  }
+  if (state.gb || state.gba || state.nes) void flushPlayTime();
 });

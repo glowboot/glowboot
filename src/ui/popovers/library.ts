@@ -4,10 +4,12 @@ import { confirmAction } from "../hud/modal.js";
 import { errorToast } from "../hud/toast.js";
 import { KEYS, lsGet, lsSet } from "../persistence/local-storage.js";
 import * as Recents from "../persistence/recents.js";
-import { handleGbaRomFile, startEmulator } from "../rom-loader.js";
+import { handleGbaRomFile, handleNesRomFile, startEmulator } from "../rom-loader.js";
 import { state } from "../state.js";
 import { createPopover } from "./helper.js";
 
+/** Matches the NES dispatch in `rom-loader.ts`. */
+const NES_FILENAME_RE = /\.nes$/i;
 /** Matches the GBA dispatch in `rom-loader.ts`. Kept inline so this
  *  popover doesn't have to import the regex itself. */
 const GBA_FILENAME_RE = /\.gba$/i;
@@ -177,6 +179,11 @@ function renderGrid(container: HTMLElement): void {
         const file = new File([fileBytes], item.filename, { type: "application/octet-stream" });
         await handleGbaRomFile(file, false);
         if (state.gba) await Recents.rememberGba(state.gba, fileBytes, item.filename);
+      } else if (NES_FILENAME_RE.test(item.filename)) {
+        const fileBytes = new Uint8Array(bytes);
+        const file = new File([fileBytes], item.filename, { type: "application/octet-stream" });
+        await handleNesRomFile(file, false);
+        if (state.nes) await Recents.rememberNes(state.nes, fileBytes, item.filename);
       } else {
         await startEmulator(bytes, item.filename, false);
         if (state.gb) await Recents.remember(state.gb.cart, bytes, item.filename);

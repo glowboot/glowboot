@@ -1,5 +1,6 @@
-import { type BreakpointHit, takeHit } from "../../gb";
+import { type BreakpointHit, takeHit as takeHitGb } from "../../gb";
 import { parseGbaHeader } from "../../gba";
+import { takeHit as takeHitNes } from "../../nes";
 import { isAssistOverlayOpen, openAssistOverlay } from "../assist/assist-overlay.js";
 import { canvas, consoleEl, fsBtn, overlayFlash, recBadge, speedEl, statusEl, touchSpeedLabelEl } from "../dom.js";
 import { announce } from "../hud/announce.js";
@@ -7,11 +8,12 @@ import { toast } from "../hud/toast.js";
 import { defaultTranslateTarget } from "../ocr/languages.js";
 import { openTranslateOverlay } from "../ocr/translate-overlay.js";
 import { KEYS, lsGet } from "../persistence/local-storage.js";
-import { audio, renderer, setPaused, state } from "../state.js";
+import { activeEngine, audio, renderer, setPaused, state } from "../state.js";
 import { startPacing, stopPacing } from "./pacing.js";
 import { flushPlayTime, startPlayTimer } from "./play-time.js";
 import { Recorder } from "./recording.js";
 import { pauseGbaSession, resumeGbaSession } from "./runtime-gba.js";
+import { pauseNesSession, resumeNesSession } from "./runtime-nes.js";
 import * as Screenshot from "./screenshot.js";
 import { isScreenshotPreviewOpen, openScreenshotPreview } from "./screenshot-preview.js";
 
@@ -24,6 +26,7 @@ import { isScreenshotPreviewOpen, openScreenshotPreview } from "./screenshot-pre
 function cartTitleForFilename(): string {
   if (state.gb) return state.gb.cart.title || "gameboy";
   if (state.gba) return parseGbaHeader(state.gba.mem.rom).title || "gba";
+  if (state.nes) return state.currentFilename?.replace(/\.[^.]+$/, "") || "nes";
   return "game";
 }
 
@@ -34,7 +37,8 @@ function cartTitleForFilename(): string {
 export async function togglePause(): Promise<void> {
   const gb = state.gb;
   const gba = state.gba;
-  if (!gb && !gba) return;
+  const nes = state.nes;
+  if (!gb && !gba && !nes) return;
   if (state.paused) {
     if (gb) {
       // Credit MBC3 RTC for the pause gap — a real cart keeps ticking
@@ -52,6 +56,10 @@ export async function togglePause(): Promise<void> {
       state.rtcWallPauseMs = 0;
       await audio.resume();
       resumeGbaSession();
+    } else {
+      state.rtcWallPauseMs = 0;
+      await audio.resume();
+      resumeNesSession();
     }
     if (statusEl) statusEl.textContent = "Running";
     startPlayTimer();
@@ -62,7 +70,8 @@ export async function togglePause(): Promise<void> {
     // future GB cart load if it weren't cleared on cart swap.
     if (gb && state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
     if (gb) stopPacing();
-    else pauseGbaSession();
+    else if (gba) pauseGbaSession();
+    else pauseNesSession();
     await audio.suspend();
     if (statusEl) statusEl.textContent = "Paused";
     void flushPlayTime();
@@ -81,7 +90,7 @@ const SPEED_STEPS: readonly number[] = [0.5, 1, 2, 4];
  *  turbo press); pass -1 (Shift+turbo) to walk backwards so the user
  *  can back out of a 4× commitment without cycling through 0.5×. */
 export function cycleSpeed(direction: 1 | -1 = 1): void {
-  const engine = state.gb ?? state.gba;
+  const engine = state.gb ?? state.gba ?? state.nes;
   if (!engine) return;
   const len = SPEED_STEPS.length;
   const currentIdx = SPEED_STEPS.indexOf(engine.speedMultiplier);
@@ -90,7 +99,7 @@ export function cycleSpeed(direction: 1 | -1 = 1): void {
 }
 
 function applySpeed(speed: number): void {
-  const engine = state.gb ?? state.gba;
+  const engine = state.gb ?? state.gba ?? state.nes;
   if (!engine) return;
   engine.speedMultiplier = speed;
   if (speed === 1) void audio.resume();
@@ -122,21 +131,24 @@ function applySpeed(speed: number): void {
 export function frameAdvance(): void {
   const gb = state.gb;
   const gba = state.gba;
-  if (!gb && !gba) return;
+  const nes = state.nes;
+  if (!gb && !gba && !nes) return;
   if (!state.paused) {
     // First tap auto-pauses so the user doesn't have to press Space
     // before starting to step.
     if (gb) stopPacing();
-    else pauseGbaSession();
+    else if (gba) pauseGbaSession();
+    else pauseNesSession();
     void audio.suspend();
-    // GBA has no RTC catch-up; only the GB branch stamps the marker.
+    // GBA / NES have no RTC catch-up; only the GB branch stamps the marker.
     if (gb && state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
     if (statusEl) statusEl.textContent = "Paused";
     void flushPlayTime();
     setPaused(true);
   }
   if (gb) gb.stepFrame();
-  else gba!.stepFrame();
+  else if (gba) gba.stepFrame();
+  else nes!.stepFrame();
 }
 
 /** Single-instruction step — debugger's finest-grained control. Auto-
@@ -147,10 +159,12 @@ export function frameAdvance(): void {
 export function stepInstruction(): void {
   const gb = state.gb;
   const gba = state.gba;
-  if (!gb && !gba) return;
+  const nes = state.nes;
+  if (!gb && !gba && !nes) return;
   if (!state.paused) {
     if (gb) stopPacing();
-    else pauseGbaSession();
+    else if (gba) pauseGbaSession();
+    else pauseNesSession();
     void audio.suspend();
     if (gb && state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
     if (statusEl) statusEl.textContent = "Paused";
@@ -164,9 +178,12 @@ export function stepInstruction(): void {
     // — and a single-instruction step isn't a new frame. The Step frame
     // button (which calls runFrame) goes through onFrame as usual.
     renderer.render(gb.ppu.framebuffer);
+  } else if (gba) {
+    gba.stepInstruction();
+    renderer.render(gba.framebuffer);
   } else {
-    gba!.stepInstruction();
-    renderer.render(gba!.framebuffer);
+    nes!.stepInstruction();
+    renderer.render(nes!.framebuffer);
   }
 }
 
@@ -176,10 +193,14 @@ export function stepInstruction(): void {
  * and toast the user with the kind + address of the hit.
  */
 export function drainBreakpointHit(): BreakpointHit | null {
-  const hit = takeHit();
+  // Each engine has its own process-global breakpoint registry; drain the one
+  // belonging to the running core. (GBA does its own draining in runtime-gba.)
+  const nes = state.nes;
+  const hit = nes ? takeHitNes() : takeHitGb();
   if (!hit) return null;
   if (!state.paused) {
-    stopPacing();
+    if (nes) pauseNesSession();
+    else stopPacing();
     void audio.suspend();
     if (state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
     if (statusEl) statusEl.textContent = "Paused";
@@ -198,12 +219,13 @@ export function drainBreakpointHit(): BreakpointHit | null {
  *  coarser than `frameAdvance`'s forward step — but it's the only
  *  "go back" granularity the engine has. */
 export function stepFrameBack(): void {
-  const gb = state.gb;
-  if (!gb || !state.rewinder) return;
+  if (!state.rewinder || (!state.gb && !state.gba && !state.nes)) return;
   if (!state.paused) {
-    stopPacing();
+    if (state.gb) stopPacing();
+    else if (state.gba) pauseGbaSession();
+    else pauseNesSession();
     void audio.suspend();
-    if (state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
+    if (state.gb && state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
     if (statusEl) statusEl.textContent = "Paused";
     void flushPlayTime();
     setPaused(true);
@@ -226,12 +248,13 @@ export function takeScreenshot(): void {
   // under it and re-entering would tangle the pause/resume bookkeeping.
   if (isScreenshotPreviewOpen()) return;
   // Capture the NATIVE PPU framebuffer (not the shader-displayed canvas):
-  // a pixel-exact source for the preview, and the un-double-processed
-  // input the AI-enhance path needs. GB is 160×144, GBA 240×160.
-  const fb = state.gb ? state.gb.ppu.framebuffer : state.gba ? state.gba.framebuffer : null;
-  if (!fb) return;
-  const width = state.gb ? 160 : 240;
-  const height = state.gb ? 144 : 160;
+  // a pixel-exact source for the preview, and the un-double-processed input
+  // the AI-enhance path needs. Size comes from the active console's platform
+  // (GB 160×144, GBA 240×160, NES 256×240).
+  const active = activeEngine();
+  if (!active) return;
+  const fb = active.framebuffer;
+  const { width, height } = active.platform.screen;
   overlayFlash?.classList.add("active");
   setTimeout(() => overlayFlash?.classList.remove("active"), 120);
   const base = Screenshot.sanitize(cartTitleForFilename());
@@ -278,10 +301,10 @@ function setTranslateBusy(busy: boolean): void {
  *  re-translates the new screen. The emulator is paused only during the
  *  compute (see `setTranslateBusy`); reading the result runs unpaused. */
 export function translateScreen(): void {
-  const fb = state.gb ? state.gb.ppu.framebuffer : state.gba ? state.gba.framebuffer : null;
-  if (!fb) return;
-  const width = state.gb ? 160 : 240;
-  const height = state.gb ? 144 : 160;
+  const active = activeEngine();
+  if (!active) return;
+  const fb = active.framebuffer;
+  const { width, height } = active.platform.screen;
   const target = (lsGet(KEYS.TRANSLATE_TARGET) ?? "").trim() || defaultTranslateTarget();
   openTranslateOverlay(
     new Uint8ClampedArray(fb.subarray(0, width * height * 4)),
@@ -297,10 +320,10 @@ export function translateScreen(): void {
  *  assist overlay; ignored if one is already open. */
 export function assistScreen(): void {
   if (isAssistOverlayOpen()) return;
-  const fb = state.gb ? state.gb.ppu.framebuffer : state.gba ? state.gba.framebuffer : null;
-  if (!fb) return;
-  const width = state.gb ? 160 : 240;
-  const height = state.gb ? 144 : 160;
+  const active = activeEngine();
+  if (!active) return;
+  const fb = active.framebuffer;
+  const { width, height } = active.platform.screen;
   openAssistOverlay(new Uint8ClampedArray(fb.subarray(0, width * height * 4)), width, height, cartTitleForFilename());
 }
 
@@ -309,7 +332,7 @@ export function assistScreen(): void {
 const recorder = new Recorder();
 
 export function toggleRecording(): void {
-  if (!state.gb && !state.gba) return;
+  if (!state.gb && !state.gba && !state.nes) return;
   if (recorder.active) {
     recorder.stop();
     recBadge?.classList.remove("rec-badge--on");

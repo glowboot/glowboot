@@ -19,9 +19,9 @@ function clampPixelResponse(v: number): number {
  * effectively resets every override to the global value.
  *
  * Engine awareness: palette + CGB colour-correction target the GB PPU
- * directly and are no-ops on GBA. Renderer pins (render mode, integer
- * scale, pixel response) and audio mode apply to both engines through
- * the shared renderer / audio-output abstractions.
+ * directly and are no-ops on GBA / NES. Renderer pins (render mode,
+ * integer scale, pixel response) and audio mode apply to every engine
+ * through the shared renderer / audio-output abstractions.
  *
  * Runs after the global prefs have already been re-applied in
  * `rom-loader.ts`, so we can overwrite freely.
@@ -29,7 +29,8 @@ function clampPixelResponse(v: number): number {
 export function applyCartOverrides(overrides: CartOverrides): void {
   const gb = state.gb;
   const gba = state.gba;
-  if (!gb && !gba) return;
+  const nes = state.nes;
+  if (!gb && !gba && !nes) return;
 
   if (gb && !gb.cart.cgb) {
     // ── Palette (DMG only) ───────────────────────────────────────────
@@ -46,10 +47,18 @@ export function applyCartOverrides(overrides: CartOverrides): void {
     gb.ppu.colorCorrection = cc;
   }
 
+  if (nes) {
+    // ── NES TV system (NTSC / PAL) ───────────────────────────────────
+    // Retimes the whole machine + the pacer's frame rate. Falls back to the
+    // cart header when the user hasn't pinned a region. The header flag is
+    // unreliable, which is exactly why the manual override exists.
+    nes.setRegion(overrides.nesRegion ?? nes.defaultRegion);
+  }
+
   // ── Render mode ────────────────────────────────────────────────────
   // Swap only when the mode actually differs — swapping destroys the
   // current canvas element, so no-op swaps would flicker. The renderer
-  // abstraction handles both engines; the dims come from the active
+  // abstraction handles every engine; the dims come from the active
   // engine inside `swapRenderer`.
   const wantedMode = overrides.renderMode ?? lsGet(KEYS.RENDER_MODE) ?? "canvas";
   const currentMode = rendererModeOf(renderer);
@@ -76,6 +85,7 @@ export function applyCartOverrides(overrides: CartOverrides): void {
   if (didSwap) {
     if (gb) renderer.render(gb.ppu.framebuffer);
     else if (gba) renderer.render(gba.framebuffer);
+    else if (nes) renderer.render(nes.framebuffer);
   }
 
   // ── Audio mode ───────────────────────────────────────────────────────

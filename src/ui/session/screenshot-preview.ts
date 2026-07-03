@@ -17,7 +17,7 @@
 
 import { toast } from "../hud/toast.js";
 import { saveBlobNative } from "../save-blob.js";
-import { hasWebGpu, isUpscaleSupported, upscaleFrame } from "../upscale/upscaler.js";
+import { fitsUpscaleModel, hasWebGpu, isUpscaleSupported, upscaleFrame } from "../upscale/upscaler.js";
 
 let activeOverlay: HTMLElement | null = null;
 let lastFocus: HTMLElement | null = null;
@@ -157,6 +157,9 @@ export function openScreenshotPreview(
   if (!isUpscaleSupported()) {
     enhanceBtn.disabled = true;
     enhanceBtn.title = "AI enhance needs a modern browser with WebAssembly";
+  } else if (!fitsUpscaleModel(width, height)) {
+    enhanceBtn.disabled = true;
+    enhanceBtn.title = "AI enhance supports frames up to 240×160 (Game Boy / Game Boy Advance)";
   }
   enhanceBtn.addEventListener(
     "click",

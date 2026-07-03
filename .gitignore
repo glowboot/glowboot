@@ -20,6 +20,11 @@ tests/roms/
 # ags-aging) into this directory on first run.
 tests/gba-roms/
 
+# NES test ROMs — `npm run test:nes-roms` auto-fetches christopherpow's
+# nes-test-roms collection (nestest + blargg suites + Holy Mapperel)
+# into this directory on first run.
+tests/nes-roms/
+
 # Vite env files — never commit any of them so secrets can't sneak in
 # through the back door. The repo ships `.env.example` as the only
 # documented contract; real values live in the deployment environment

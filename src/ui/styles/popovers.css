@@ -1018,6 +1018,11 @@ body.is-touch.popover-active .popover-close {
 body.is-gba .mute-btn-ds {
   display: inline-block;
 }
+/* NES uses the 5th button for its DMC channel (relabelled in applyMuteState);
+   the 6th (Direct Sound B) has no NES equivalent and stays hidden. */
+body.is-nes .mute-btn[data-ch="4"] {
+  display: inline-block;
+}
 
 /* Solar brightness is the live ambient-light value the Boktai trilogy's
    GPIO solar sensor samples — only GBA carts can have that peripheral.
