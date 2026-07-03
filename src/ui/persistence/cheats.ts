@@ -1,6 +1,7 @@
 import type { Cartridge, CheatEntry } from "../../gb";
 import type { Gba, GbaCheatEntry } from "../../gba";
-import { cartIdOf, cartIdOfGba } from "./cart-id.js";
+import type { CheatEntry as NesCheatEntry, Nes } from "../../nes";
+import { cartIdOf, cartIdOfGba, cartIdOfNes } from "./cart-id.js";
 import { idbDelete, idbGet, idbPut, STORE_CHEATS } from "./storage.js";
 
 /**
@@ -67,5 +68,31 @@ export async function saveGba(gba: Gba, entries: readonly GbaCheatEntry[]): Prom
     await idbPut(STORE_CHEATS, rec);
   } catch (err) {
     console.warn("[Cheats] save (GBA) failed:", err);
+  }
+}
+
+export async function loadNes(nes: Nes): Promise<NesCheatEntry[]> {
+  try {
+    const rec = await idbGet<CheatRecord<NesCheatEntry>>(STORE_CHEATS, cartIdOfNes(nes));
+    return rec?.entries ?? [];
+  } catch (err) {
+    console.warn("[Cheats] load (NES) failed:", err);
+    return [];
+  }
+}
+
+export async function saveNes(nes: Nes, entries: readonly NesCheatEntry[]): Promise<void> {
+  try {
+    if (entries.length === 0) {
+      await idbDelete(STORE_CHEATS, cartIdOfNes(nes));
+      return;
+    }
+    const rec: CheatRecord<NesCheatEntry> = {
+      cartId: cartIdOfNes(nes),
+      entries: entries.map((e) => ({ ...e }))
+    };
+    await idbPut(STORE_CHEATS, rec);
+  } catch (err) {
+    console.warn("[Cheats] save (NES) failed:", err);
   }
 }

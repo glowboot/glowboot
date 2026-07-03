@@ -1,6 +1,7 @@
 import type { Cartridge } from "../../gb";
 import { type Gba, parseGbaHeader } from "../../gba";
-import { cartIdOf, cartIdOfGba } from "./cart-id.js";
+import type { Nes } from "../../nes";
+import { cartIdOf, cartIdOfGba, cartIdOfNes } from "./cart-id.js";
 import { idbDelete, idbGet, idbGetAll, idbPut, openDb, STORE_ROMS } from "./storage.js";
 
 /**
@@ -35,6 +36,8 @@ export const idFor = cartIdOf;
  *  GBA load path can stamp thumbnails / play-time against a stable id
  *  without importing from `cart-id.js` itself. */
 export const idForGba = cartIdOfGba;
+/** NES equivalent of {@link idFor}. */
+export const idForNes = cartIdOfNes;
 
 /** Record `cart` + its bytes as the most-recently played ROM. Trims the
  *  store to at most MAX_ENTRIES newest entries after insert.
@@ -58,6 +61,15 @@ export async function rememberGba(gba: Gba, romBytes: Uint8Array, filename: stri
   const id = cartIdOfGba(gba);
   const header = parseGbaHeader(romBytes);
   const title = header.title || filename.replace(/\.[^.]+$/, "");
+  return rememberRaw(id, title, romBytes, filename);
+}
+
+/** NES equivalent of {@link remember}. iNES headers carry no title, so the
+ *  filename (sans extension) is the display name. Entries round-trip through
+ *  the right loader via their `.nes` filename extension. */
+export async function rememberNes(nes: Nes, romBytes: Uint8Array, filename: string): Promise<void> {
+  const id = cartIdOfNes(nes);
+  const title = filename.replace(/\.[^.]+$/, "");
   return rememberRaw(id, title, romBytes, filename);
 }
 

@@ -1379,14 +1379,26 @@ const muteState: [boolean, boolean, boolean, boolean, boolean, boolean] = [
 ];
 
 export function applyMuteState(): void {
-  // Same four PSG channels on both engines; the GBA APU exposes the
-  // matching `muteChannel` array specifically so this wiring stays a
-  // simple per-engine fan-out instead of branching every render frame.
+  // The first four buttons map to the four PSG-style channels on every engine
+  // (NES ch2 "Wave" is the triangle); each engine exposes a `muteChannel` array
+  // so this stays a per-engine fan-out instead of branching every frame.
   if (state.gb) for (let i = 0; i < 4; i++) state.gb.apu.muteChannel[i] = !!muteState[i];
   if (state.gba) {
     for (let i = 0; i < 4; i++) state.gba.mem.apu.muteChannel[i] = !!muteState[i];
     state.gba.mem.apu.muteDirectSoundA = !!muteState[4];
     state.gba.mem.apu.muteDirectSoundB = !!muteState[5];
+  }
+  // NES has a 5th channel (DMC) on the slot GBA uses for Direct Sound A.
+  if (state.nes) for (let i = 0; i < 5; i++) state.nes.apu.muteChannel[i] = !!muteState[i];
+  // Relabel that 5th button: Direct Sound A on GBA, DMC on NES.
+  const ch4 = muteButtons.find((b) => b.dataset.ch === "4");
+  if (ch4) {
+    const isNes = state.nes !== null;
+    ch4.textContent = isNes ? "DMC" : "DSA";
+    ch4.setAttribute("aria-label", isNes ? "Mute DMC channel" : "Mute Direct Sound A channel");
+    ch4.title = isNes
+      ? "DMC (sampled / PCM audio — drums and voice)"
+      : "Direct Sound A (GBA streamed audio — most game music plays here)";
   }
   muteButtons.forEach((btn) => {
     const ch = parseInt(btn.dataset.ch ?? "0", 10);
@@ -1411,7 +1423,7 @@ onSectionReset("audio", () => {
 // ─── Touch controls ──────────────────────────────────────────────────────
 const touch = touchRoot
   ? Touch.initTouchControls(
-      () => state.gb?.joypad ?? state.gba?.joypad ?? null,
+      () => state.gb?.joypad ?? state.gba?.joypad ?? state.nes?.joypad ?? null,
       () => state.gba?.joypad ?? null,
       touchRoot
     )

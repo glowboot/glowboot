@@ -26,7 +26,7 @@ import { createPopover } from "./helper.js";
  *  point in time (rom-loader tears one down before constructing the
  *  other). */
 function activeEngine(): SaveState.SaveStateEngine | null {
-  return state.gb ?? state.gba ?? null;
+  return state.gb ?? state.gba ?? state.nes ?? null;
 }
 
 export async function doSaveState(slot = 0): Promise<void> {

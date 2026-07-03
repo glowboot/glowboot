@@ -1,5 +1,6 @@
 import type { Cartridge } from "../../gb";
 import { type Gba, parseGbaHeader } from "../../gba";
+import type { Nes } from "../../nes";
 import { crc32 } from "./crc32.js";
 
 /**
@@ -18,6 +19,12 @@ import { crc32 } from "./crc32.js";
  * The `gba:` prefix on the GBA key prevents collisions if a GBA cart and
  * a GB cart happen to share a title — they would otherwise hash to the
  * same id and a GBA load would clobber a real GB save.
+ *
+ *          `nes:<mapper>:<romCrc32>`                     (NES)
+ *
+ * iNES headers carry no title, so the NES key is the mapper number plus a
+ * CRC32 over PRG+CHR ROM — stable per cart, distinct per hack, and `nes:`-
+ * prefixed to stay clear of GB/GBA ids in the shared stores.
  */
 export function cartIdOf(cart: Cartridge): string {
   const safeTitle = cart.title.replace(/[^A-Za-z0-9 _.-]/g, "_").trim() || "untitled";
@@ -55,5 +62,27 @@ function gbaRomCrcCached(gba: Gba): number {
   if (cached !== undefined) return cached;
   const value = crc32(gba.mem.rom);
   gbaRomCrcCache.set(gba, value);
+  return value;
+}
+
+/** NES equivalent — keys a Nes engine by its ROM identity. The iNES header has
+ *  no title, so the CRC32 spans PRG + CHR ROM (a CHR-only graphics hack still
+ *  gets a distinct id) and the `nes:` prefix namespaces it. */
+export function cartIdOfNes(nes: Nes): string {
+  const crc = nesRomCrcCached(nes).toString(16).padStart(8, "0");
+  return `nes:${nes.cartridge.rom.mapper}:${crc}`;
+}
+
+const nesRomCrcCache = new WeakMap<Nes, number>();
+
+function nesRomCrcCached(nes: Nes): number {
+  const cached = nesRomCrcCache.get(nes);
+  if (cached !== undefined) return cached;
+  const { prgRom, chrRom } = nes.cartridge.rom;
+  const combined = new Uint8Array(prgRom.length + chrRom.length);
+  combined.set(prgRom, 0);
+  combined.set(chrRom, prgRom.length);
+  const value = crc32(combined);
+  nesRomCrcCache.set(nes, value);
   return value;
 }

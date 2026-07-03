@@ -21,17 +21,21 @@
 const GB_DIR = "Nintendo - Game Boy";
 const GBC_DIR = "Nintendo - Game Boy Color";
 const GBA_DIR = "Nintendo - Game Boy Advance";
+const NES_DIR = "Nintendo - Nintendo Entertainment System";
 const GB_DIRS = [GB_DIR, GBC_DIR];
 const GBA_DIRS = [GBA_DIR];
+const NES_DIRS = [NES_DIR];
 
-/** Which platform's directories to fetch. The GB/GBC indexes share a
- *  cache, the GBA index is separate — the file formats differ enough
- *  (GBA codes are CodeBreaker, GB codes are Game Genie + Game Shark)
- *  that mixing them in one search would confuse users. */
-export type Platform = "gb" | "gba";
+/** Which platform's directories to fetch. Each platform's index is cached
+ *  separately — the file formats differ enough (GBA codes are CodeBreaker,
+ *  GB/NES codes are Game Genie + Game Shark) that mixing them in one search
+ *  would confuse users. */
+export type Platform = "gb" | "gba" | "nes";
 
 function dirsForPlatform(platform: Platform): readonly string[] {
-  return platform === "gba" ? GBA_DIRS : GB_DIRS;
+  if (platform === "gba") return GBA_DIRS;
+  if (platform === "nes") return NES_DIRS;
+  return GB_DIRS;
 }
 
 const GH_API = "https://api.github.com/repos/libretro/libretro-database/contents/cht";
@@ -115,7 +119,9 @@ function normalise(s: string): string {
 }
 
 function cacheKey(platform: Platform): string {
-  return platform === "gba" ? `${KEYS.CHEAT_INDEX_CACHE}-gba` : KEYS.CHEAT_INDEX_CACHE;
+  if (platform === "gba") return `${KEYS.CHEAT_INDEX_CACHE}-gba`;
+  if (platform === "nes") return `${KEYS.CHEAT_INDEX_CACHE}-nes`;
+  return KEYS.CHEAT_INDEX_CACHE;
 }
 
 function loadCache(platform: Platform): CachedIndex | null {
