@@ -7,6 +7,12 @@ import {
   newGbaCheatId,
   parseGbaHeader
 } from "../../gba";
+import {
+  type CheatEntry as NesCheatEntry,
+  decodeCheat as decodeNesCheat,
+  formatCode as formatNesCheat,
+  newCheatId as newNesCheatId
+} from "../../nes";
 import * as CheatCDN from "../cheats/cdn.js";
 import { parseCht, parseGbaCht } from "../cheats/parser.js";
 import { renderScanner } from "../cheats/scanner.js";
@@ -130,6 +136,10 @@ async function renderCheats(): Promise<void> {
   cheatListEl = null;
   if (state.gba) {
     await renderGbaCheats();
+    return;
+  }
+  if (state.nes) {
+    await renderNesCheats();
     return;
   }
   const gb = state.gb;
@@ -305,6 +315,236 @@ async function importCheatsFromText(text: string): Promise<void> {
     toast(`Imported ${ok} cheats (${skipped.length} skipped — see console)`);
   } else toast(`Imported ${ok} cheats`);
   refreshCheatsList();
+}
+
+// ─── NES path ────────────────────────────────────────────────────────────
+// NES cheats mirror the GB flow (Game Genie letter codes + raw RAM freezes,
+// online libretro DB search, .cht import) — the entry shape and codec are the
+// same. There's no NES memory scanner yet, so that panel is omitted.
+
+function refreshNesCheatsList(): void {
+  if (!cheatListEl) return;
+  cheatListEl.innerHTML = "";
+  const nes = state.nes;
+  if (!nes) return;
+  const entries = nes.cheats.entries;
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "pop-empty";
+    empty.textContent = "No cheats yet — paste a Game Genie code below";
+    cheatListEl.appendChild(empty);
+    return;
+  }
+  const allOn = entries.every((e) => e.enabled);
+  const bulk = document.createElement("button");
+  bulk.type = "button";
+  bulk.className = "cheats-bulk-toggle";
+  bulk.textContent = allOn ? "Disable all" : "Enable all";
+  bulk.addEventListener("click", () => {
+    if (!state.nes) return;
+    const turnOn = !allOn;
+    for (const e of state.nes.cheats.entries) state.nes.cheats.setEnabled(e.id, turnOn);
+    void Cheats.saveNes(state.nes, state.nes.cheats.entries);
+    refreshNesCheatsList();
+  });
+  cheatListEl.appendChild(bulk);
+  for (const e of entries) {
+    const row = document.createElement("div");
+    row.className = "cheat-row";
+
+    const chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.checked = e.enabled;
+    chk.addEventListener("change", () => {
+      if (!state.nes) return;
+      state.nes.cheats.setEnabled(e.id, chk.checked);
+      void Cheats.saveNes(state.nes, state.nes.cheats.entries);
+    });
+    row.appendChild(chk);
+
+    const info = document.createElement("div");
+    info.className = "cheat-info";
+    const nameEl = document.createElement("div");
+    nameEl.className = "cheat-name";
+    nameEl.textContent = e.name || "(unnamed)";
+    const codeEl = document.createElement("div");
+    codeEl.className = "cheat-code";
+    codeEl.appendChild(document.createTextNode(e.code + " "));
+    const badge = document.createElement("span");
+    badge.className = `cheat-format ${e.format === "game-shark" ? "gs" : "gg"}`;
+    badge.textContent = e.format === "game-shark" ? "GS" : "GG";
+    badge.title =
+      e.format === "game-shark"
+        ? "RAM freeze — writes the value into RAM every frame so the game can't change it"
+        : "Game Genie — patches ROM reads at fixed addresses (acts on cartridge code)";
+    codeEl.appendChild(badge);
+    info.appendChild(nameEl);
+    info.appendChild(codeEl);
+    row.appendChild(info);
+
+    const del = document.createElement("button");
+    del.className = "cheat-delete";
+    del.title = "Delete cheat";
+    del.setAttribute("aria-label", `Delete cheat ${e.name}`);
+    del.textContent = "×";
+    del.addEventListener("click", async () => {
+      if (!state.nes) return;
+      state.nes.cheats.remove(e.id);
+      await Cheats.saveNes(state.nes, state.nes.cheats.entries);
+      refreshNesCheatsList();
+    });
+    row.appendChild(del);
+
+    cheatListEl.appendChild(row);
+  }
+}
+
+async function renderNesCheats(): Promise<void> {
+  if (!cheatsPop) return;
+  const nes = state.nes;
+  if (!nes) return;
+
+  const list = document.createElement("div");
+  list.className = "cheats-list";
+  cheatListEl = list;
+  cheatsPop.appendChild(list);
+  refreshNesCheatsList();
+
+  const form = document.createElement("form");
+  form.className = "cheats-add";
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.placeholder = "Name";
+  nameInput.autocomplete = "off";
+  const codeInput = document.createElement("input");
+  codeInput.type = "text";
+  codeInput.placeholder = "Code (e.g. SXIOPO)";
+  codeInput.autocomplete = "off";
+  codeInput.spellcheck = false;
+  codeInput.addEventListener("input", () => {
+    const raw = codeInput.value.trim();
+    codeInput.classList.toggle("is-invalid", raw.length > 0 && decodeNesCheat(raw) === null);
+  });
+  const addBtn = document.createElement("button");
+  addBtn.type = "submit";
+  addBtn.textContent = "Add";
+  form.appendChild(nameInput);
+  form.appendChild(codeInput);
+  form.appendChild(addBtn);
+
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!state.nes) return;
+    const raw = codeInput.value.trim();
+    if (!raw) return;
+    const decoded = decodeNesCheat(raw);
+    if (!decoded) {
+      errorToast("Invalid cheat code");
+      return;
+    }
+    const entry: NesCheatEntry = {
+      id: newNesCheatId(),
+      name: nameInput.value.trim() || formatNesCheat(raw),
+      code: formatNesCheat(raw),
+      format: decoded.format,
+      enabled: true,
+      address: decoded.address,
+      value: decoded.value,
+      ...(decoded.compare !== undefined ? { compare: decoded.compare } : {})
+    };
+    state.nes.cheats.add(entry);
+    await Cheats.saveNes(state.nes, state.nes.cheats.entries);
+    nameInput.value = "";
+    codeInput.value = "";
+    toast("Added cheat");
+    refreshNesCheatsList();
+  });
+  cheatsPop.appendChild(form);
+
+  const importRow = document.createElement("div");
+  importRow.className = "cheats-import-row";
+  const importBtn = document.createElement("button");
+  importBtn.type = "button";
+  importBtn.className = "cheats-import";
+  importBtn.textContent = "Import .cht file…";
+  const onlineBtn = document.createElement("button");
+  onlineBtn.type = "button";
+  onlineBtn.className = "cheats-import";
+  onlineBtn.textContent = "Search online…";
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = ".cht,.txt,text/plain";
+  fileInput.hidden = true;
+  const hint = document.createElement("a");
+  hint.className = "cheats-hint";
+  hint.href = "https://github.com/libretro/libretro-database/tree/master/cht";
+  hint.target = "_blank";
+  hint.rel = "noopener noreferrer";
+  hint.textContent = "libretro-database";
+  importRow.appendChild(importBtn);
+  importRow.appendChild(onlineBtn);
+  importRow.appendChild(hint);
+
+  importBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      errorToast("Could not read file");
+      return;
+    }
+    fileInput.value = "";
+    await importNesCheatsFromText(text);
+  });
+
+  cheatsPop.appendChild(importRow);
+
+  wireOnlineSearchPanel({
+    parent: cheatsPop,
+    platform: "nes",
+    platformLabelFor: () => "NES",
+    importer: importNesCheatsFromText,
+    initialQuery: () => (state.currentFilename ?? "").replace(/\.[^.]+$/, "").trim(),
+    toggleBtn: onlineBtn
+  });
+  cheatsPop.appendChild(fileInput);
+}
+
+async function importNesCheatsFromText(text: string): Promise<void> {
+  const nes = state.nes;
+  if (!nes) return;
+  const parsed = parseCht(text);
+  let ok = 0;
+  const skipped: Array<{ name: string; code: string }> = [];
+  for (const p of parsed) {
+    const decoded = decodeNesCheat(p.code);
+    if (!decoded) {
+      skipped.push({ name: p.name, code: p.code });
+      continue;
+    }
+    const entry: NesCheatEntry = {
+      id: newNesCheatId(),
+      name: p.name,
+      code: formatNesCheat(p.code),
+      format: decoded.format,
+      enabled: false,
+      address: decoded.address,
+      value: decoded.value,
+      ...(decoded.compare !== undefined ? { compare: decoded.compare } : {})
+    };
+    nes.cheats.add(entry);
+    ok++;
+  }
+  await Cheats.saveNes(nes, nes.cheats.entries);
+  if (ok === 0 && skipped.length === 0) toast("No cheats found in file");
+  else if (skipped.length > 0) {
+    console.warn("[Cheats] skipped during import:", skipped);
+    toast(`Imported ${ok} cheats (${skipped.length} skipped — see console)`);
+  } else toast(`Imported ${ok} cheats`);
+  refreshNesCheatsList();
 }
 
 // ─── GBA path ────────────────────────────────────────────────────────────

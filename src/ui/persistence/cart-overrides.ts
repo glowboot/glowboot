@@ -38,6 +38,10 @@ export interface CartOverrides {
    *  for Donkey Kong Country's ambient tracks while leaving everything
    *  else clean. */
   audioMode?: AudioMode;
+  /** NES TV-system override — forces NTSC (60 Hz) or PAL (50 Hz) timing
+   *  regardless of the iNES header (which is unreliable). Undefined = honour
+   *  the header. A PAL cart (e.g. "(E)" dumps) left on NTSC runs ~17% fast. */
+  nesRegion?: "ntsc" | "pal";
 }
 
 interface CartOverridesRecord {

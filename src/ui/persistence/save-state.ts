@@ -1,7 +1,9 @@
 import { type GameBoy, UnsupportedSaveStateError } from "../../gb";
 import { Gba, parseGbaHeader, UnsupportedGbaSaveStateError } from "../../gba";
+import { Nes, UnsupportedNesSaveStateError } from "../../nes";
+import { type EngineId, PLATFORMS } from "../engine";
 import { errorToast } from "../hud/toast.js";
-import { cartIdOf, cartIdOfGba } from "./cart-id.js";
+import { cartIdOf, cartIdOfGba, cartIdOfNes } from "./cart-id.js";
 import { idbDelete, idbGet, idbGetAllByIndex, idbPut, STORE_SAVE_STATES } from "./storage.js";
 
 /**
@@ -21,34 +23,46 @@ import { idbDelete, idbGet, idbGetAllByIndex, idbPut, STORE_SAVE_STATES } from "
  * states from both engines without collision.
  */
 
-/** Engines this module knows how to snapshot. Both expose a compatible
- *  `saveState()` / `loadState()` shape on their respective classes;
- *  cart-id derivation routes through `engineCartId`. */
-export type SaveStateEngine = GameBoy | Gba;
+/** Engines this module knows how to snapshot. All three expose a compatible
+ *  `saveState()` / `loadState()` shape on their respective classes; cart-id
+ *  derivation routes through `engineCartId`. */
+export type SaveStateEngine = GameBoy | Gba | Nes;
 
 /** True when the given engine is a GBA instance. Exported so the
  *  save-state import/export layer can choose engine-specific file
- *  extensions (`.gbastate` vs `.gbstate`) at the user-visible
- *  download / file-picker boundary. */
+ *  extensions at the user-visible download / file-picker boundary. */
 export function isGbaEngine(engine: SaveStateEngine): engine is Gba {
   return engine instanceof Gba;
 }
 
-function isGba(engine: SaveStateEngine): engine is Gba {
-  return isGbaEngine(engine);
+/** Which console an engine belongs to — the key into the platform registry. */
+export function engineId(engine: SaveStateEngine): EngineId {
+  if (engine instanceof Gba) return "gba";
+  if (engine instanceof Nes) return "nes";
+  return "gb";
+}
+
+/** Save-state download extension for the engine (`.gbstate` / `.gbastate` /
+ *  `.nesstate`). */
+export function stateFileExt(engine: SaveStateEngine): string {
+  return PLATFORMS[engineId(engine)].stateFileExt;
 }
 
 /** Stable per-engine string used as the IDB key prefix. */
 export function engineCartId(engine: SaveStateEngine): string {
-  return isGba(engine) ? cartIdOfGba(engine) : cartIdOf(engine.cart);
+  if (engine instanceof Gba) return cartIdOfGba(engine);
+  if (engine instanceof Nes) return cartIdOfNes(engine);
+  return cartIdOf(engine.cart);
 }
 
-/** Human-readable title for the engine's cart — used by the save-state
- *  export filename + the import-mismatch toast. GB reads the parsed
- *  `cart.title`; GBA parses the ROM header lazily because `Gba` doesn't
- *  surface a pre-parsed title field. */
+/** Human-readable title for the engine's cart — used by the save-state export
+ *  filename + the import-mismatch toast. GB reads the parsed `cart.title`; GBA
+ *  parses the ROM header lazily; the iNES header has no title, so NES uses a
+ *  generic label. */
 export function engineCartTitle(engine: SaveStateEngine): string {
-  return isGba(engine) ? parseGbaHeader(engine.mem.rom).title : engine.cart.title;
+  if (engine instanceof Gba) return parseGbaHeader(engine.mem.rom).title;
+  if (engine instanceof Nes) return "NES game";
+  return engine.cart.title;
 }
 
 function recordId(engine: SaveStateEngine, slot: number): string {
@@ -123,9 +137,13 @@ export async function loadStateFrom(engine: SaveStateEngine, slot = 0): Promise<
   } catch (err) {
     // Version-mismatch / migrator-missing failures get a user-readable
     // explanation; everything else falls through to a generic warning.
-    // Both engines have their own UnsupportedXxxError class — both
-    // expose a `.message` we can surface verbatim.
-    if (err instanceof UnsupportedSaveStateError || err instanceof UnsupportedGbaSaveStateError) {
+    // Each engine has its own UnsupportedXxxError class — all expose a
+    // `.message` we can surface verbatim.
+    if (
+      err instanceof UnsupportedSaveStateError ||
+      err instanceof UnsupportedGbaSaveStateError ||
+      err instanceof UnsupportedNesSaveStateError
+    ) {
       errorToast(err.message);
     }
     console.warn("[State] load failed:", err);

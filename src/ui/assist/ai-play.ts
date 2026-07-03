@@ -12,9 +12,11 @@
 
 import { type Button } from "../../gb";
 import { type GbaButton, parseGbaHeader } from "../../gba";
+import { type NesButton } from "../../nes";
 import { stopPacing } from "../session/pacing.js";
 import { pauseGbaSession } from "../session/runtime-gba.js";
-import { renderer, setPaused, state } from "../state.js";
+import { pauseNesSession } from "../session/runtime-nes.js";
+import { activeEngine, renderer, setPaused, state } from "../state.js";
 import { askPlan, type PlayButton, type PlayPlan, preferredAnswerLang } from "./assist.js";
 
 /** Safety cap so a runaway loop can't burn the user's API budget unbounded. */
@@ -63,13 +65,12 @@ export function stopAiPlay(): void {
 }
 
 function activeFramebuffer(): Uint8ClampedArray<ArrayBuffer> | null {
-  if (state.gb) return state.gb.ppu.framebuffer;
-  if (state.gba) return state.gba.framebuffer;
-  return null;
+  return activeEngine()?.framebuffer ?? null;
 }
 function stepActive(): void {
   if (state.gb) state.gb.stepFrame();
-  else state.gba?.stepFrame();
+  else if (state.gba) state.gba.stepFrame();
+  else state.nes?.stepFrame();
 }
 function pressActive(button: PlayButton): void {
   if (button === "none") return;
@@ -77,24 +78,29 @@ function pressActive(button: PlayButton): void {
     if (GB_BUTTONS.has(button)) state.gb.joypad.press(button as Button);
   } else if (state.gba) {
     state.gba.joypad.press(button as GbaButton); // every non-"none" button is a valid GBA input
+  } else if (state.nes) {
+    if (GB_BUTTONS.has(button)) state.nes.joypad.press(button as NesButton); // NES shares the GB 8-button set
   }
 }
 function releaseAllActive(): void {
   state.gb?.joypad.releaseAll();
   state.gba?.joypad.releaseAll();
+  state.nes?.joypad.releaseAll();
 }
 function saveSnapshot(): Uint8Array | null {
-  return state.gb ? state.gb.saveState() : (state.gba?.saveState() ?? null);
+  if (state.gb) return state.gb.saveState();
+  if (state.gba) return state.gba.saveState();
+  return state.nes?.saveState() ?? null;
 }
 function loadSnapshot(blob: Uint8Array): void {
   state.gb?.loadState(blob);
   state.gba?.loadState(blob);
+  state.nes?.loadState(blob);
 }
 
 function captureUrl(): string {
   const fb = activeFramebuffer()!;
-  const w = state.gb ? 160 : 240;
-  const h = state.gb ? 144 : 160;
+  const { width: w, height: h } = activeEngine()!.platform.screen;
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
@@ -113,10 +119,15 @@ export async function startAiPlay(hooks: AiPlayHooks): Promise<void> {
   playing = true;
   currentHint = ""; // fresh session
   if (state.gb) stopPacing();
-  else pauseGbaSession();
+  else if (state.gba) pauseGbaSession();
+  else pauseNesSession();
   setPaused(true);
 
-  const title = state.gb ? state.gb.cart.title || "" : state.gba ? parseGbaHeader(state.gba.mem.rom).title : "";
+  const title = state.gb
+    ? state.gb.cart.title || ""
+    : state.gba
+      ? parseGbaHeader(state.gba.mem.rom).title
+      : state.currentFilename?.replace(/\.[^.]+$/, "") || "";
   const history: string[] = [];
   const snapshots: Uint8Array[] = []; // oldest → newest; one per decision
   let memory = ""; // the model's scratchpad, carried decision to decision

@@ -43,6 +43,10 @@
 body.is-gba .canvas-wrap {
   aspect-ratio: 3 / 2;
 }
+/* NES carts render at 256×240 (16:15) — same lockstep swap as GBA. */
+body.is-nes .canvas-wrap {
+  aspect-ratio: 16 / 15;
+}
 /* Drop-target highlight: dashed accent outline around the game area
    while a file is being dragged over the window. rom-loader.ts sets
    `body.is-drop-target` on dragenter/dragleave so every part of the
@@ -160,6 +164,9 @@ body[data-theme="forest-canopy"] {
 }
 body.is-gba #screen {
   aspect-ratio: 3 / 2;
+}
+body.is-nes #screen {
+  aspect-ratio: 16 / 15;
 }
 /* Fullscreen target changed from #screen to .console so the on-screen
    touch overlay stays reachable — see touch.css for the .console:fullscreen

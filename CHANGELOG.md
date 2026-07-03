@@ -5,6 +5,84 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] — 2026-07-01
+
+The NES release. Glowboot now plays Game Boy, Game Boy Color, Game Boy
+Advance, **and** NES / Famicom carts from the same browser tab, with the
+engine, save persistence, cheats, debugger, and rewind extended to the
+new lineage.
+
+### Added
+
+- **NES engine** — Ricoh 2A03 CPU (a 6502 core with the full official +
+  unofficial opcode set, dummy reads / writes, cycle-accurate NMI / IRQ
+  timing), the 2C02 PPU (background + sprite pipeline, 8-sprite-per-line
+  limit with the overflow flag, sprite-0 hit, 8×16 sprites, the loopy
+  scroll registers, open-bus decay, MMC3 A12-rising scanline IRQ), the
+  APU (two pulse + triangle + noise + DMC), and both NTSC and PAL timing.
+  Headless-runnable under `src/nes/`.
+- **NES expansion audio** — five on-cartridge sound chips summed into the
+  mix: Konami VRC6, VRC7 (FM), Namco 163 (wavetable), Sunsoft 5B, and
+  MMC5.
+- **~57 NES mappers** — the mainstream commercial library: NROM, MMC1
+  (incl. 512 KiB SUROM), UxROM, CNROM, MMC3 (+ TxSROM and the common
+  clones), MMC5, AxROM, GxROM, the Konami VRC1–7 family, Namco 108 / 163,
+  Sunsoft 1–5B, Taito TC0190 / TC0690 + X1-005 / X1-017, Irem G-101 /
+  H3001, several Jaleco boards, and the Bandai FCG with its serial 24C0x
+  EEPROM save.
+- **NES cart backup** — battery-backed PRG-RAM and the Bandai serial
+  EEPROM persist to IndexedDB, auto-saved every 2 seconds and on tab
+  hide, the same as the Game Boy and Game Boy Advance paths.
+- **NES save states + autosave + rewind** — the twelve labeled slots
+  (digit keys to load, `Shift+digit` to save), `.nesstate` single-slot
+  export / import, auto-resume-on-reload, and the 2-minute rewind buffer
+  all work identically across every engine.
+- **NES cheats** — Game Genie letter codes and Game Shark / raw RAM
+  writes; libretro code-database search and `.cht` import work for NES
+  too. (The live value-scanner remains Game Boy / Game Boy Advance only.)
+- **NES debugger** — nine panes mirroring the Game Boy / GBA debugger:
+  CPU (6502 register file + status flags + NMI / IRQ state), Disasm
+  (6502 with the unofficial opcodes), Memory (switchable RAM / PPU / OAM
+  / palette / cartridge segments), Palettes, Tiles (CHR pattern tables),
+  Audio (oscilloscope rows for the five channels), Breakpoints, Call
+  stack (JSR / interrupt entry), and Symbols (accepts `.nl` name-list
+  files).
+- **NES library entries + thumbnails** — recently-played NES carts join
+  the same library grid as the other engines, each with a live thumbnail.
+- **PWA `.nes` file association** — double-clicking a `.nes` file on an
+  installed Glowboot PWA opens it in the existing emulator window, same
+  as `.gb` / `.gbc` / `.gba`.
+- **NES accuracy gate** — `npm run test:nes-roms` runs a self-scoring
+  suite (nestest, Blargg's CPU / APU / PPU tests, sprite-hit,
+  sprite-overflow, MMC3-IRQ, and the interrupt / exec-space / reset
+  timing probes) diffed against a committed baseline; 120 of 122 gated
+  tests pass (the exceptions probe the MMC3 revision-A IRQ quirk — the
+  opposite of the revision-B behaviour real games rely on — and a
+  sub-cycle DMC-DMA read-alignment edge). Across a ~4000-cart library
+  sweep, ~99% of the carts whose mapper is supported render.
+
+### Changed
+
+- Documentation updated for NES parity: the tagline, feature bullets,
+  getting-started file list, controls, and a new "NES core" section plus
+  an NES entry in the accuracy / known-limitations list.
+- Bug-report issue template's console-mode dropdown now offers an NES
+  option alongside DMG, CGB, and GBA.
+- Public metadata (site + social-card descriptions and the PWA manifest)
+  lists NES alongside the Game Boy family.
+
+### Notes
+
+- NES carts have no link cable, tilt / motion, or camera — those
+  peripherals don't exist on the hardware, so those controls stay
+  disabled for NES.
+- A few individual commercial carts don't yet boot (they hit CPU /
+  timing edge cases the test ROMs don't cover); the rest of the
+  unsupported tail is pirate / multicart mappers with no commercial
+  titles behind them.
+- NES cheat search defaults to the same libretro community database used
+  by the Game Boy and Game Boy Advance sides.
+
 ## [1.5.3] — 2026-06-23
 
 ### Changed

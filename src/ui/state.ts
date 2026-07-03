@@ -1,7 +1,9 @@
 import type { GameBoy, SerialLink } from "../gb";
 import type { Gba } from "../gba";
+import type { Nes } from "../nes";
 import { AudioOutput } from "./audio/output.js";
 import { canvas, setCanvas } from "./dom.js";
+import { type EngineAdapter, makeGbaAdapter, makeGbAdapter, makeNesAdapter } from "./engine";
 import { GamepadInput } from "./input/gamepad.js";
 import { KEYS, lsGet } from "./persistence/local-storage.js";
 import { CanvasRenderer, type ShaderName, WebGLRenderer } from "./renderer";
@@ -110,10 +112,10 @@ export function swapRenderer(mode: string | null, dims?: RenderDims): CanvasRend
 
   // Pick the active core's framebuffer size when the caller doesn't
   // supply explicit dims — settings popover changes mid-game shouldn't
-  // need to thread the resolution through. Defaults to GB when no
-  // engine is up yet so the boot path still constructs a 160×144 chain.
-  const effectiveDims: RenderDims | undefined =
-    dims ?? (state.gba ? { width: 240, height: 160 } : state.gb ? { width: 160, height: 144 } : undefined);
+  // need to thread the resolution through. Undefined when no engine is up
+  // yet, so the boot path falls back to the renderer's own default.
+  const active = activeEngine();
+  const effectiveDims: RenderDims | undefined = dims ?? active?.platform.screen;
 
   const shader = shaderForMode(mode);
   if (shader) {
@@ -130,8 +132,7 @@ export function swapRenderer(mode: string | null, dims?: RenderDims): CanvasRend
   // Push the last-rendered framebuffer through the new renderer so the
   // screen doesn't blank between swap and the next engine frame
   // (notable on paused games or during a mode switch at a menu).
-  if (state.gb) renderer.render(state.gb.ppu.framebuffer);
-  else if (state.gba) renderer.render(state.gba.framebuffer);
+  if (active) renderer.render(active.framebuffer);
   return renderer;
 }
 export const audio = new AudioOutput();
@@ -223,9 +224,11 @@ export const state = {
   /** Current Game Boy engine, or null before any ROM has been loaded. */
   gb: null as GameBoy | null,
   /** Current GBA engine, or null when not running a `.gba` cart. At
-   *  most one of `gb` / `gba` is non-null at any time — the rom-loader
-   *  tears down the old core before constructing the new one. */
+   *  most one of `gb` / `gba` / `nes` is non-null at any time — the
+   *  rom-loader tears down the old core before constructing the new one. */
   gba: null as Gba | null,
+  /** Current NES engine, or null when not running a `.nes` cart. */
+  nes: null as Nes | null,
   paused: false,
 
   // Rewind
@@ -301,6 +304,28 @@ export const state = {
    *  the cart clock once on whichever resume transition fires first. */
   rtcWallPauseMs: 0
 };
+
+let cachedAdapter: EngineAdapter | null = null;
+
+/** The adapter for whichever console core is loaded, or null before any ROM.
+ *  Derived from the `state.gb/gba/nes` fields and cached by engine identity, so
+ *  this is the single place the three-way branch lives — every other generic
+ *  site reads the framebuffer, platform, and capabilities through the adapter
+ *  it returns instead of re-branching on engine type. */
+export function activeEngine(): EngineAdapter | null {
+  const engine = state.gb ?? state.gba ?? state.nes;
+  if (!engine) {
+    cachedAdapter = null;
+    return null;
+  }
+  if (cachedAdapter?.engine === engine) return cachedAdapter;
+  cachedAdapter = state.gb
+    ? makeGbAdapter(state.gb)
+    : state.gba
+      ? makeGbaAdapter(state.gba)
+      : makeNesAdapter(state.nes!);
+  return cachedAdapter;
+}
 
 // Console-debug handle. Exposes the shared state + audio output on a
 // single window namespace so things like `glowboot.state.gba.mem.apu.

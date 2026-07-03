@@ -118,6 +118,7 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault();
     state.gb?.joypad.press(btn);
     state.gba?.joypad.press(btn);
+    state.nes?.joypad.press(btn);
   }
 
   // GBA shoulders — only meaningful when a GBA cart is loaded. The key
@@ -148,6 +149,7 @@ window.addEventListener("keyup", (e) => {
   if (btn) {
     state.gb?.joypad.release(btn);
     state.gba?.joypad.release(btn);
+    state.nes?.joypad.release(btn);
   }
   const shoulder = BindingsUI.codeToShoulder[e.code];
   if (shoulder && state.gba) {
@@ -161,6 +163,7 @@ window.addEventListener("keyup", (e) => {
 function releaseAllButtons(): void {
   state.gb?.joypad.releaseAll();
   state.gba?.joypad.releaseAll();
+  state.nes?.joypad.releaseAll();
 }
 window.addEventListener("blur", releaseAllButtons);
 document.addEventListener("visibilitychange", () => {

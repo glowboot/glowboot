@@ -19,7 +19,7 @@
  */
 
 import { saveBlobNative } from "../../save-blob.js";
-import { engineCartId, engineCartTitle, isGbaEngine, type SaveStateEngine } from "../save-state.js";
+import { engineCartId, engineCartTitle, type SaveStateEngine, stateFileExt } from "../save-state.js";
 import { idbGet, idbPut, STORE_SAVE_STATES } from "../storage.js";
 import { b64ToBytes, bytesToB64 } from "./base64.js";
 
@@ -91,7 +91,7 @@ export async function downloadSlot(engine: SaveStateEngine, slot: number): Promi
   // the OS file-association heuristics tidy. Both extensions parse
   // identically on import — the cart-id check in the bundle decides
   // whether the file matches the currently-loaded cart.
-  const ext = isGbaEngine(engine) ? "gbastate" : "gbstate";
+  const ext = stateFileExt(engine);
   const filename = `${safeTitle}-slot${slot}.${ext}`;
   const share = await saveBlobNative(blob, filename);
   if (share === "shared") return true;

@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Social-card preview (1200×630) for og:image / twitter:image.
-     Edit this SVG and regenerate the PNG with `npm run render:og`.
+     Edit this SVG and regenerate the PNG by inlining it into an HTML
+     wrapper with the repo fonts and screenshotting at 1200×630 with a
+     headless browser (see the git history of og-preview.png).
      Layout: GB silhouette with a "live" mint screen + scanline overlay
      on the left, JetBrains Mono SemiBold wordmark + tagline on the
      right, aurora-band gradient backdrop. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="Glowboot — play Game Boy in your browser">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="Glowboot — play retro games in your browser">
   <title>Glowboot</title>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
@@ -52,6 +54,6 @@
   </g>
 
   <text x="481" y="320" font-family="JetBrains Mono" font-size="122" font-weight="600" fill="#ffffff" letter-spacing="-2">Glowboot</text>
-  <text x="492" y="382" font-family="JetBrains Mono" font-size="22" font-weight="500" fill="#9ef0d0" letter-spacing="6">PLAY GAME BOY IN YOUR BROWSER</text>
+  <text x="492" y="382" font-family="JetBrains Mono" font-size="22" font-weight="500" fill="#9ef0d0" textLength="557" lengthAdjust="spacing">PLAY RETRO GAMES IN YOUR BROWSER</text>
   <rect x="0" y="624" width="1200" height="2" fill="#9ef0d0" opacity="0.22"/>
 </svg>

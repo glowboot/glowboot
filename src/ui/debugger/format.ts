@@ -87,3 +87,14 @@ export function regionOf(addr: number): string {
   if (addr < 0xffff) return "HRAM";
   return "IE";
 }
+
+/** Human label for an NES CPU-bus region (16-bit address space). Colours the
+ *  NES memory viewer's address gutter. */
+export function regionOfNes(addr: number): string {
+  if (addr < 0x2000) return "RAM";
+  if (addr < 0x4000) return "PPU";
+  if (addr < 0x4020) return "APU/IO";
+  if (addr < 0x6000) return "EXP";
+  if (addr < 0x8000) return "PRGRAM";
+  return "PRGROM";
+}

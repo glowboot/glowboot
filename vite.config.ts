@@ -43,7 +43,8 @@ export default defineConfig({
       manifest: {
         name: "Glowboot",
         short_name: "Glowboot",
-        description: "Glowboot — a Game Boy, Game Boy Color, and Game Boy Advance emulator that runs in your browser.",
+        description:
+          "Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, and NES emulator that runs in your browser.",
         theme_color: "#1a0b3d",
         background_color: "#1a0b3d",
         display: "standalone",
@@ -59,7 +60,7 @@ export default defineConfig({
           { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
           { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" }
         ],
-        // OS-level file association: double-clicking a .gb / .gbc / .gba
+        // OS-level file association: double-clicking a .gb / .gbc / .gba / .nes
         // launches the installed PWA which then receives the file via
         // launchQueue. Reuses an existing window when one is already open
         // (emulator is single-instance — a second ROM replaces the running
@@ -70,7 +71,8 @@ export default defineConfig({
             accept: {
               "application/x-gameboy-rom": [".gb"],
               "application/x-gameboy-color-rom": [".gbc"],
-              "application/x-gba-rom": [".gba"]
+              "application/x-gba-rom": [".gba"],
+              "application/x-nes-rom": [".nes"]
             }
           }
         ],

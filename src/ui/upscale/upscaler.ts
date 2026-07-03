@@ -155,6 +155,15 @@ export function hasWebGpu(): boolean {
   return typeof navigator !== "undefined" && "gpu" in navigator;
 }
 
+/** Whether a frame fits the model's fixed input. Smaller frames are
+ *  edge-padded up (GB 160×144, GBA 240×160), but a frame larger than
+ *  240×160 in either axis would be silently cropped by {@link padToFixed},
+ *  so the NES's 256×240 can't be enhanced — the caller should gate the
+ *  Enhance action off rather than emit a cropped result. */
+export function fitsUpscaleModel(width: number, height: number): boolean {
+  return width <= FIXED_W && height <= FIXED_H;
+}
+
 async function loadOrt(): Promise<OrtModule> {
   if (!ortPromise) {
     // @vite-ignore — keep this a runtime CDN import; do NOT let Vite

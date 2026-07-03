@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for taking the time to report a bug! A clear, reproducible report saves a lot of back-and-forth.
 
-        **Please don't share copyrighted ROMs.** Game name + region + revision is enough — no .gb / .gbc / .gba files in attachments.
+        **Please don't share copyrighted ROMs.** Game name + region + revision is enough — no .gb / .gbc / .gba / .nes files in attachments.
 
   - type: textarea
     id: summary
@@ -62,6 +62,7 @@ body:
         - DMG (original Game Boy)
         - CGB (Game Boy Color)
         - GBA (Game Boy Advance)
+        - NES (Nintendo Entertainment System / Famicom)
         - Not sure
     validations:
       required: false

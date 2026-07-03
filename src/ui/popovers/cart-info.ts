@@ -1,4 +1,5 @@
 import { type Gba, parseGbaHeader } from "../../gba";
+import type { Nes } from "../../nes";
 import { AUDIO_MODES, type AudioMode } from "../audio/output.js";
 import { cartInfoPop, cartInfoTrigger } from "../dom.js";
 import { formatPlayTime } from "../format.js";
@@ -7,6 +8,7 @@ import { type CartOverrides, loadCartOverrides, saveCartOverrides } from "../per
 import { KEYS, lsGet } from "../persistence/local-storage.js";
 import * as Recents from "../persistence/recents.js";
 import * as SaveRamGba from "../persistence/save-ram-gba.js";
+import * as SaveRamNes from "../persistence/save-ram-nes.js";
 import { saveBlobNative } from "../save-blob.js";
 import { applyCartOverrides } from "../session/cart-overrides.js";
 import * as Palettes from "../session/palettes.js";
@@ -77,6 +79,10 @@ async function renderCartInfo(): Promise<void> {
   }
   if (state.gba) {
     await renderGbaCartInfo(state.gba);
+    return;
+  }
+  if (state.nes) {
+    await renderNesCartInfo(state.nes);
     return;
   }
   const empty = document.createElement("div");
@@ -340,6 +346,168 @@ async function renderGbaCartInfo(gba: Gba): Promise<void> {
   renderSharedCartOverrides(cartInfoPop, overrides, hasAnyOverride, persistOverride, null);
 }
 
+async function renderNesCartInfo(nes: Nes): Promise<void> {
+  if (!cartInfoPop) return;
+  await flushPlayTime();
+  startPlayTimer();
+  const id = Recents.idForNes(nes);
+  const recent = (await Recents.list()).find((r) => r.id === id);
+  const playMs = recent?.totalPlayMs ?? 0;
+  const rom = nes.cartridge.rom;
+
+  const title = document.createElement("div");
+  title.className = "cart-info-title";
+  title.textContent = state.currentFilename?.replace(/\.[^.]+$/, "") || recent?.title || "(NES game)";
+  cartInfoPop.appendChild(title);
+
+  const mapper = rom.submapper > 0 ? `${rom.mapper}.${rom.submapper}` : String(rom.mapper);
+  const chr = rom.usesChrRam
+    ? `${rom.chrRamSize.toLocaleString()} bytes RAM`
+    : `${rom.chrRom.length.toLocaleString()} bytes ROM`;
+  const rows: Array<[string, string]> = [
+    ["Mapper", mapper],
+    ["Mirroring", rom.mirroring],
+    ["PRG ROM", `${rom.prgRom.length.toLocaleString()} bytes`],
+    ["CHR", chr],
+    ["Battery", rom.battery ? "Yes" : "No"],
+    ["Region", nes.region === "pal" ? "PAL · 50 Hz" : "NTSC · 60 Hz"],
+    ["Play time", playMs >= 60_000 ? formatPlayTime(playMs) : "—"]
+  ];
+  for (const [k, v] of rows) {
+    const row = document.createElement("div");
+    row.className = "cart-info-row";
+    const ks = document.createElement("span");
+    ks.textContent = k;
+    const vs = document.createElement("b");
+    vs.textContent = v;
+    row.appendChild(ks);
+    row.appendChild(vs);
+    cartInfoPop.appendChild(row);
+  }
+
+  // Save-data management — Export / Import / Clear the cart's battery-backed
+  // PRG-RAM. Only shown for battery carts; clears the live device + the IDB
+  // record so a refresh doesn't bring the old save back.
+  if (SaveRamNes.isPersistable(nes)) {
+    const saveHeading = document.createElement("div");
+    saveHeading.className = "cart-info-heading";
+    const saveHeadingLabel = document.createElement("span");
+    saveHeadingLabel.textContent = "Save data";
+    saveHeading.appendChild(saveHeadingLabel);
+    cartInfoPop.appendChild(saveHeading);
+
+    const saveRow = document.createElement("div");
+    saveRow.className = "cart-info-row cart-info-save-actions";
+    const makeBtn = (label: string, btnTitle: string): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cart-info-save-btn";
+      b.textContent = label;
+      b.title = btnTitle;
+      return b;
+    };
+    const exportBtn = makeBtn("Export", "Download the current save as a .sav file");
+    const importBtn = makeBtn("Import", "Replace the current save with bytes from a .sav file");
+    const clearBtn = makeBtn("Clear", "Wipe the cart's save data (no undo)");
+    const importInput = document.createElement("input");
+    importInput.type = "file";
+    importInput.accept = ".sav,.srm,application/octet-stream";
+    importInput.hidden = true;
+    saveRow.appendChild(exportBtn);
+    saveRow.appendChild(importBtn);
+    saveRow.appendChild(clearBtn);
+    saveRow.appendChild(importInput);
+    cartInfoPop.appendChild(saveRow);
+
+    exportBtn.addEventListener("click", async () => {
+      const bytes = SaveRamNes.exportBytes(nes);
+      if (!bytes) {
+        errorToast("No save data to export yet");
+        return;
+      }
+      const stem = (title.textContent || "save").replace(/[^A-Za-z0-9 ._-]+/g, "_").trim() || "save";
+      const filename = `${stem}.sav`;
+      const buf = new ArrayBuffer(bytes.length);
+      new Uint8Array(buf).set(bytes);
+      const blob = new Blob([buf], { type: "application/octet-stream" });
+      const share = await saveBlobNative(blob, filename);
+      if (share === "shared" || share === "cancelled") return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+
+    importBtn.addEventListener("click", () => importInput.click());
+    importInput.addEventListener("change", async () => {
+      const file = importInput.files?.[0];
+      importInput.value = "";
+      if (!file) return;
+      let bytes: Uint8Array;
+      try {
+        bytes = new Uint8Array(await file.arrayBuffer());
+      } catch {
+        errorToast("Could not read file");
+        return;
+      }
+      const result = await SaveRamNes.importBytes(nes, bytes);
+      if (!result.ok) {
+        errorToast(result.reason);
+        return;
+      }
+      toast(`Imported ${bytes.length.toLocaleString()} bytes`);
+    });
+
+    clearBtn.addEventListener("click", async () => {
+      if (!window.confirm("Wipe the cart's save data? This cannot be undone.")) return;
+      await SaveRamNes.clear(nes);
+      toast("Save data cleared");
+    });
+  }
+
+  // Per-game overrides — render mode, audio mode, integer scaling, pixel
+  // response (shared), plus the NES-only TV-system (NTSC/PAL) override. The
+  // iNES region flag is unreliable, so a manual pin is the dependable fix for
+  // a PAL cart that the header mislabels as NTSC (and runs ~17% fast).
+  const overrides = await loadCartOverrides(id);
+  const hasAnyOverride =
+    overrides.renderMode !== undefined ||
+    overrides.integerScale !== undefined ||
+    overrides.pixelResponse !== undefined ||
+    overrides.audioMode !== undefined ||
+    overrides.nesRegion !== undefined;
+  // `defaultRegion` is the auto-detection result (header → filename → browser),
+  // so "Auto" shows the region the cart actually launched at.
+  const autoRegion = nes.defaultRegion === "pal" ? "PAL" : "NTSC";
+  renderSharedCartOverrides(cartInfoPop, overrides, hasAnyOverride, persistOverride, () => {
+    const sel = document.createElement("select");
+    const opts: Array<[string, string]> = [
+      ["", `Auto (${autoRegion})`],
+      ["ntsc", "NTSC · 60 Hz"],
+      ["pal", "PAL · 50 Hz"]
+    ];
+    const effective = overrides.nesRegion ?? "";
+    for (const [value, text] of opts) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = text;
+      if (value === effective) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener("change", () => {
+      const v = sel.value;
+      void persistOverride({ ...overrides, nesRegion: v === "" ? undefined : (v as "ntsc" | "pal") });
+    });
+    buildOverrideRow("TV system", sel, overrides.nesRegion !== undefined, () =>
+      persistOverride({ ...overrides, nesRegion: undefined })
+    );
+  });
+}
+
 function clampPixelResponse(v: number): number {
   return Number.isFinite(v) ? Math.max(0, Math.min(0.85, v)) : 0;
 }
@@ -525,7 +693,13 @@ function renderSliderOverride(o: SliderOverrideOpts): void {
  *  comes from whichever engine is active — GB uses `cartIdOf`, GBA
  *  uses `cartIdOfGba`. */
 async function persistOverride(next: CartOverrides): Promise<void> {
-  const id = state.gb ? Recents.idFor(state.gb.cart) : state.gba ? Recents.idForGba(state.gba) : null;
+  const id = state.gb
+    ? Recents.idFor(state.gb.cart)
+    : state.gba
+      ? Recents.idForGba(state.gba)
+      : state.nes
+        ? Recents.idForNes(state.nes)
+        : null;
   if (!id) return;
   // Strip empty-string entries that snuck through — the select's "use
   // global" option carries `""`, not the typed-field `undefined` value.
@@ -535,7 +709,8 @@ async function persistOverride(next: CartOverrides): Promise<void> {
     renderMode: next.renderMode || undefined,
     integerScale: next.integerScale,
     pixelResponse: next.pixelResponse,
-    audioMode: next.audioMode || undefined
+    audioMode: next.audioMode || undefined,
+    nesRegion: next.nesRegion
   };
   await saveCartOverrides(id, clean);
   applyCartOverrides(clean);

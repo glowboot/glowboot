@@ -14,14 +14,14 @@
     <meta name="theme-color" content="#1a0b3d" />
     <meta
       name="description"
-      content="Glowboot — a Game Boy, Game Boy Color, and Game Boy Advance emulator written in TypeScript."
+      content="Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, and NES emulator written in TypeScript."
     />
     <link rel="canonical" href="https://glowboot.com/" />
 
     <meta property="og:title" content="Glowboot" />
     <meta
       property="og:description"
-      content="Glowboot — a Game Boy, Game Boy Color, and Game Boy Advance emulator that runs in your browser."
+      content="Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, and NES emulator that runs in your browser."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://glowboot.com/" />
@@ -32,10 +32,7 @@
     <meta property="og:image" content="https://glowboot.com/og-preview.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta
-      property="og:image:alt"
-      content="Glowboot — play Game Boy, Game Boy Color, and Game Boy Advance in your browser"
-    />
+    <meta property="og:image:alt" content="Glowboot — play retro games in your browser" />
 
     <!-- summary_large_image so Twitter / X renders the wide preview
          instead of cropping to a square thumbnail. -->
@@ -43,7 +40,7 @@
     <meta name="twitter:title" content="Glowboot" />
     <meta
       name="twitter:description"
-      content="Glowboot — a Game Boy, Game Boy Color, and Game Boy Advance emulator that runs in your browser."
+      content="Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, and NES emulator that runs in your browser."
     />
     <meta name="twitter:image" content="https://glowboot.com/og-preview.png" />
 
@@ -379,7 +376,7 @@
                     </label>
                     <label
                       class="settings-row"
-                      title="Size the canvas to a whole-number multiple of the native resolution so every pixel is perfectly square. Recommended ON for Game Boy (160×144 grids cleanly into most displays); on GBA (240×160) the integer multiple often leaves wide empty borders, so turning it off lets the image fill the viewport at the cost of slightly fuzzier scaling."
+                      title="Size the canvas to a whole-number multiple of the native resolution so every pixel is perfectly square. Recommended ON for Game Boy (160×144 grids cleanly into most displays); on GBA (240×160) and NES (256×240) the integer multiple often leaves wide empty borders, so turning it off lets the image fill the viewport at the cost of slightly fuzzier scaling."
                     >
                       <span>Integer scaling</span>
                       <input type="checkbox" id="integer-scale-toggle" />
@@ -1322,7 +1319,7 @@
                 </svg>
               </span>
               <span class="canvas-placeholder-label">Load ROM</span>
-              <span class="canvas-placeholder-hint">or drop a .gb / .gbc / .gba file here</span>
+              <span class="canvas-placeholder-hint">or drop a .gb / .gbc / .gba / .nes file here</span>
             </button>
             <div class="overlay overlay-rewind" id="overlay-rewind" aria-hidden="true"></div>
             <div class="overlay overlay-flash" id="overlay-flash" aria-hidden="true"></div>
@@ -1584,7 +1581,7 @@
       </footer>
     </div>
 
-    <input type="file" id="rom-input" accept=".gb,.gbc,.gba,.ips,.bps" multiple />
+    <input type="file" id="rom-input" accept=".gb,.gbc,.gba,.nes,.ips,.bps" multiple />
     <div id="toast" role="status" aria-live="polite"></div>
     <!-- Error toast — separate element so screen readers get `role="alert"`
          / `aria-live="assertive"` for failures (vs. the polite confirmation
