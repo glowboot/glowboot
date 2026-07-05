@@ -68,8 +68,8 @@ export interface RenderDims {
 }
 
 function createRenderer(c: HTMLCanvasElement, dims?: RenderDims): CanvasRenderer | WebGLRenderer {
-  // Fall back to "Original" (Canvas 2D, no shader / upscaler / colour
-  // grade) when no render-mode pref is stored — matches the default
+  // Fall back to "Original" (Canvas 2D, no shader / upscaler) when no
+  // render-mode pref is stored — matches the default
   // surfaced by `panels.ts` so a fresh browser sees unprocessed pixels
   // immediately on first paint.
   const stored = lsGet(KEYS.RENDER_MODE) ?? "canvas";
