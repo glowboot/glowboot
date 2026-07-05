@@ -481,17 +481,15 @@ async function renderSnesCartInfo(snes: Snes): Promise<void> {
   }
 
   // Per-game overrides — render mode, integer scaling, pixel response,
-  // and audio mode all apply to GBA carts via the shared renderer /
-  // audio abstractions (the GBA raw-2D path was retired). Palette and
-  // colour correction stay GB-only because they target the GB PPU.
+  // and audio mode all apply to SNES carts via the shared renderer /
+  // audio abstractions. Palette and colour correction stay GB-only
+  // because they target the GB PPU, so SNES has no engine-specific extras.
   const overrides = await loadCartOverrides(id);
   const hasAnyOverride =
     overrides.renderMode !== undefined ||
     overrides.integerScale !== undefined ||
     overrides.pixelResponse !== undefined ||
     overrides.audioMode !== undefined;
-  // GBA has no engine-specific extras — palette + colour correction
-  // are GB-only since they target the GB PPU.
   renderSharedCartOverrides(cartInfoPop, overrides, hasAnyOverride, persistOverride, null);
 }
 
@@ -838,9 +836,8 @@ function renderSliderOverride(o: SliderOverrideOpts): void {
 
 /** Write the new overrides object to IDB and re-apply it to the live
  *  engine. Empty-string values from the dropdown become `undefined`
- *  before reaching here; callers pass the merged object. Cart id
- *  comes from whichever engine is active — GB uses `cartIdOf`, GBA
- *  uses `cartIdOfGba`. */
+ *  before reaching here; callers pass the merged object. Cart id comes
+ *  from whichever engine is active, each with its own id helper. */
 async function persistOverride(next: CartOverrides): Promise<void> {
   const id = state.gb
     ? Recents.idFor(state.gb.cart)
@@ -848,7 +845,9 @@ async function persistOverride(next: CartOverrides): Promise<void> {
       ? Recents.idForGba(state.gba)
       : state.nes
         ? Recents.idForNes(state.nes)
-        : null;
+        : state.snes
+          ? Recents.idForSnes(state.snes)
+          : null;
   if (!id) return;
   // Strip empty-string entries that snuck through — the select's "use
   // global" option carries `""`, not the typed-field `undefined` value.
