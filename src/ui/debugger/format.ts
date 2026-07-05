@@ -14,6 +14,14 @@ export function hex4(n: number): string {
   return "$" + (n & 0xffff).toString(16).padStart(4, "0").toUpperCase();
 }
 
+/** 24-bit SNES address as `$BB:AAAA` (bank : 16-bit offset). */
+export function hex6(n: number): string {
+  const a = n & 0xffffff;
+  const bank = (a >> 16).toString(16).padStart(2, "0").toUpperCase();
+  const offs = (a & 0xffff).toString(16).padStart(4, "0").toUpperCase();
+  return "$" + bank + ":" + offs;
+}
+
 /** 8-digit hex with `$` prefix (32-bit register / GBA address). */
 export function hex8(n: number): string {
   return "$" + (n >>> 0).toString(16).padStart(8, "0").toUpperCase();

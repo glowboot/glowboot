@@ -36,6 +36,8 @@ let hotkeyBindings = Bindings.loadHotkeyBindings();
 let tiltBindings = Bindings.loadTiltBindings();
 let shoulderKeyBindings = Bindings.loadShoulderKeyBindings();
 let shoulderGamepadBindings = Bindings.loadShoulderGamepadBindings();
+let xyKeyBindings = Bindings.loadXyKeyBindings();
+let xyGamepadBindings = Bindings.loadXyGamepadBindings();
 
 /** Inverse of `keyBindings` used by the keyboard hot path. Exported as
  *  a mutable binding — `keyboard.ts` reads it on every keydown so
@@ -51,6 +53,10 @@ export let codeToHotkey: Record<string, Bindings.HotkeyAction> = invertHotkeys(h
  *  press, so silently dropping the event there is the correct
  *  behaviour. */
 export let codeToShoulder: Record<string, Bindings.ShoulderButton> = invertShoulderKeyBindings(shoulderKeyBindings);
+
+/** `KeyboardEvent.code` → SNES X/Y. Dispatched only when a SNES cart
+ *  is active. */
+export let codeToXy: Record<string, Bindings.XyButton> = invertXyKeyBindings(xyKeyBindings);
 
 /** Snapshot of gamepad bindings for the shoulder dispatcher in
  *  `gamepad.ts`. Read by `GamepadInput.refreshBindings` whenever the
@@ -69,6 +75,13 @@ function invertHotkeys(b: Bindings.HotkeyBindings): Record<string, Bindings.Hotk
 function invertKeyBindings(b: Bindings.KeyBindings): Record<string, Button> {
   const out: Record<string, Button> = {};
   for (const gb of Bindings.GB_BUTTONS) out[b[gb]] = gb;
+  Bindings.mirrorModifierPairs(out);
+  return out;
+}
+
+function invertXyKeyBindings(b: Bindings.XyKeyBindings): Record<string, Bindings.XyButton> {
+  const out: Record<string, Bindings.XyButton> = {};
+  for (const x of Bindings.XY_BUTTONS) out[b[x]] = x;
   Bindings.mirrorModifierPairs(out);
   return out;
 }
@@ -165,8 +178,11 @@ function syncControlsStrip(): void {
 
 function renderBindingsKeyboard(): void {
   if (!bindingsKeyboardEl) return;
-  bindingsKeyboardEl.innerHTML = "";
-  for (const gb of Bindings.GB_BUTTONS) {
+  const kbEl = bindingsKeyboardEl;
+  kbEl.innerHTML = "";
+  // Row order mirrors the keyboard cheat sheet: D-Pad, A, B, X, Y, L, R,
+  // Start, Select — one controller surface, not per-console groups.
+  const addButtonRow = (gb: Button): void => {
     const row = document.createElement("div");
     row.className = "binding-row";
     const lbl = document.createElement("span");
@@ -193,12 +209,40 @@ function renderBindingsKeyboard(): void {
     });
     row.appendChild(lbl);
     row.appendChild(chip);
+    kbEl.appendChild(row);
+  };
+  for (const gb of ["up", "down", "left", "right", "a", "b"] as const) addButtonRow(gb);
+  // SNES X / Y chips — inert on other consoles, dispatched by the
+  // keyboard router only when `state.snes` is non-null.
+  for (const x of Bindings.XY_BUTTONS) {
+    const row = document.createElement("div");
+    row.className = "binding-row";
+    const lbl = document.createElement("span");
+    lbl.className = "lbl";
+    lbl.textContent = Bindings.describeXy(x);
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "binding-chip";
+    chip.title = "Click to rebind • Right-click to clear";
+    chip.textContent = Bindings.describeKey(xyKeyBindings[x]);
+    chip.addEventListener("click", (e) => {
+      e.stopPropagation();
+      startXyKeyCapture(x, chip);
+    });
+    chip.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      endCapture();
+      xyKeyBindings = { ...xyKeyBindings, [x]: "" } as Bindings.XyKeyBindings;
+      Bindings.saveXyKeyBindings(xyKeyBindings);
+      codeToXy = invertXyKeyBindings(xyKeyBindings);
+      renderBindingsKeyboard();
+    });
+    row.appendChild(lbl);
+    row.appendChild(chip);
     bindingsKeyboardEl.appendChild(row);
   }
-  // GBA shoulder chips — inert on GB carts, dispatched by the keyboard
-  // router only when `state.gba` is non-null. Render after Start/Select
-  // because L/R applies to far more GBA carts than tilt does, so it
-  // earns the higher slot in the section.
+  // GBA + SNES shoulder chips (L/R serve both consoles).
   for (const s of Bindings.SHOULDER_BUTTONS) {
     const row = document.createElement("div");
     row.className = "binding-row";
@@ -227,6 +271,8 @@ function renderBindingsKeyboard(): void {
     row.appendChild(chip);
     bindingsKeyboardEl.appendChild(row);
   }
+  for (const gb of ["start", "select"] as const) addButtonRow(gb);
+
   // Tilt direction chips share the Keyboard section because they're
   // keyboard-only inputs; only a handful of carts (MBC7 GB titles like
   // Kirby Tilt 'n' Tumble, plus GBA tilt titles like Yoshi Topsy-Turvy
@@ -331,8 +377,10 @@ function startHotkeyCapture(action: Bindings.HotkeyAction, chip: HTMLElement): v
 
 function renderBindingsGamepad(): void {
   if (!bindingsGamepadEl) return;
-  bindingsGamepadEl.innerHTML = "";
-  for (const gb of Bindings.GB_BUTTONS) {
+  const gpEl = bindingsGamepadEl;
+  gpEl.innerHTML = "";
+  // Same row order as the keyboard section and the cheat sheet.
+  const addButtonRow = (gb: Button): void => {
     const row = document.createElement("div");
     row.className = "binding-row";
     const lbl = document.createElement("span");
@@ -353,6 +401,36 @@ function renderBindingsGamepad(): void {
       endCapture();
       gamepadBindings = { ...gamepadBindings, [gb]: null } as Bindings.GamepadBindings;
       Bindings.saveGamepadBindings(gamepadBindings);
+      gamepad.refreshBindings();
+      renderBindingsGamepad();
+    });
+    row.appendChild(lbl);
+    row.appendChild(chip);
+    gpEl.appendChild(row);
+  };
+  for (const gb of ["up", "down", "left", "right", "a", "b"] as const) addButtonRow(gb);
+
+  // SNES X / Y gamepad chips — same gating as the keyboard side.
+  for (const x of Bindings.XY_BUTTONS) {
+    const row = document.createElement("div");
+    row.className = "binding-row";
+    const lbl = document.createElement("span");
+    lbl.className = "lbl";
+    lbl.textContent = Bindings.describeXy(x);
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "binding-chip";
+    chip.title = "Click to rebind • Right-click to clear";
+    chip.textContent = Bindings.describeGamepad(xyGamepadBindings[x]);
+    chip.addEventListener("click", (e) => {
+      e.stopPropagation();
+      startXyGamepadCapture(x, chip);
+    });
+    chip.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      xyGamepadBindings = { ...xyGamepadBindings, [x]: null };
+      Bindings.saveXyGamepadBindings(xyGamepadBindings);
       gamepad.refreshBindings();
       renderBindingsGamepad();
     });
@@ -389,6 +467,8 @@ function renderBindingsGamepad(): void {
     row.appendChild(chip);
     bindingsGamepadEl.appendChild(row);
   }
+
+  for (const gb of ["start", "select"] as const) addButtonRow(gb);
 }
 
 function endCapture(): void {
@@ -530,6 +610,68 @@ function startShoulderGamepadCapture(s: Bindings.ShoulderButton, chip: HTMLEleme
     if (prevOwner) next[prevOwner] = shoulderGamepadBindings[s];
     shoulderGamepadBindings = next;
     Bindings.saveShoulderGamepadBindings(shoulderGamepadBindings);
+    gamepad.refreshBindings();
+    endCapture();
+    renderBindingsGamepad();
+  });
+  captureCancel = () => {
+    cancelPad();
+    window.removeEventListener("keydown", onEsc, { capture: true });
+  };
+}
+
+function startXyKeyCapture(x: Bindings.XyButton, chip: HTMLElement): void {
+  endCapture();
+  chip.classList.add("listening");
+  chip.textContent = "…";
+  setHint(true, "keyboard");
+  const onKey = (e: KeyboardEvent) => {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.code === "Escape") {
+      endCapture();
+      renderBindingsKeyboard();
+      return;
+    }
+    // Swap within X/Y so the other doesn't end up unbound; like the
+    // shoulders, no deconfliction against other groups — X/Y only fire
+    // on SNES carts.
+    const prevOwner = Bindings.XY_BUTTONS.find((o) => o !== x && xyKeyBindings[o] === e.code);
+    const next = { ...xyKeyBindings, [x]: e.code } as Bindings.XyKeyBindings;
+    if (prevOwner) next[prevOwner] = xyKeyBindings[x];
+    xyKeyBindings = next;
+    Bindings.saveXyKeyBindings(xyKeyBindings);
+    codeToXy = invertXyKeyBindings(xyKeyBindings);
+    endCapture();
+    renderBindingsKeyboard();
+  };
+  window.addEventListener("keydown", onKey, { capture: true, once: true });
+  captureCancel = () => window.removeEventListener("keydown", onKey, { capture: true });
+}
+
+function startXyGamepadCapture(x: Bindings.XyButton, chip: HTMLElement): void {
+  endCapture();
+  chip.classList.add("listening");
+  chip.textContent = "…";
+  setHint(true, "gamepad");
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.code === "Escape") {
+      e.preventDefault();
+      endCapture();
+      renderBindingsGamepad();
+    }
+  };
+  window.addEventListener("keydown", onEsc, { capture: true });
+  const cancelPad = gamepad.captureNext((binding) => {
+    const prevOwner = Bindings.XY_BUTTONS.find((o) => {
+      if (o === x) return false;
+      const other = xyGamepadBindings[o];
+      return other !== null && sameGamepadBinding(other, binding);
+    });
+    const next = { ...xyGamepadBindings, [x]: binding } as Bindings.XyGamepadBindings;
+    if (prevOwner) next[prevOwner] = xyGamepadBindings[x];
+    xyGamepadBindings = next;
+    Bindings.saveXyGamepadBindings(xyGamepadBindings);
     gamepad.refreshBindings();
     endCapture();
     renderBindingsGamepad();

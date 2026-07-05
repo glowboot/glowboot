@@ -1,7 +1,8 @@
 import type { Cartridge } from "../../gb";
 import { type Gba, parseGbaHeader } from "../../gba";
 import type { Nes } from "../../nes";
-import { cartIdOf, cartIdOfGba, cartIdOfNes } from "./cart-id.js";
+import type { Snes } from "../../snes";
+import { cartIdOf, cartIdOfGba, cartIdOfNes, cartIdOfSnes } from "./cart-id.js";
 import { idbDelete, idbGet, idbGetAll, idbPut, openDb, STORE_ROMS } from "./storage.js";
 
 /**
@@ -38,6 +39,7 @@ export const idFor = cartIdOf;
 export const idForGba = cartIdOfGba;
 /** NES equivalent of {@link idFor}. */
 export const idForNes = cartIdOfNes;
+export const idForSnes = cartIdOfSnes;
 
 /** Record `cart` + its bytes as the most-recently played ROM. Trims the
  *  store to at most MAX_ENTRIES newest entries after insert.
@@ -70,6 +72,15 @@ export async function rememberGba(gba: Gba, romBytes: Uint8Array, filename: stri
 export async function rememberNes(nes: Nes, romBytes: Uint8Array, filename: string): Promise<void> {
   const id = cartIdOfNes(nes);
   const title = filename.replace(/\.[^.]+$/, "");
+  return rememberRaw(id, title, romBytes, filename);
+}
+
+/** SNES equivalent of {@link remember}. The internal header carries a title;
+ *  fall back to the filename. Entries round-trip through the right loader via
+ *  their `.sfc`/`.smc` filename extension. */
+export async function rememberSnes(snes: Snes, romBytes: Uint8Array, filename: string): Promise<void> {
+  const id = cartIdOfSnes(snes);
+  const title = snes.rom.title || filename.replace(/\.[^.]+$/, "");
   return rememberRaw(id, title, romBytes, filename);
 }
 

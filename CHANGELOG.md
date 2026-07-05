@@ -5,15 +5,85 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.0] — 2026-07-01
+## [1.6.0] — 2026-07-05
 
-The NES release. Glowboot now plays Game Boy, Game Boy Color, Game Boy
-Advance, **and** NES / Famicom carts from the same browser tab, with the
-engine, save persistence, cheats, debugger, and rewind extended to the
-new lineage.
+The two-console release. Glowboot now plays Game Boy, Game Boy Color,
+Game Boy Advance, NES / Famicom, **and** Super Nintendo / Super Famicom
+carts from the same browser tab, with the engine, save persistence,
+cheats, debugger, and rewind extended to both new lineages.
 
 ### Added
 
+- **SNES engine** — 65C816 CPU (all 256 opcodes across every M/X width
+  combination, emulation-mode structural quirks, memory-region
+  master-cycle timing with FastROM/MEMSEL, hardware-verified interrupt
+  sampling), the S-SMP sound computer (SPC700 core, the boot-ROM
+  protocol as a polled state machine, the reference 4-stage timer
+  pipeline) with the S-DSP synthesizer (BRR decoding, ADSR/GAIN,
+  4-tap gaussian interpolation, the full echo unit, 32.04 kHz output off
+  the APU's own crystal), and
+  the S-PPU (modes 0–7 with Mode 7 affine transforms, main/sub
+  compositing with colour math, windows, mosaic, offset-per-tile,
+  hires 5/6 blending, per-scanline sprite limits, H/V latch counters).
+  LoROM / HiROM / ExHiROM carts; PAL carts run their 312-line field at
+  50 Hz. Carts needing a coprocessor Glowboot doesn't emulate (e.g.
+  DSP-2/3/4) are rejected with a clear message; the emulated coprocessors
+  are listed below. Headless-runnable under `src/snes/`.
+- **SNES save data, states, rewind, library** — battery SRAM to
+  IndexedDB on the shared cadence, the twelve save slots +
+  `.snesstate` export, auto-resume, rewind, and library thumbnails,
+  identical to the other engines.
+- **SNES cheats** — Game Genie (`XXXX-YYYY`) and Pro Action Replay
+  (`AAAAAAVV`) codes, libretro database search, `.cht` import;
+  verified against Super Mario World's full published code list.
+- **SNES debugger** — the nine-pane set: 65C816 CPU (+ SPC700 card),
+  M/X-width-aware disassembly, memory, CGRAM palettes, VRAM tiles at
+  2/4/8 bpp, per-voice DSP oscilloscopes, breakpoints with single-shot
+  pass-through, JSR/JSL call stack, and bank-aware symbol files.
+- **SNES controller support** — X / Y buttons and shoulders join the
+  binding editor, cheat-sheet, and touch layouts; the settings channel
+  strip grows to the DSP's eight voices.
+- **Cx4 coprocessor** — the Capcom Custom (Hitachi HG51B169) math and
+  graphics chip (Mega Man X2, Mega Man X3): the full HLE command set
+  over its 8 KiB register RAM — wireframe rotation/projection and line
+  drawing, sprite scale-rotate / OAM building / disintegrate / wave,
+  polar↔rectangular, atan, Pythagorean, and the 24-bit vector math —
+  plus the ROM→RAM load port. Both games are playable.
+- **S-DD1 coprocessor** — the graphics-decompression chip (Star Ocean,
+  Street Fighter Alpha 2): the four MMC bank registers that remap banks
+  $C0-$FF plus the on-the-fly DMA decompressor (Andreas Naive's
+  public-domain reconstruction of the chip's Golomb-coded,
+  context-modelled scheme). Star Ocean's compressed graphics render.
+- **SuperFX coprocessor (GSU-1/2)** — the in-cart RISC chip (Star Fox,
+  Yoshi's Island, Doom, Stunt Race FX, Vortex, Dirt Trax FX, Winter
+  Gold, …): the full GSU instruction set with its prefix-modified
+  opcodes and register plumbing, the 512-byte instruction cache, the
+  ROM/RAM buffers, and the bitplane plot pipeline (PLOT / RPIX / COLOR /
+  CMODE plus the pixel caches) that renders polygons into game-pak RAM.
+- **SA-1 coprocessor** — the in-cart 10.74 MHz second 65C816 (Super
+  Mario RPG, Kirby Super Star, Kirby's Dream Land 3, PGA Tour 96, …):
+  a second instance of the engine's own CPU core on the SA-1 bus view,
+  plus the Super MMC, shared I-RAM/BW-RAM (with linear + bitmap
+  projections and write protection), the S-CPU⇄SA-1 interrupt mailbox
+  with SNV/SIV vector hijack, the arithmetic unit, normal and both
+  character-conversion DMA modes, the H/V timer and the
+  variable-length bit reader.
+- **DSP-1 coprocessor** — command-level emulation of the fixed-point
+  3D-math chip (multiply, trig, attitude matrices, and the Mode 7
+  projection pipeline), on all three board mappings; Super Mario Kart
+  and Pilotwings run. The DSP-2/3/4 program variants (four games) are
+  identified by header title and rejected with a precise message.
+- **OBC1 coprocessor** — the OBC-1 OAM/sprite controller (Metal Combat:
+  Falcon's Revenge): the register interface over its RAM window that
+  assembles the game's sprite tables. Metal Combat renders.
+- **S-RTC coprocessor** — the S-RTC real-time clock (Dai Kaijuu
+  Monogatari II): the nibble-serial calendar register protocol, seeded
+  from the host wall-clock at power-on. Dai Kaijuu Monogatari II renders.
+- **SNES accuracy gate** — `npm run test:roms snes` self-scores krom's
+  per-opcode screens, gilyon's hardware-verified 65C816 + SPC700
+  suites (2,582 tests, all passing), Sour's hardware-timed DMA/IRQ
+  tests, blargg's SPC set, and save-state round-trips against a
+  committed baseline.
 - **NES engine** — Ricoh 2A03 CPU (a 6502 core with the full official +
   unofficial opcode set, dummy reads / writes, cycle-accurate NMI / IRQ
   timing), the 2C02 PPU (background + sprite pipeline, 8-sprite-per-line
@@ -52,7 +122,7 @@ new lineage.
 - **PWA `.nes` file association** — double-clicking a `.nes` file on an
   installed Glowboot PWA opens it in the existing emulator window, same
   as `.gb` / `.gbc` / `.gba`.
-- **NES accuracy gate** — `npm run test:nes-roms` runs a self-scoring
+- **NES accuracy gate** — `npm run test:roms nes` runs a self-scoring
   suite (nestest, Blargg's CPU / APU / PPU tests, sprite-hit,
   sprite-overflow, MMC3-IRQ, and the interrupt / exec-space / reset
   timing probes) diffed against a committed baseline; 120 of 122 gated
@@ -63,13 +133,15 @@ new lineage.
 
 ### Changed
 
-- Documentation updated for NES parity: the tagline, feature bullets,
-  getting-started file list, controls, and a new "NES core" section plus
-  an NES entry in the accuracy / known-limitations list.
-- Bug-report issue template's console-mode dropdown now offers an NES
-  option alongside DMG, CGB, and GBA.
+- Documentation updated for NES + SNES parity: the tagline, feature
+  bullets, getting-started file list, controls, new "NES core" and
+  "SNES core" sections, and entries for both in the accuracy /
+  known-limitations list.
+- Bug-report issue template's console-mode dropdown now offers NES and
+  Super Nintendo options alongside DMG, CGB, and GBA.
 - Public metadata (site + social-card descriptions and the PWA manifest)
-  lists NES alongside the Game Boy family.
+  lists NES and Super Nintendo alongside the Game Boy family; `.sfc` /
+  `.smc` join the PWA file associations.
 
 ### Notes
 

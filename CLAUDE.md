@@ -1,6 +1,6 @@
 # Glowboot — Claude instructions
 
-A TypeScript Game Boy / Game Boy Color / Game Boy Advance emulator that runs in the browser. End-user docs live in `README.md`; this file is for AI agents working on the codebase.
+A TypeScript Game Boy / Game Boy Color / Game Boy Advance / NES / SNES emulator that runs in the browser. End-user docs live in `README.md`; this file is for AI agents working on the codebase.
 
 ## Stack
 
@@ -17,24 +17,30 @@ src/gba/        GBA hardware engine: cpu (arm/thumb), ppu, apu, memory
                 (bus/dma), cartridge, cheats, sio, timer, serialization.
                 Parallel to src/gb/, own tsconfig (src/gba/tsconfig.json)
                 forbids DOM imports. Own state-version lineage.
+src/nes/        NES hardware engine: 6502 cpu, 2C02 ppu, apu (+ expansion
+                audio), ~57 mappers, cheats, debug, serialization. Same
+                no-DOM tsconfig split and independent state lineage.
+src/snes/       SNES hardware engine: 65C816 cpu, S-PPU, S-SMP/S-DSP apu,
+                24-bit bus + DMA/HDMA, DSP-1 coprocessor, cheats, debug,
+                serialization. Same split, own state lineage.
 src/ui/         Browser shell: rom-loader, settings/, popovers/, input/,
                 hud/, persistence/, session/, debugger/, renderer/.
-                Bridges either engine to the browser.
+                Bridges whichever engine is running to the browser.
 src/main.ts     UI entry point.
 pages/          Vite root — `pages/index.html` is the emulator. Public
                 assets in `pages/public/`. Deployed to glowboot.com.
 tests/          Headless ROM-runner scripts — `npm run test:roms` and
-                `npm run test:gba-roms`. Has its own tsconfig —
+                `npm run test:roms gba`. Has its own tsconfig —
                 `tests/tsconfig.json` widens rootDir to the repo root
                 so the runners can import from src/. Auto-fetched ROM
-                caches live under `tests/gba-roms/` (gitignored).
+                caches live under `tests/roms/<engine>/` (gitignored).
 ```
 
 ## CI gates (run in this order before reporting any task complete)
 
 ```sh
-npm run typecheck      # tsc — runs FOUR passes (main config + src/gb/tsconfig.json + src/gba/tsconfig.json for the headless engines + tests/tsconfig.json for ROM-runner scripts under tests/)
-npm test               # vitest — ~1250 tests, fast
+npm run typecheck      # tsc — runs SIX passes (main config + src/gb + src/gba + src/nes + src/snes tsconfigs for the headless engines + tests/tsconfig.json for ROM-runner scripts under tests/)
+npm test               # vitest — ~2000 tests, fast
 npm run lint           # eslint
 npm run format:check   # prettier
 npm run build          # full Vite build
@@ -60,8 +66,9 @@ If `format:check` warns, run `npm run format` (or `npx prettier --write <files>`
 ## Hardware / protocol work
 
 - **Port from a reference, don't derive empirically.** For mapper / PPU / APU / serial protocol work, read Pan Docs, the gbdev wiki, and the source of established open-source Game Boy emulators _before_ writing code. Empirical guessing from runtime traces wastes hours.
-- **Verify against test ROM suites when you touch hardware.** `npm run test:roms` (no arg prints the suite menu). Not a CI gate — running everything is slow — but invaluable for catching regressions. Rough mapping: PPU work → `mealybug-tearoom-tests` + `dmg-acid2` / `cgb-acid2`; CPU / interrupts / timer → `blargg/cpu_instrs/individual`, `mooneye-test-suite`, `same-suite`; APU → `blargg/cgb_sound`, `same-suite`; MBCs → `mooneye-test-suite` mbc folders. Run only the relevant suite — `npm run test:roms mealybug` etc.
-- **GBA test ROMs**: `npm run test:gba-roms` runs a **self-scoring** accuracy gate — 40 tests across 4 suites (jsmolka, fuzzarm, mgba-suite, nba-hw-test). Each test is graded on numbers the ROM reports about itself; the run is diffed against the committed local baseline `tests/run-gba-roms-baseline.json` (no external reference hashes). Three signature kinds: **count** (IWRAM pass/total tally for the 12 mgba-suite counter categories + 10 nba-hw-test framework tests), **r12pass/r12fail** (jsmolka CPU pass/fail), **hash** (golden BGR555 framebuffer for the visual-only tests: fuzzarm, mgba video/sio-timing, jsmolka ppu). Verdicts: **pass / improve / regress / fail (known-bad) / changed / new**. The run **exits non-zero on regress / changed / crash / unimpl** (so it's a real gate), and prints a headline "counter sub-tests passing: N/M" rollup. After a verified accuracy change, re-record with `npm run test:gba-roms -- --bless`. Counter tests run past framebuffer-stability until their tally settles (the count is final, not an intermediate capture). Auto-fetches ROMs (SHA256-verified, pinned commits) on first run; `tests/gba-roms/` cache is gitignored. **The gate runs the HLE BIOS path** (what the BROWSER ships) against the single committed baseline `tests/run-gba-roms-baseline.json`; re-record with `npm run test:gba-roms -- --bless`. `--bios` runs a real Nintendo BIOS at `tests/gba-roms/gba_bios.bin` (counter values are BIOS-sensitive) as an **informational comparison** against that same baseline — it prints how the two diverge (~4 timing/IRQ tests: real-BIOS IRQ-entry cycles vs the HLE stub) but never gates and never re-records. Filter with `npm run test:gba-roms <substring>` (matches test id, suite, or ROM path).
+- **Verify against test ROM suites when you touch hardware.** ONE unified entry point: `npm run test:roms <gb|gba|nes|snes|all> [filter]` — the only test-ROM script; engine runners live in `tests/runners/<engine>.ts`, each paired with a same-named `.mjs` process/worker shim. Every engine's UNFILTERED run is a baseline gate against its key in the shared `tests/roms-baseline.json` (known-bad results are tracked there, so by-design failures — e.g. the GB DMG-quirk subtests — don't gate); `-- --bless` re-records after verified changes. `test:roms all` runs all four gates in sequence — the pre-release check. ROM caches auto-fetch into `tests/roms/<engine>/` (gitignored). Filtered runs (`test:roms gb mealybug`) are ad-hoc pass/fail without baseline diffing; `test:roms gb -- --list` prints the GB suite menu. Rough GB mapping: PPU work → `mealybug-tearoom-tests` + `dmg-acid2` / `cgb-acid2`; CPU / interrupts / timer → `blargg/cpu_instrs/individual`, `mooneye-test-suite`, `same-suite`; APU → `blargg/cgb_sound`, `same-suite`; MBCs → `mooneye-test-suite` mbc folders. Run only the relevant suite — `npm run test:roms gb mealybug` etc.
+- **GBA test ROMs**: `npm run test:roms gba` runs a **self-scoring** accuracy gate — 40 tests across 4 suites (jsmolka, fuzzarm, mgba-suite, nba-hw-test). Each test is graded on numbers the ROM reports about itself; the run is diffed against the committed local baseline `tests/roms-baseline.json` (shared multi-engine file, "gba" key; no external reference hashes). Three signature kinds: **count** (IWRAM pass/total tally for the 12 mgba-suite counter categories + 10 nba-hw-test framework tests), **r12pass/r12fail** (jsmolka CPU pass/fail), **hash** (golden BGR555 framebuffer for the visual-only tests: fuzzarm, mgba video/sio-timing, jsmolka ppu). Verdicts: **pass / improve / regress / fail (known-bad) / changed / new**. The run **exits non-zero on regress / changed / crash / unimpl** (so it's a real gate), and prints a headline "counter sub-tests passing: N/M" rollup. After a verified accuracy change, re-record with `npm run test:roms gba -- --bless`. Counter tests run past framebuffer-stability until their tally settles (the count is final, not an intermediate capture). Auto-fetches ROMs (SHA256-verified, pinned commits) on first run; `tests/roms/gba/` cache is gitignored. **The gate runs the HLE BIOS path** (what the BROWSER ships) against the committed baseline; re-record with `npm run test:roms gba -- --bless`. `--bios` runs a real Nintendo BIOS at `tests/roms/gba/gba_bios.bin` (counter values are BIOS-sensitive) as an **informational comparison** against that same baseline — it prints how the two diverge (~4 timing/IRQ tests: real-BIOS IRQ-entry cycles vs the HLE stub) but never gates and never re-records. Filter with `npm run test:roms gba <substring>` (matches test id, suite, or ROM path).
+- **SNES test ROMs**: `npm run test:roms snes` boots the PeterLemon/SNES suite (23 krom CPU tests that render computed-vs-expected tables, plus PPU/BGMAP demos) and diffs settled framebuffer hashes against `tests/roms-baseline.json` ("snes" key); `-- --bless` re-records after visually verifying the screens (the CPU tests show per-row PASS/FAIL). ROMs auto-fetch from a pinned commit into gitignored `tests/roms/snes/`.
 - **Validate the host-input → cart pipeline end-to-end before writing the protocol.** Prove a forced-constant input produces the expected in-game effect (e.g. a fixed tilt value rolls Kirby's ball east in Kirby Tilt 'n' Tumble) before iterating on input wiring.
 - **Save states**: whenever any subsystem's `serialize`/`deserialize` layout changes, bump the engine's state version AND add a v(N) → v(N+1) migrator. GB uses `STATE_VERSION` + `upgradeState` in `src/gb/serialization/serialization.ts`; GBA uses `GBA_STATE_VERSION` + `upgradeGbaState` in `src/gba/serialization/serialization.ts`. The two lineages are independent — bumping one must never touch the other. The emulator is shared across users, so existing save files in the wild must keep loading.
 

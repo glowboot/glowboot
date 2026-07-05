@@ -119,6 +119,7 @@ window.addEventListener("keydown", (e) => {
     state.gb?.joypad.press(btn);
     state.gba?.joypad.press(btn);
     state.nes?.joypad.press(btn);
+    state.snes?.joypad.press(btn);
   }
 
   // GBA shoulders — only meaningful when a GBA cart is loaded. The key
@@ -126,9 +127,15 @@ window.addEventListener("keydown", (e) => {
   // (e.g. user deliberately overlapped) still feeds the engine that
   // can use either.
   const shoulder = BindingsUI.codeToShoulder[e.code];
-  if (shoulder && state.gba) {
+  if (shoulder && (state.gba || state.snes)) {
     e.preventDefault();
-    state.gba.joypad.press(shoulder);
+    state.gba?.joypad.press(shoulder);
+    state.snes?.joypad.press(shoulder);
+  }
+  const xy = BindingsUI.codeToXy[e.code];
+  if (xy && state.snes) {
+    e.preventDefault();
+    state.snes.joypad.press(xy);
   }
 });
 
@@ -150,11 +157,15 @@ window.addEventListener("keyup", (e) => {
     state.gb?.joypad.release(btn);
     state.gba?.joypad.release(btn);
     state.nes?.joypad.release(btn);
+    state.snes?.joypad.release(btn);
   }
   const shoulder = BindingsUI.codeToShoulder[e.code];
-  if (shoulder && state.gba) {
-    state.gba.joypad.release(shoulder);
+  if (shoulder) {
+    state.gba?.joypad.release(shoulder);
+    state.snes?.joypad.release(shoulder);
   }
+  const xy = BindingsUI.codeToXy[e.code];
+  if (xy) state.snes?.joypad.release(xy);
 });
 
 // A held key whose `keyup` never arrives (window blur / tab switch / OS
@@ -164,6 +175,7 @@ function releaseAllButtons(): void {
   state.gb?.joypad.releaseAll();
   state.gba?.joypad.releaseAll();
   state.nes?.joypad.releaseAll();
+  state.snes?.joypad.releaseAll();
 }
 window.addEventListener("blur", releaseAllButtons);
 document.addEventListener("visibilitychange", () => {

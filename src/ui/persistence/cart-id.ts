@@ -1,6 +1,7 @@
 import type { Cartridge } from "../../gb";
 import { type Gba, parseGbaHeader } from "../../gba";
 import type { Nes } from "../../nes";
+import type { Snes } from "../../snes";
 import { crc32 } from "./crc32.js";
 
 /**
@@ -71,6 +72,24 @@ function gbaRomCrcCached(gba: Gba): number {
 export function cartIdOfNes(nes: Nes): string {
   const crc = nesRomCrcCached(nes).toString(16).padStart(8, "0");
   return `nes:${nes.cartridge.rom.mapper}:${crc}`;
+}
+
+/** SNES cart id: `snes:<mapping>:<crc32-of-rom>`. The internal-header title
+ *  is human-readable but not unique (revisions/regions share it); the CRC over
+ *  the full (copier-header-stripped) image disambiguates. New scheme — the
+ *  SNES engine ships with no legacy ids in the wild. */
+export function cartIdOfSnes(snes: Snes): string {
+  const cached = snesRomCrcCache.get(snes);
+  const crc = (cached ?? snesRomCrcCacheSet(snes)).toString(16).padStart(8, "0");
+  return `snes:${snes.rom.mapping}:${crc}`;
+}
+
+const snesRomCrcCache = new WeakMap<Snes, number>();
+
+function snesRomCrcCacheSet(snes: Snes): number {
+  const value = crc32(snes.rom.rom);
+  snesRomCrcCache.set(snes, value);
+  return value;
 }
 
 const nesRomCrcCache = new WeakMap<Nes, number>();

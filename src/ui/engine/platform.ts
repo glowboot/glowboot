@@ -6,7 +6,7 @@
  * rather than a new `if (gb) … else if (gba) …` arm at every dispatch site.
  */
 
-export type EngineId = "gb" | "gba" | "nes";
+export type EngineId = "gb" | "gba" | "nes" | "snes";
 
 /** Which optional UI subsystems an engine participates in. The rom-loader gates
  *  header buttons and accessory wiring on these so an unwired feature shows a
@@ -67,6 +67,23 @@ export const PLATFORMS: Record<EngineId, Platform> = {
       debugger: true,
       shoulders: true,
       link: true
+    }
+  },
+  snes: {
+    id: "snes",
+    displayName: "Super Nintendo",
+    screen: { width: 256, height: 224 },
+    stateFileExt: "snesstate",
+    romExtensions: ["sfc", "smc"],
+    capabilities: {
+      saveState: true,
+      saveRam: true,
+      rewind: true,
+      library: true,
+      cheats: true,
+      debugger: true,
+      shoulders: true,
+      link: false
     }
   },
   nes: {

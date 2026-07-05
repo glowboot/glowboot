@@ -1,31 +1,40 @@
 import { audioPane } from "../debugger/audio-pane.js";
 import { audioPaneGba } from "../debugger/audio-pane-gba.js";
 import { audioPaneNes } from "../debugger/audio-pane-nes.js";
+import { audioPaneSnes } from "../debugger/audio-pane-snes.js";
 import { breakpointsPane } from "../debugger/breakpoints-pane.js";
 import { breakpointsPaneGba } from "../debugger/breakpoints-pane-gba.js";
 import { breakpointsPaneNes } from "../debugger/breakpoints-pane-nes.js";
+import { breakpointsPaneSnes } from "../debugger/breakpoints-pane-snes.js";
 import { callStackPane } from "../debugger/callstack-pane.js";
 import { callStackPaneGba } from "../debugger/callstack-pane-gba.js";
 import { callStackPaneNes } from "../debugger/callstack-pane-nes.js";
+import { callStackPaneSnes } from "../debugger/callstack-pane-snes.js";
 import { cpuPane } from "../debugger/cpu-pane.js";
 import { cpuPaneGba } from "../debugger/cpu-pane-gba.js";
 import { cpuPaneNes } from "../debugger/cpu-pane-nes.js";
+import { cpuPaneSnes } from "../debugger/cpu-pane-snes.js";
 import { disasmPane, scrollDisasmToPc } from "../debugger/disasm-pane.js";
 import { disasmPaneGba, scrollGbaDisasmToPc } from "../debugger/disasm-pane-gba.js";
 import { disasmPaneNes, scrollNesDisasmToPc } from "../debugger/disasm-pane-nes.js";
+import { disasmPaneSnes, scrollSnesDisasmToPc } from "../debugger/disasm-pane-snes.js";
 import { memoryPane } from "../debugger/memory-pane.js";
 import { memoryPaneGba } from "../debugger/memory-pane-gba.js";
 import { memoryPaneNes } from "../debugger/memory-pane-nes.js";
+import { memoryPaneSnes } from "../debugger/memory-pane-snes.js";
 import { palettePane } from "../debugger/palette-pane.js";
 import { palettePaneGba } from "../debugger/palette-pane-gba.js";
 import { palettePaneNes } from "../debugger/palette-pane-nes.js";
+import { palettePaneSnes } from "../debugger/palette-pane-snes.js";
 import type { Pane } from "../debugger/pane.js";
 import { symbolsPane } from "../debugger/symbols-pane.js";
 import { symbolsPaneGba } from "../debugger/symbols-pane-gba.js";
 import { symbolsPaneNes } from "../debugger/symbols-pane-nes.js";
+import { symbolsPaneSnes } from "../debugger/symbols-pane-snes.js";
 import { tilePane } from "../debugger/tile-pane.js";
 import { tilePaneGba } from "../debugger/tile-pane-gba.js";
 import { tilePaneNes } from "../debugger/tile-pane-nes.js";
+import { tilePaneSnes } from "../debugger/tile-pane-snes.js";
 import { debuggerPop, debuggerTrigger } from "../dom.js";
 import { frameAdvance, stepFrameBack, stepInstruction, togglePause } from "../session/actions.js";
 import { state } from "../state.js";
@@ -89,15 +98,30 @@ const NES_PANES: readonly Pane[] = [
   callStackPaneNes,
   symbolsPaneNes
 ];
+// SNES panes: full set — CPU (65C816 + SPC700), Disasm, Memory, Palette,
+// Tiles (VRAM), Audio (DSP voices), Breakpoints, Call stack, Symbols.
+const SNES_PANES: readonly Pane[] = [
+  cpuPaneSnes,
+  disasmPaneSnes,
+  memoryPaneSnes,
+  palettePaneSnes,
+  tilePaneSnes,
+  audioPaneSnes,
+  breakpointsPaneSnes,
+  callStackPaneSnes,
+  symbolsPaneSnes
+];
 const ACTIVE_TAB_KEY_GB = "gb-debugger-active-tab";
 const ACTIVE_TAB_KEY_GBA = "gba-debugger-active-tab";
 const ACTIVE_TAB_KEY_NES = "nes-debugger-active-tab";
+const ACTIVE_TAB_KEY_SNES = "snes-debugger-active-tab";
 
-type Engine = "gb" | "gba" | "nes";
+type Engine = "gb" | "gba" | "nes" | "snes";
 
 function currentEngine(): Engine | null {
   if (state.gba) return "gba";
   if (state.nes) return "nes";
+  if (state.snes) return "snes";
   if (state.gb) return "gb";
   return null;
 }
@@ -105,12 +129,14 @@ function currentEngine(): Engine | null {
 function panesForEngine(engine: Engine): readonly Pane[] {
   if (engine === "gba") return GBA_PANES;
   if (engine === "nes") return NES_PANES;
+  if (engine === "snes") return SNES_PANES;
   return GB_PANES;
 }
 
 function activeTabKey(engine: Engine): string {
   if (engine === "gba") return ACTIVE_TAB_KEY_GBA;
   if (engine === "nes") return ACTIVE_TAB_KEY_NES;
+  if (engine === "snes") return ACTIVE_TAB_KEY_SNES;
   return ACTIVE_TAB_KEY_GB;
 }
 
@@ -121,6 +147,7 @@ function scrollDisasmToPcAny(): void {
   const eng = currentEngine();
   if (eng === "gba") scrollGbaDisasmToPc();
   else if (eng === "nes") scrollNesDisasmToPc();
+  else if (eng === "snes") scrollSnesDisasmToPc();
   else if (eng === "gb") scrollDisasmToPc();
 }
 
@@ -158,7 +185,7 @@ export function openDebugger(): void {
   // Auto-pause on open so live CPU / memory / audio values aren't a
   // blur. The user can press Space or click ▶ to resume if they want
   // to watch state evolve.
-  if ((state.gb || state.gba || state.nes) && !state.paused) void togglePause();
+  if ((state.gb || state.gba || state.nes || state.snes) && !state.paused) void togglePause();
   startRefreshLoop();
 }
 
@@ -369,7 +396,7 @@ function refreshActive(): void {
 
 function updateStatus(): void {
   if (!controlRefs) return;
-  const engineActive = state.gb !== null || state.gba !== null || state.nes !== null;
+  const engineActive = state.gb !== null || state.gba !== null || state.nes !== null || state.snes !== null;
   if (!engineActive) {
     controlRefs.status.textContent = "No ROM";
     // No ROM = all actions meaningless. Disable everything except the

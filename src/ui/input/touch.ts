@@ -1,7 +1,7 @@
 import type { Button } from "../../gb";
 import { KEYS, lsGet, lsSet } from "../persistence/local-storage.js";
 import type { ShoulderButton } from "./bindings.js";
-import type { JoypadHost, ShoulderHost } from "./gamepad.js";
+import type { JoypadHost, ShoulderHost, XyHost } from "./gamepad.js";
 import { safeVibrate } from "./haptic.js";
 
 /** Short pulse fired on every fresh GB-button press from the touch
@@ -156,6 +156,7 @@ const DIR_CLASSES: readonly ("up" | "down" | "left" | "right")[] = ["up", "down"
 export function initTouchControls(
   getJoypad: () => JoypadHost | null,
   getShoulderHost: () => ShoulderHost | null,
+  getXyHost: () => XyHost | null,
   root: HTMLElement
 ): TouchControls {
   const dpad = root.querySelector<HTMLElement>(".gb-dpad");
@@ -165,6 +166,8 @@ export function initTouchControls(
   const btnSelect = root.querySelector<HTMLElement>(".gb-btn-select");
   const btnL = root.querySelector<HTMLElement>(".gb-btn-l");
   const btnR = root.querySelector<HTMLElement>(".gb-btn-r");
+  const btnX = root.querySelector<HTMLElement>(".gb-btn-x");
+  const btnY = root.querySelector<HTMLElement>(".gb-btn-y");
 
   // ─── D-pad: continuous vector → 8-way direction ──────────────────────────
   // A single pointer controls the D-pad at a time. `setPointerCapture` keeps
@@ -465,6 +468,44 @@ export function initTouchControls(
   };
   wireShoulder(btnL, "l");
   wireShoulder(btnR, "r");
+
+  // SNES X/Y face buttons. Same host-accessor pattern as the shoulders:
+  // hidden via CSS unless `body.is-snes`, and the host is null when no
+  // SNES cart runs, so stray taps no-op.
+  const wireXy = (el: HTMLElement | null, btn: "x" | "y"): void => {
+    if (!el) return;
+    let pid: number | null = null;
+    const down = (e: PointerEvent): void => {
+      if (pid !== null) return;
+      pid = e.pointerId;
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      el.classList.add("is-pressed");
+      e.preventDefault();
+      getXyHost()?.press(btn);
+      pressHaptic();
+    };
+    const up = (e: PointerEvent): void => {
+      if (pid !== e.pointerId) return;
+      pid = null;
+      el.classList.remove("is-pressed");
+      getXyHost()?.release(btn);
+      try {
+        el.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    };
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+    wires.push({ el, handles: { down, up } });
+  };
+  wireXy(btnX, "x");
+  wireXy(btnY, "y");
 
   // ─── Visibility ─────────────────────────────────────────────────────────
   const mq = window.matchMedia(AUTO_QUERY);

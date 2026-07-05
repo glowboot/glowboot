@@ -138,6 +138,29 @@ export const DEFAULT_SHOULDER_GAMEPAD_BINDINGS: ShoulderGamepadBindings = {
   r: { type: "button", index: 5 }
 };
 
+/** SNES X / Y face buttons. Same own-record treatment as the shoulders:
+ *  the shared eight-button records stay untouched so existing users'
+ *  saved bindings survive the SNES addition. Dispatched only when a
+ *  SNES cart is running. */
+export type XyButton = "x" | "y";
+export const XY_BUTTONS: readonly XyButton[] = ["x", "y"];
+export type XyKeyBindings = Record<XyButton, string>;
+export type XyGamepadBindings = Record<XyButton, GamepadBinding | null>;
+
+/** A/S sit above the Z/X (A/B) pair so the SNES diamond maps onto a
+ *  2×2 key block under the left hand. */
+export const DEFAULT_XY_KEY_BINDINGS: XyKeyBindings = {
+  x: "KeyS",
+  y: "KeyA"
+};
+
+/** W3C standard mapping: button 3 = north (SNES X), button 2 = west
+ *  (SNES Y) — the physical diamond matches the console's layout. */
+export const DEFAULT_XY_GAMEPAD_BINDINGS: XyGamepadBindings = {
+  x: { type: "button", index: 3 },
+  y: { type: "button", index: 2 }
+};
+
 export function loadKeyBindings(): KeyBindings {
   const raw = lsGet(KEYS.KEY_BINDINGS);
   if (!raw) return { ...DEFAULT_KEY_BINDINGS };
@@ -220,6 +243,34 @@ export function loadShoulderGamepadBindings(): ShoulderGamepadBindings {
 
 export function saveShoulderGamepadBindings(b: ShoulderGamepadBindings): void {
   lsSet(KEYS.SHOULDER_GAMEPAD_BINDINGS, JSON.stringify(b));
+}
+
+export function loadXyKeyBindings(): XyKeyBindings {
+  const raw = lsGet(KEYS.XY_KEY_BINDINGS);
+  if (!raw) return { ...DEFAULT_XY_KEY_BINDINGS };
+  try {
+    return { ...DEFAULT_XY_KEY_BINDINGS, ...JSON.parse(raw) };
+  } catch {
+    return { ...DEFAULT_XY_KEY_BINDINGS };
+  }
+}
+
+export function saveXyKeyBindings(b: XyKeyBindings): void {
+  lsSet(KEYS.XY_KEY_BINDINGS, JSON.stringify(b));
+}
+
+export function loadXyGamepadBindings(): XyGamepadBindings {
+  const raw = lsGet(KEYS.XY_GAMEPAD_BINDINGS);
+  if (!raw) return { ...DEFAULT_XY_GAMEPAD_BINDINGS };
+  try {
+    return { ...DEFAULT_XY_GAMEPAD_BINDINGS, ...JSON.parse(raw) };
+  } catch {
+    return { ...DEFAULT_XY_GAMEPAD_BINDINGS };
+  }
+}
+
+export function saveXyGamepadBindings(b: XyGamepadBindings): void {
+  lsSet(KEYS.XY_GAMEPAD_BINDINGS, JSON.stringify(b));
 }
 
 /** Friendly label for a tilt direction, shown in the Controls editor
@@ -333,6 +384,11 @@ export function describeGamepad(b: GamepadBinding | null): string {
 /** Friendly GBA shoulder-button label. */
 export function describeShoulder(s: ShoulderButton): string {
   return s === "l" ? "L" : "R";
+}
+
+/** Friendly SNES face-button label. */
+export function describeXy(b: XyButton): string {
+  return b === "x" ? "X" : "Y";
 }
 
 /** Friendly Game Boy button label for the bindings UI. */
