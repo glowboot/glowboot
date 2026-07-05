@@ -60,7 +60,7 @@ export interface UpscaleResult {
   height: number;
 }
 
-// ── Pure pixel <-> tensor conversion (unit-tested; no ORT/DOM) ──────────────
+// ── Pure pixel <-> tensor conversion (no ORT/DOM) ──────────────
 
 /** RGBA8888 → planar NCHW float32 RGB in [0,1]. Drops alpha (the console
  *  framebuffer is fully opaque). Layout: [R-plane, G-plane, B-plane]. */
@@ -128,6 +128,136 @@ export function cropTopLeft(rgba: Uint8ClampedArray, srcW: number, cropW: number
   return out;
 }
 
+// ── Tiling (frames larger than the model's fixed input) ─────────────────────
+
+/** Source-pixel overlap between adjacent tiles — gives the model context
+ *  past each tile's core so its edge artifacts land in the feathered band
+ *  that the stitch weights down. */
+const TILE_OVERLAP = 16;
+/** Output-pixel cross-fade width at internal tile seams. Kept below
+ *  `TILE_OVERLAP * SCALE` so the ramp always fits inside the overlap. */
+const TILE_FEATHER = 32;
+/** Largest source frame the tiler accepts — guards against an absurd input
+ *  spawning hundreds of passes. Covers every retro console (≤ 256×240). */
+const MAX_UPSCALE_DIM = 512;
+
+interface UpscaleTile {
+  sx: number;
+  sy: number;
+  tw: number;
+  th: number;
+  featherLeft: boolean;
+  featherRight: boolean;
+  featherTop: boolean;
+  featherBottom: boolean;
+}
+
+/** Full-size tile origins covering `[0, len)`; the last is flush to the far
+ *  edge so every tile is exactly `tile` long where the frame allows. Returns
+ *  `[0]` when the frame already fits one tile. */
+function tileOrigins(len: number, tile: number, overlap: number): number[] {
+  if (len <= tile) return [0];
+  const step = tile - overlap;
+  const origins: number[] = [];
+  for (let o = 0; o + tile < len; o += step) origins.push(o);
+  origins.push(len - tile);
+  return origins;
+}
+
+/** Split a `width`×`height` frame into ≤ FIXED_W×FIXED_H tiles. An edge that
+ *  borders another tile (not the frame edge) is flagged for feathering so
+ *  the stitch cross-fades it instead of showing a seam. */
+function planUpscaleTiles(width: number, height: number): UpscaleTile[] {
+  const xs = tileOrigins(width, FIXED_W, TILE_OVERLAP);
+  const ys = tileOrigins(height, FIXED_H, TILE_OVERLAP);
+  const tiles: UpscaleTile[] = [];
+  for (const sy of ys) {
+    const th = Math.min(FIXED_H, height - sy);
+    for (const sx of xs) {
+      const tw = Math.min(FIXED_W, width - sx);
+      tiles.push({
+        sx,
+        sy,
+        tw,
+        th,
+        featherLeft: sx > 0,
+        featherRight: sx + tw < width,
+        featherTop: sy > 0,
+        featherBottom: sy + th < height
+      });
+    }
+  }
+  return tiles;
+}
+
+/** Copy a `tw`×`th` region at (`sx`,`sy`) out of a `srcW`-wide RGBA buffer. */
+function extractTile(
+  rgba: Uint8ClampedArray | Uint8Array,
+  srcW: number,
+  sx: number,
+  sy: number,
+  tw: number,
+  th: number
+): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(tw * th * 4);
+  for (let y = 0; y < th; y++) {
+    const s = ((sy + y) * srcW + sx) * 4;
+    out.set(rgba.subarray(s, s + tw * 4), y * tw * 4);
+  }
+  return out;
+}
+
+/** Linear feather weight along one axis: 1 in the interior, ramping to ~0
+ *  over `TILE_FEATHER` output px at each edge flagged internal. A tiny floor
+ *  keeps the weighted-sum divisor non-zero. */
+function edgeWeight(pos: number, len: number, featherStart: boolean, featherEnd: boolean): number {
+  let w = 1;
+  if (featherStart) w = Math.min(w, (pos + 0.5) / TILE_FEATHER);
+  if (featherEnd) w = Math.min(w, (len - pos - 0.5) / TILE_FEATHER);
+  return w > 1e-3 ? w : 1e-3;
+}
+
+/** Accumulate one upscaled tile's RGB into the weighted-sum buffers at its
+ *  output origin. Seams vanish because each tile's artifact-prone internal
+ *  border is feathered toward its neighbour's artifact-free interior. */
+function accumulateTile(
+  acc: Float32Array,
+  wsum: Float32Array,
+  outW: number,
+  tile: Uint8ClampedArray,
+  dstX: number,
+  dstY: number,
+  tileW: number,
+  tileH: number,
+  feather: Pick<UpscaleTile, "featherLeft" | "featherRight" | "featherTop" | "featherBottom">
+): void {
+  for (let ly = 0; ly < tileH; ly++) {
+    const wy = edgeWeight(ly, tileH, feather.featherTop, feather.featherBottom);
+    for (let lx = 0; lx < tileW; lx++) {
+      const w = wy * edgeWeight(lx, tileW, feather.featherLeft, feather.featherRight);
+      const s = (ly * tileW + lx) * 4;
+      const g = (dstY + ly) * outW + (dstX + lx);
+      acc[g * 3] = acc[g * 3]! + tile[s]! * w;
+      acc[g * 3 + 1] = acc[g * 3 + 1]! + tile[s + 1]! * w;
+      acc[g * 3 + 2] = acc[g * 3 + 2]! + tile[s + 2]! * w;
+      wsum[g] = wsum[g]! + w;
+    }
+  }
+}
+
+/** Resolve the weighted-sum buffers into a final opaque RGBA image. */
+function resolveAccumulator(acc: Float32Array, wsum: Float32Array, outW: number, outH: number): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(outW * outH * 4);
+  for (let i = 0; i < outW * outH; i++) {
+    const w = wsum[i]!;
+    out[i * 4] = acc[i * 3]! / w;
+    out[i * 4 + 1] = acc[i * 3 + 1]! / w;
+    out[i * 4 + 2] = acc[i * 3 + 2]! / w;
+    out[i * 4 + 3] = 255;
+  }
+  return out;
+}
+
 // ── Session (lazy, memoised) ────────────────────────────────────────────────
 
 type OrtModule = typeof Ort;
@@ -155,13 +285,19 @@ export function hasWebGpu(): boolean {
   return typeof navigator !== "undefined" && "gpu" in navigator;
 }
 
-/** Whether a frame fits the model's fixed input. Smaller frames are
- *  edge-padded up (GB 160×144, GBA 240×160), but a frame larger than
- *  240×160 in either axis would be silently cropped by {@link padToFixed},
- *  so the NES's 256×240 can't be enhanced — the caller should gate the
- *  Enhance action off rather than emit a cropped result. */
+/** Whether a frame fits the model's fixed input in a single pass. Smaller
+ *  frames are edge-padded up (GB 160×144, GBA 240×160). Larger frames
+ *  (NES 256×240, SNES 256×224) exceed it and go through the tiled path
+ *  instead — see {@link planUpscaleTiles}. */
 export function fitsUpscaleModel(width: number, height: number): boolean {
   return width <= FIXED_W && height <= FIXED_H;
+}
+
+/** Whether Enhance can run on a frame of this size at all: single-pass when
+ *  it fits the model, tiled otherwise, up to a sane cap. Callers gate the
+ *  Enhance action on this. */
+export function canUpscale(width: number, height: number): boolean {
+  return width > 0 && height > 0 && width <= MAX_UPSCALE_DIM && height <= MAX_UPSCALE_DIM;
 }
 
 async function loadOrt(): Promise<OrtModule> {
@@ -238,20 +374,31 @@ export async function prewarmUpscaler(): Promise<void> {
 }
 
 /** Upscale a native RGBA frame 4×. `width`/`height` are the source
- *  dimensions (e.g. 240×160 GBA, 160×144 GB). Returns the 4× RGBA buffer.
- *  Throws on load/inference failure — callers show a toast. */
+ *  dimensions (240×160 GBA, 160×144 GB, 256×240 NES, 256×224 SNES). Frames
+ *  within the model's fixed input run in one pass; larger ones are tiled and
+ *  feather-stitched. Throws on load/inference failure — callers show a toast. */
 export async function upscaleFrame(
   rgba: Uint8ClampedArray | Uint8Array,
   width: number,
   height: number
 ): Promise<UpscaleResult> {
   const ort = await loadOrt();
+  if (fitsUpscaleModel(width, height)) return await runWithFallback(ort, rgba, width, height);
+  return await runTiled(ort, rgba, width, height);
+}
+
+/** One model pass with the GPU→WASM fallback: a WebGPU *run* failure (e.g.
+ *  the buffer-reuse shape mismatch that EP hits on the conv graph) rebuilds
+ *  the session WASM-only and retries once — the model runs fine on CPU. */
+async function runWithFallback(
+  ort: OrtModule,
+  rgba: Uint8ClampedArray | Uint8Array,
+  width: number,
+  height: number
+): Promise<UpscaleResult> {
   try {
     return await runSession(ort, rgba, width, height);
   } catch (err) {
-    // WebGPU *run* failure (e.g. the buffer-reuse shape mismatch this EP
-    // hits on the dynamic-shape conv graph). The model runs fine on CPU,
-    // so rebuild the session WASM-only and retry once before giving up.
     if (!forceWasm) {
       console.warn("[Upscale] inference failed on GPU; rebuilding on WASM and retrying:", err);
       forceWasm = true;
@@ -260,4 +407,24 @@ export async function upscaleFrame(
     }
     throw err;
   }
+}
+
+/** Upscale a frame larger than the model's fixed input by splitting it into
+ *  overlapping tiles, upscaling each, and feather-blending the 4× outputs. */
+async function runTiled(
+  ort: OrtModule,
+  rgba: Uint8ClampedArray | Uint8Array,
+  width: number,
+  height: number
+): Promise<UpscaleResult> {
+  const outW = width * SCALE;
+  const outH = height * SCALE;
+  const acc = new Float32Array(outW * outH * 3);
+  const wsum = new Float32Array(outW * outH);
+  for (const t of planUpscaleTiles(width, height)) {
+    const src = extractTile(rgba, width, t.sx, t.sy, t.tw, t.th);
+    const up = await runWithFallback(ort, src, t.tw, t.th);
+    accumulateTile(acc, wsum, outW, up.data, t.sx * SCALE, t.sy * SCALE, t.tw * SCALE, t.th * SCALE, t);
+  }
+  return { data: resolveAccumulator(acc, wsum, outW, outH), width: outW, height: outH };
 }
