@@ -3,11 +3,14 @@
  * served via jsdelivr's CDN for the actual file fetches.
  *
  * Two-step flow:
- *   1. `fetchIndex(platform)` — one-shot listing of every .cht filename
- *      in the platform's libretro directories: GB + GBC for `"gb"` (two
- *      calls), Game Boy Advance for `"gba"` (one call). Pulled through
- *      GitHub's Contents API and cached in localStorage for a week,
- *      keyed per-platform so the two engines' caches don't interfere.
+ *   1. `fetchIndex(platform)` — listing of every .cht filename in the
+ *      platform's libretro directories (GB + GBC for `"gb"`, one dir
+ *      each for the rest). The Contents API caps a directory listing at
+ *      1000 files, which truncates the large SNES/NES folders (thousands
+ *      of .cht each) and silently drops late-alphabet games, so we resolve
+ *      each folder's tree SHA from the parent listing and pull its *full*
+ *      file list via the Git Trees API. Cached in localStorage for a week,
+ *      keyed per-platform so the engines' caches don't interfere.
  *   2. `fetchCht(entry)` — pulls an individual .cht via jsdelivr so we
  *      don't burn GitHub API quota on bulk downloads.
  *
@@ -42,6 +45,8 @@ function dirsForPlatform(platform: Platform): readonly string[] {
 }
 
 const GH_API = "https://api.github.com/repos/libretro/libretro-database/contents/cht";
+const GH_TREES = "https://api.github.com/repos/libretro/libretro-database/git/trees";
+const GH_HEADERS = { Accept: "application/vnd.github.v3+json" } as const;
 const CDN_URL = "https://cdn.jsdelivr.net/gh/libretro/libretro-database@master/cht";
 
 import { KEYS, lsGet, lsSet } from "../persistence/local-storage.js";
@@ -60,27 +65,42 @@ interface CachedIndex {
 /**
  * Fetches (or returns cached) list of every .cht filename across the
  * platform's directories. Safe to call repeatedly — cache is consulted
- * first. GB and GBA caches are keyed separately so a recent GB lookup
- * doesn't shadow a fresh GBA fetch.
+ * first. Each platform's cache is keyed separately so a recent lookup on
+ * one engine doesn't shadow a fresh fetch on another.
  */
 export async function fetchIndex(platform: Platform = "gb"): Promise<IndexEntry[]> {
   const cached = loadCache(platform);
   if (cached && Date.now() - cached.ts < CACHE_TTL && cached.entries.length > 0) {
     return cached.entries;
   }
+  const shaByDir = await fetchDirShas();
   const entries: IndexEntry[] = [];
   for (const dir of dirsForPlatform(platform)) {
-    const url = `${GH_API}/${encodeURIComponent(dir)}`;
-    const res = await fetch(url, { headers: { Accept: "application/vnd.github.v3+json" } });
-    if (!res.ok) throw new Error(`GitHub ${res.status} for "${dir}"`);
-    const items = (await res.json()) as Array<{ name: string; type: string }>;
-    for (const it of items) {
-      if (it.type !== "file" || !it.name.endsWith(".cht")) continue;
-      entries.push({ dir, filename: it.name.slice(0, -".cht".length) });
+    const sha = shaByDir.get(dir);
+    if (!sha) throw new Error(`libretro-database: no "cht/${dir}" directory`);
+    const res = await fetch(`${GH_TREES}/${sha}`, { headers: GH_HEADERS });
+    if (!res.ok) throw new Error(`GitHub ${res.status} for tree "${dir}"`);
+    const json = (await res.json()) as { tree: Array<{ path: string; type: string }> };
+    for (const t of json.tree) {
+      if (t.type !== "blob" || !t.path.endsWith(".cht")) continue;
+      entries.push({ dir, filename: t.path.slice(0, -".cht".length) });
     }
   }
   saveCache(platform, { ts: Date.now(), entries });
   return entries;
+}
+
+/** Map each `cht/` sub-directory name to its Git tree SHA. The parent
+ *  listing holds ~55 platform folders — well under the Contents API's
+ *  1000-entry cap — so this one call is safe; the per-folder subtree it
+ *  unlocks is what dodges the cap for the large console folders. */
+async function fetchDirShas(): Promise<Map<string, string>> {
+  const res = await fetch(GH_API, { headers: GH_HEADERS });
+  if (!res.ok) throw new Error(`GitHub ${res.status} listing cht/`);
+  const items = (await res.json()) as Array<{ name: string; type: string; sha: string }>;
+  const map = new Map<string, string>();
+  for (const it of items) if (it.type === "dir") map.set(it.name, it.sha);
+  return map;
 }
 
 /** Download the text of one .cht file through jsdelivr. */
@@ -122,9 +142,11 @@ function normalise(s: string): string {
 }
 
 function cacheKey(platform: Platform): string {
-  if (platform === "gba") return `${KEYS.CHEAT_INDEX_CACHE}-gba`;
-  if (platform === "nes") return `${KEYS.CHEAT_INDEX_CACHE}-nes`;
-  return KEYS.CHEAT_INDEX_CACHE;
+  // -v2: prior caches came from the Contents API and were truncated at
+  // 1000 files (and SNES collided with the GB key), so bump the suffix to
+  // discard them instead of serving a stale, incomplete index for a week.
+  const suffix = platform === "gba" ? "-gba" : platform === "nes" ? "-nes" : platform === "snes" ? "-snes" : "";
+  return `${KEYS.CHEAT_INDEX_CACHE}${suffix}-v2`;
 }
 
 function loadCache(platform: Platform): CachedIndex | null {
