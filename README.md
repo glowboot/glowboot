@@ -1,7 +1,7 @@
 # Glowboot
 
-Play original Game Boy, Game Boy Color, Game Boy Advance, and NES games
-in your browser. No installation required, your game data stays on your
+Play original Game Boy, Game Boy Color, Game Boy Advance, NES, and Super
+Nintendo games in your browser. No installation required, your game data stays on your
 device, works on desktop and phones.
 
 **Play at** [glowboot.com](https://glowboot.com/).
@@ -30,8 +30,9 @@ device, works on desktop and phones.
 
 ## What you can do
 
-- **Play Game Boy, Game Boy Color, Game Boy Advance, and NES games** —
-  just load a `.gb`, `.gbc`, `.gba`, or `.nes` file and go.
+- **Play Game Boy, Game Boy Color, Game Boy Advance, NES, and Super
+  Nintendo games** — just load a `.gb`, `.gbc`, `.gba`, `.nes`, `.sfc`,
+  or `.smc` file and go.
 - **Save anywhere, anytime** — 12 save slots per game, each with a
   thumbnail so you can see what's saved where. Or just close the tab —
   the emulator picks up exactly where you left off.
@@ -64,7 +65,8 @@ device, works on desktop and phones.
   capped and stoppable, with a one-time cost confirmation before the first run.
 - **Cheats** — paste Game Genie or Game Shark codes on Game Boy,
   GameShark or CodeBreaker codes on Game Boy Advance, Game Genie letter
-  codes on NES, or search an online database by game title.
+  codes on NES, Game Genie or Pro Action Replay codes on Super Nintendo,
+  or search an online database by game title.
 - **Apply romhacks** — drag an `.ips` or `.bps` patch onto the page
   together with a ROM to play translations, randomizers, or fan hacks.
 - **Customise the look** — unfiltered pixels by default, or pick a
@@ -156,8 +158,9 @@ device, works on desktop and phones.
 ### Step 1 — get a ROM
 
 You'll need a `.gb` (original Game Boy), `.gbc` (Game Boy Color),
-`.gba` (Game Boy Advance), or `.nes` (NES / Famicom) file. The emulator
-needs the game file to play.
+`.gba` (Game Boy Advance), `.nes` (NES / Famicom), or `.sfc` / `.smc`
+(Super Nintendo / Super Famicom) file. The emulator needs the game file
+to play.
 
 Where to get one legally:
 
@@ -191,7 +194,7 @@ There are three ways to load a game:
 
 1. **Click the "Load ROM" box** in the middle of the screen and pick a
    file.
-2. **Drag a `.gb` / `.gbc` / `.gba` / `.nes` file** onto the page from your desktop.
+2. **Drag a `.gb` / `.gbc` / `.gba` / `.nes` / `.sfc` / `.smc` file** onto the page from your desktop.
 3. **Double-click the file** in your OS file manager — works once
    you've installed the app (see [Install as an app](#install-as-an-app)).
 
@@ -216,8 +219,10 @@ on-screen D-pad and face buttons appear automatically.
 
 The **NES** uses the same four buttons and D-pad with the same default
 bindings. The **Game Boy Advance** adds the two shoulder buttons — **L**
-(`Q` / left shoulder) and **R** (`E` / right shoulder). Every binding is
-remappable in **Settings → Controls**.
+(`Q` / left shoulder) and **R** (`E` / right shoulder). The **Super
+Nintendo** adds the **X** (`S`) and **Y** (`A`) face buttons on top of
+the shared A/B pair, plus the same **L** / **R** shoulders. Every binding
+is remappable in **Settings → Controls**.
 
 ### Emulator shortcuts
 
@@ -297,7 +302,8 @@ Gear icon in the header → **Audio**:
 
 - **Channels** — a mute toggle per APU channel; the set adapts to the
   console (Game Boy: Pulse 1 / Pulse 2 / Wave / Noise; NES adds the DMC
-  sample channel; Game Boy Advance adds the two Direct Sound FIFOs).
+  sample channel; Game Boy Advance adds the two Direct Sound FIFOs; Super
+  Nintendo exposes the S-DSP's eight voices).
   Useful for hearing what each voice in a track is doing.
 - **Per-cart audio mode** — Cart-info popover lets you pin a specific
   mode to a specific ROM (e.g. always play Pokémon with Warm headphones)
@@ -376,8 +382,10 @@ Click the wand icon in the header. You can:
 - **Paste a code** — on Game Boy / Color: Game Genie
   (`004-BCE-E66`) or Game Shark (`010F27D0`). On NES: Game Genie
   letter codes (`SXIOPO`, six or eight letters) or a raw `AAAA:VV`
-  RAM freeze. On Game Boy Advance: GameShark (`AAAAAAAA:VV`,
-  e.g. `02000A5E:63`) or CodeBreaker (`AAAAAAAA+VVVV`, e.g. `83001D08+03E7`).
+  RAM freeze. On Super Nintendo: Game Genie (`C264-6D6D`, the dash
+  matters) or Pro Action Replay (`7E0DBF63`). On Game Boy Advance:
+  GameShark (`AAAAAAAA:VV`, e.g. `02000A5E:63`) or CodeBreaker
+  (`AAAAAAAA+VVVV`, e.g. `83001D08+03E7`).
 - **Search online by game title** — pulls cheat lists from a
   community-maintained database.
 - **Import a `.cht` file** you downloaded.
@@ -555,9 +563,9 @@ line on phones. Opening the debugger auto-pauses the emulator so
 live state isn't a blur — press Space or the ▶ button to resume.
 
 Nine panes, switchable via the tab strip across the top (arrow keys
-work inside it). All three engines have the full set; the contents
-naturally differ between Game Boy (Sharp LR35902), Game Boy Advance
-(ARM7TDMI), and NES (Ricoh 2A03 / 6502):
+work inside it). Every engine has the full set; the contents naturally
+differ between Game Boy (Sharp LR35902), Game Boy Advance (ARM7TDMI),
+NES (Ricoh 2A03 / 6502), and SNES (65C816 + SPC700):
 
 - **CPU** — Game Boy: every register, flag, control signal (IME,
   HALT, STOP, double-speed, HALT-bug) plus IE / IF. Game Boy
@@ -566,13 +574,21 @@ naturally differ between Game Boy (Sharp LR35902), Game Boy Advance
   IF, and the IntrWait mask that gates IntrWait halt-release. NES: the
   2A03's A / X / Y / SP / PC and cumulative cycle count, the N V - B D I
   Z C flags decoded from P, plus a PPU card (CTRL / MASK / STATUS and
-  the live scanline / dot / frame counters). Live-updated while running.
+  the live scanline / dot / frame counters). SNES: the 65C816 register
+  file — A / X / Y / S / D (16-bit), DBR / PBR banks, PC, and the
+  emulation-mode bit E — with the P flags N V M X D I Z C (M / X carry
+  their 6502 meanings when E is set), STP / WAI, the master-cycle counter
+  and CPU load, plus a second card for the SPC700 (its A / X / Y / SP /
+  PC / PSW and STOP / SLEEP latches). Live-updated while running.
 - **Disasm** — live disassembly with the current instruction
   highlighted. On Game Boy Advance the decoder tracks CPSR.T to
   decode ARM (4-byte) or Thumb (2-byte) instructions and re-seeds
   the window when the mode switches. On NES it decodes the
   variable-length 6502 (1–3 bytes), including the unofficial opcodes.
-  Seeds with ~165 instructions
+  On SNES the 65C816's immediate widths are flag-dependent — accumulator
+  immediates are 8- or 16-bit as M is set or clear, index immediates
+  follow X — so it decodes each instruction with the M / X widths in
+  effect at `pbr:pc`. Seeds with ~165 instructions
   around PC and lazy-extends at both edges as you scroll, so you
   can walk far before or after the current address without losing
   your place. The address gutter is clickable: left-click to toggle
@@ -590,15 +606,20 @@ naturally differ between Game Boy (Sharp LR35902), Game Boy Advance
   through the bus so MMIO / palette / OAM side-effects fire
   normally. NES: the flat 64 KiB 6502 bus with a RAM / PPU / APU-IO /
   EXP / PRG-RAM / PRG-ROM region legend; edits route through the bus,
-  and a write into `$8000`+ reaches the cart mapper.
+  and a write into `$8000`+ reaches the cart mapper. SNES: segment pills
+  for WRAM (shown at its real `$7E0000` bus address), SRAM, the ROM
+  image, VRAM, CGRAM, and OAM.
 - **Palettes** — Game Boy: DMG BGP / OBP0 / OBP1 and all 8 CGB
   background + 8 CGB object palettes. Game Boy Advance: the two
   256-entry palette banks (BG at `0x05000000`, OBJ at `0x05000200`)
   laid out 16 × 16 so `(palette, index)` reads off naturally for
   4bpp BGs and sprites. NES: the 32-byte palette RAM (`$3F00`–`$3F1F`)
   as 4 background + 4 sprite palettes, each entry resolved through the
-  64-colour master palette. Hover any cell for its absolute index, raw
-  BGR/RGB555, and unpacked RGB.
+  64-colour master palette. SNES: the 256-entry CGRAM as a 16 × 16 grid
+  — one bank shared by BGs and sprites (2bpp BGs take 4-colour groups,
+  4bpp BGs and OBJs 16-colour rows with the OBJ palettes in entries
+  128–255, 8bpp flat), stored little-endian BGR555. Hover any cell for
+  its absolute index, raw BGR/RGB555, and unpacked RGB.
 - **Tiles** — Game Boy: the two VRAM tile banks rendered to a grid
   (384 tiles each), the BG map at 256 × 256, and the full OAM
   sprite table. Game Boy Advance: all 96 KiB of VRAM as a flat tile
@@ -609,18 +630,22 @@ naturally differ between Game Boy (Sharp LR35902), Game Boy Advance
   multiple modes plus OAM attribute fields make those non-trivial.)
   NES: the two CHR pattern tables (256 tiles each) on a 16 × 16 grid
   read through the live-banked CHR and drawn in neutral greys, plus the
-  64-entry OAM sprite table.
+  64-entry OAM sprite table. SNES: all 64 KiB of VRAM as a flat 8×8 tile
+  grid with a 2 / 4 / 8bpp selector (planar CHR, the same maths as the
+  PPU) and a palette-group picker to colour the view; like GBA it has no
+  per-BG-map or per-OBJ viewer.
 - **Audio** — per-channel oscilloscope traces plus envelope meters,
   so you can see exactly which channel is playing what. Game Boy
   has four rows (CH1 / CH2 squares, CH3 wave, CH4 noise); Game Boy
   Advance has the same four PSG rows plus two for the Direct Sound
   FIFOs (DSA / DSB), which drive the music in most GBA carts; NES has
-  five (Pulse 1 / Pulse 2, Triangle, Noise, and the DMC sample channel).
+  five (Pulse 1 / Pulse 2, Triangle, Noise, and the DMC sample channel);
+  Super Nintendo has eight, one per S-DSP voice (post-envelope output).
 - **Breakpoints** — list of active PC breakpoints + read / write
   watchpoints. The add-form accepts a hex address (`$0150`, `0150`
   on Game Boy; `$08000000`, `08000000` on Game Boy Advance; `$8000`,
-  `8000` on NES) or a symbol name from the currently loaded symbol
-  file. "At PC" drops
+  `8000` on NES; `$008000`, `008000` on SNES) or a symbol name from the
+  currently loaded symbol file. "At PC" drops
   one at the current program counter. See
   [Breakpoints and watchpoints](#breakpoints-and-watchpoints) below.
 - **Call stack** — top of the list is the innermost frame; symbols
@@ -631,13 +656,18 @@ naturally differ between Game Boy (Sharp LR35902), Game Boy Advance
   entry; frame kinds are `CALL` and `IRQ` (no `RST` analogue on
   ARM7TDMI). NES: inferred from JSR / BRK pushes and RTS / RTI pops
   plus IRQ / NMI dispatch; frame kinds are `JSR`, `BRK`, `IRQ`, and
-  `NMI`.
+  `NMI`. SNES: inferred from JSR (same-bank, RTS returns) and JSL
+  (cross-bank, RTL) pushes and their pops; frame kinds are `JSR` and
+  `JSL`.
 - **Symbols** — loader for plain-text symbol files. Game Boy reads
   RGBDS-style `.sym` (`bank:addr name`); Game Boy Advance uses flat
   32-bit addresses (`[0x|$]AAAAAAAA[:] NAME` per line, blank lines
   and `;` / `#` comments skipped, so `nm` output or a build-log
   excerpt pastes straight in); NES uses flat 16-bit addresses and
-  accepts `.nl` name-list lines (`$AAAA#name`). Pick a file, the count + source
+  accepts `.nl` name-list lines (`$AAAA#name`); SNES uses the 65C816's
+  24-bit addresses and accepts either a `BB:AAAA` bank:offset pair or a
+  flat 1–6-hex address (optional `0x` / `$`, optional trailing colon).
+  Pick a file, the count + source
   label appear, and every other pane starts resolving addresses to
   names. The parsed text is cached in `localStorage` keyed by cart
   identity, so the same ROM auto-restores its symbols next session.
@@ -710,8 +740,8 @@ On desktop Chrome / Edge, or Android Chrome, the browser shows an
 
 - The emulator runs in its own window, no browser toolbars.
 - It works fully offline.
-- `.gb`, `.gbc`, `.gba`, and `.nes` files can be **double-clicked from the OS**
-  to open in the emulator.
+- `.gb`, `.gbc`, `.gba`, `.nes`, `.sfc`, and `.smc` files can be
+  **double-clicked from the OS** to open in the emulator.
 - Your game data — ROMs, saves, cheats, thumbnails — stays in your
   browser's local storage. See [Privacy](#privacy) for the small set of
   network requests the page makes.
@@ -732,21 +762,23 @@ npm run dev
 
 Vite serves the app at `http://localhost:5173`.
 
-| Command                 | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev`           | Start the Vite dev server with HMR                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `npm run build`         | Produce a production build in `dist/`                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `npm run preview`       | Serve the production build locally                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `npm run typecheck`     | Typecheck the UI and each headless engine (GB / GBA / NES) plus the test runners, no emit                                                                                                                                                                                                                                                                                                                                                                           |
-| `npm test`              | Run the Vitest unit suite once                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `npm run test:watch`    | Run Vitest in watch mode                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `npm run test:roms`     | Run the external test-ROM harness (auto-fetches the c-sp release on first run)                                                                                                                                                                                                                                                                                                                                                                                      |
-| `npm run test:gba-roms` | Run the GBA accuracy gate (40 self-scoring tests across jsmolka + fuzzarm + mgba-suite + nba-emu/hw-test; grades each test on the pass/total counts and pass codes the ROM reports about itself, diffed against a committed baseline; auto-fetches ROMs on first run; `-- --bless` re-records the baseline). Runs the HLE-BIOS path the browser ships; `-- --bios` runs a real Nintendo BIOS as an informational comparison against the same baseline (never gates) |
-| `npm run test:nes-roms` | Run the NES accuracy gate (nestest + Blargg CPU/APU/PPU + sprite-hit + MMC3-IRQ + interrupt/exec-space/reset suites; each test graded on the pass/fail the ROM reports about itself, or a golden framebuffer hash for the visual-only ones, diffed against a committed baseline; auto-fetches ROMs on first run; `-- --bless` re-records the baseline)                                                                                                              |
-| `npm run lint`          | ESLint across the repo (file globs come from `eslint.config`)                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `npm run lint:fix`      | ESLint with `--fix` to auto-resolve safe issues                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `npm run format`        | Prettier write across the repo                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `npm run format:check`  | Prettier check (no writes) — used by CI                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Command                      | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                | Start the Vite dev server with HMR                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `npm run build`              | Produce a production build in `dist/`                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `npm run preview`            | Serve the production build locally                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `npm run typecheck`          | Typecheck the UI and each headless engine (GB / GBA / NES / SNES) plus the ROM-runner scripts — six `tsc` passes, one per tsconfig                                                                                                                                                                                                                                                                                                                                  |
+| `npm test`                   | Run the Vitest unit suite once                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `npm run test:watch`         | Run Vitest in watch mode                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `npm run test:roms <engine>` | Unified test-ROM entry point — `gb`, `gba`, `nes`, `snes`, or `all` (every engine gate in sequence; the pre-release check). An unfiltered engine run diffs against its key in the shared `tests/roms-baseline.json`; filters and flags are forwarded, e.g. `npm run test:roms gb mealybug` for an ad-hoc subset.                                                                                                                                                    |
+| `npm run test:roms gb`       | Run the Game Boy test-ROM harness (Blargg / Mooneye / acid2 / mealybug / same-suite; auto-fetches the c-sp release on first run; prints the suite menu when unfiltered). Not baseline-gated — a few DMG-quirk subtests fail by design                                                                                                                                                                                                                               |
+| `npm run test:roms gba`      | Run the GBA accuracy gate (40 self-scoring tests across jsmolka + fuzzarm + mgba-suite + nba-emu/hw-test; grades each test on the pass/total counts and pass codes the ROM reports about itself, diffed against a committed baseline; auto-fetches ROMs on first run; `-- --bless` re-records the baseline). Runs the HLE-BIOS path the browser ships; `-- --bios` runs a real Nintendo BIOS as an informational comparison against the same baseline (never gates) |
+| `npm run test:roms nes`      | Run the NES accuracy gate (nestest + Blargg CPU/APU/PPU + sprite-hit + MMC3-IRQ + interrupt/exec-space/reset suites; each test graded on the pass/fail the ROM reports about itself, or a golden framebuffer hash for the visual-only ones, diffed against a committed baseline; auto-fetches ROMs on first run; `-- --bless` re-records the baseline)                                                                                                              |
+| `npm run test:roms snes`     | Run the SNES accuracy gate (krom CPU/SPC700/PPU screens + gilyon's hardware-verified 65C816/SPC700 suites + Sour timing tests + blargg SPC set + save-state round-trips, graded on on-screen verdicts or settled framebuffer hashes, diffed against a committed baseline; auto-fetches ROMs on first run; `-- --bless` re-records the baseline)                                                                                                                     |
+| `npm run lint`               | ESLint across the repo (file globs come from `eslint.config`)                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `npm run lint:fix`           | ESLint with `--fix` to auto-resolve safe issues                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `npm run format`             | Prettier write across the repo                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `npm run format:check`       | Prettier check (no writes) — used by CI                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ### Continuous integration
 
@@ -917,10 +949,87 @@ reload.
   side. Full save states, rewind, library thumbnails, cheats (Game
   Genie / Game Shark), and the debugger work the same as the other cores.
 
+### SNES core
+
+- **CPU** — 65C816 with the full opcode set across all M/X width
+  combinations, emulation-mode structural invariants (stack page pin,
+  forced 8-bit widths), the E-mode direct-page and pointer-fetch wrap
+  quirks, and the 65816-new-instruction stack semantics. Validated by
+  hardware-verified suites: 2,025 CPU tests + 557 SPC700 tests (gilyon)
+  all pass, plus the krom per-opcode screens.
+- **Timing** — memory-region master-cycle costs (WRAM/SlowROM 8, MMIO 6,
+  joypad 12, FastROM 6 via MEMSEL), the per-scanline 40-cycle DRAM
+  refresh stall, the NTSC odd-field short scanline, and the 65C816's
+  interrupt sampling: lines sampled two CPU cycles before an instruction
+  boundary, DMA stalls block sampling, CLI/SEI take effect one
+  instruction late, NMI is a pending edge latch. The refresh stall and
+  the short line aren't cosmetic — main-CPU↔SPC port rendezvous
+  (Super Bomberman 4) and beam-position waits (Star Fox) deadlock
+  without the gaps they punch into otherwise phase-locked poll loops.
+- **S-SMP / S-DSP** — SPC700 core with the documented boot-ROM protocol
+  as a polled state machine (multi-stage uploaders work by construction),
+  the reference 4-stage timer pipeline (phase persists across disables;
+  TEST-register edge quirks), and a DSP with BRR decoding (all four IIR
+  filters), ADSR/GAIN envelopes, noise, the 4-tap gaussian interpolation
+  kernel, and the full echo unit (ARAM ring, 8-tap FIR, feedback) at the
+  hardware 32.04 kHz. The whole subsystem runs from its own crystal
+  (the measured ~24.607 MHz, not a ratio of the master clock), with
+  main-CPU port writes applied at their true sub-cycle positions in SPC
+  time — the non-commensurate clock beat this produces is what lets
+  tight port-polling handshakes drift past each other like hardware.
+- **PPU** — modes 0–7 with Mode 7 affine transforms, main/sub screen
+  compositing with color math and the fixed-colour fallback, both
+  windows with all logic modes, mosaic, offset-per-tile (modes 2/4),
+  hires modes 5/6 (blended into the 256-wide output), pseudo-hires,
+  per-scanline sprite limits with the STAT77 flags, and the H/V latch
+  counters. Whole-scanline renderer; PAL carts run their 312-line field
+  at 50 Hz.
+- **Save data** — battery SRAM persists to IndexedDB on the same cadence
+  as the other cores. Full save states, rewind, library thumbnails,
+  cheats (Game Genie / Pro Action Replay), and the debugger (65C816
+  disassembly, breakpoints, per-voice DSP oscilloscopes) work the same
+  as the other cores.
+- **DSP-1 coprocessor** — the fixed-point 3D-math chip behind Super
+  Mario Kart, Pilotwings and ~15 other carts is emulated at the command
+  level (multiply/trig/attitude matrices and the Mode 7 projection
+  pipeline), on all three board mappings.
+- **SA-1 coprocessor** — the in-cart 10.74 MHz second 65C816 behind
+  Super Mario RPG, Kirby Super Star and Kirby's Dream Land 3: a full
+  second CPU core on its own bus view, the Super MMC bank registers,
+  shared I-RAM/BW-RAM with write protection, the mailbox interrupt
+  fabric (including the SNV/SIV vector hijack), the arithmetic unit,
+  all three DMA modes (normal + both character-conversion types), the
+  H/V timer and the variable-length bit reader.
+- **S-DD1 coprocessor** — the graphics-decompression chip behind
+  Star Ocean and Street Fighter Alpha 2: the MMC bank registers plus
+  the on-the-fly DMA decompressor (Andreas Naive's public-domain
+  algorithm). Star Ocean's compressed graphics render correctly.
+- **Cx4 coprocessor** — the Capcom math/graphics chip behind Mega Man
+  X2 and X3: the full command set (wireframe rotation/projection,
+  sprite scale-rotate and OAM building, polar/rectangular, atan,
+  vector math) over its 8 KiB register RAM. Both games are playable.
+- **OBC1 controller** — the sprite-OAM scatter chip behind Metal
+  Combat: Falcon's Revenge, distributing the game's streamed sprite
+  writes into the OAM layout over its 8 KiB battery RAM.
+- **S-RTC clock** — the Sharp real-time clock behind Dai Kaijuu
+  Monogatari II: the $2800/$2801 nibble-streamed BCD calendar, seeded
+  from the host wall-clock.
+- **SuperFX coprocessor (GSU-1/2)** — the in-cart RISC chip behind
+  Star Fox, Stunt Race FX, Vortex, Dirt Trax FX and ~35 other carts:
+  the full GSU instruction set (prefix-modified opcodes, the register
+  plumbing, the 512-byte instruction cache, the ROM/RAM buffers) plus
+  the bitplane plot pipeline (PLOT/RPIX/COLOR/CMODE with the pixel
+  caches) that renders polygons straight into game-pak RAM. The two
+  most timing-sensitive titles — Yoshi's Island and Doom — build their
+  scenes but stall in their opening sequences, pending cycle-accurate
+  GSU/S-CPU interleaving; the rest render. The remaining enhancement
+  chips (DSP-2/3/4, SPC7110, ST01x, …) are rejected with a clear
+  message instead of half-booting into garbage.
+
 ### Project structure
 
 The tree is split along one hard boundary: the engine cores (`src/gb/`,
-`src/gba/`, `src/nes/`) are pure hardware simulation with **no DOM,
+`src/gba/`, `src/nes/`, `src/snes/`) are pure hardware simulation with **no DOM,
 no fetch, no localStorage** — they can be imported from Node for
 headless test runners. All browser-side code lives under `src/ui/`,
 which bridges whichever core is running to the page through a small
@@ -1024,11 +1133,24 @@ src/
 │   ├── cheats/               #   Game Genie letter-code decoder + RAM-freeze CheatManager
 │   ├── debug/                #   Headless debug helpers — 6502 disassembler, breakpoints, call-stack, symbol lookup
 │   └── serialization/        #   NES_STATE_VERSION + NesStateReader/Writer + migrator chain (independent lineage)
+├── snes/                     # Pure SNES engine, headless-runnable. 65C816 (region-cost master-cycle timing, hardware interrupt sampling) + SPC700/S-DSP (polled boot-ROM loader, reference timer pipeline, own-crystal clocking, BRR + gaussian + echo at 32.04 kHz) + S-PPU (modes 0-7 incl. Mode 7 affine, windows, colour math, mosaic, offset-per-tile, hires 5/6, HDMA) + LoROM/HiROM/ExHiROM mapping (incl. header-vs-wiring conflicts + the BSC memory-pak board) + PAL
+│   ├── index.ts              #   Public engine API (parser, Snes core, save-state version, debug modules)
+│   ├── snes.ts               #   Top-level console — CPU/PPU/APU/DMA wiring, NMI + H/V IRQ, saveState/loadState, battery SRAM, cheats
+│   ├── cpu/cpu.ts            #   65C816 (all 256 opcodes, M/X width switching, emulation mode, per-access cycle costs)
+│   ├── ppu/ppu.ts            #   S-PPU scanline renderer + main/sub compositing + effects
+│   ├── apu/                  #   SPC700 core + S-SMP (timers, mailbox, polled boot loader) + S-DSP synth
+│   ├── memory/               #   24-bit bus (LoROM/HiROM/WRAM/SRAM, region cycle costs) + 8-channel DMA/HDMA
+│   ├── joypad/               #   Controller 1 bit layout (JOY1L/JOY1H)
+│   ├── cheats/               #   Game Genie / Pro Action Replay decoder + CheatManager
+│   ├── coprocessor/          #   DSP-1 HLE; SA-1 (2nd 65C816, MMC, DMA, IRQs); SuperFX (GSU RISC + plot); S-DD1 (decompressor); Cx4 (Capcom math/graphics); OBC1 (OBJ scatter); S-RTC (Sharp clock)
+│   ├── debug/                #   Headless debug helpers — PC breakpoints, JSR/JSL call tracker, symbol lookup
+│   ├── serialization/        #   SNES_STATE_VERSION + SnesStateReader/Writer + migrator chain (independent lineage)
+│   └── cartridge/            #   .sfc/.smc parser — internal-header scoring, coprocessor detection
 └── ui/                       # Browser shell — DOM, network, storage
     ├── state.ts              #   Shared mutable app state + renderer/audio/gamepad singletons + activeEngine() adapter accessor
     ├── engine/               #   Engine-platform abstraction (one registry + adapter per console)
     │   ├── platform.ts       #     Per-console descriptor: screen size, state ext, ROM exts, capability flags
-    │   └── adapter.ts        #     Thin EngineAdapter over GB/GBA/NES (framebuffer + platform; delegates the rest)
+    │   └── adapter.ts        #     Thin EngineAdapter over GB/GBA/NES/SNES (framebuffer + platform; delegates the rest)
     ├── dom.ts                #   Centralised getElementById wall
     ├── format.ts             #   relativeTime / formatPlayTime / formatTime / slot helpers
     ├── draggable.ts          #   makeDraggablePanel — drag a fixed panel by a handle, position remembered (translate + assist overlays)
@@ -1136,7 +1258,7 @@ src/
         ├── storage.ts        #     Shared IDB wrapper (roms / save-ram / save-states / cheats)
         ├── local-storage.ts  #     Centralised localStorage key catalogue + safe get/set helpers
         ├── crc32.ts          #     Shared CRC32 (cart id content hash, BPS checksum)
-        ├── cart-id.ts        #     Per-cart id — GB (title+cs+CRC), GBA (gba:…), NES (nes:mapper:CRC)
+        ├── cart-id.ts        #     Per-cart id — GB (title+cs+CRC), GBA (gba:…), NES (nes:mapper:CRC), SNES (snes:mapping:CRC)
         ├── cart-overrides.ts #     Per-cart settings overrides (palette, colour correction, …)
         ├── save-ram.ts       #     GB battery-backed RAM + MBC3 RTC sidecar
         ├── save-ram-gba.ts   #     GBA SRAM / Flash / EEPROM backup + RTC sidecar
@@ -1156,9 +1278,9 @@ src/
 
 ### Adding a console
 
-The three engines plug into the browser shell through one small abstraction
-rather than a `gb` / `gba` / `nes` branch at every call site, so a fourth core
-(SNES is the obvious next one) is mostly additive:
+The engines plug into the browser shell through one small abstraction
+rather than a per-console branch at every call site, so a fifth core
+is mostly additive:
 
 - **`src/snes/`** — a new pure-TypeScript engine core (no DOM), with its own
   `serialization/` lineage (`SNES_STATE_VERSION` + reader/writer + migrator
@@ -1215,9 +1337,23 @@ one frame — 262 scanlines × 341 dots ÷ 3 ≈ **29 781 CPU cycles** at
 cartridge mapper's scanline / A12 IRQ counters, and the joypad strobe
 all advance off that same CPU-cycle count.
 
+**Super Nintendo.** The 65C816 runs off the **21.477 MHz** master clock,
+but each access costs a _region-dependent_ number of master cycles — **6**
+(FastROM / fast I/O), **8** (slow RAM and ROM), or **12** (the
+controller-serial region) — so `cpu.step()` returns master cycles rather
+than a fixed CPU-cycle count. The S-PPU consumes those cycles (1364 per
+scanline, or 1360 on the odd field's short line 240), and every scanline
+the CPU also absorbs a **40-cycle DRAM-refresh stall**. One NTSC frame is
+262 × 1364 = **357 368 master cycles** at **60.0988 Hz** (the odd field
+trims 4); PAL runs 312 lines at ~50 Hz. The S-SMP / S-DSP audio unit is
+the exception: it's clocked off its **own ~24.607 MHz crystal** (→ a
+1.02528 MHz SPC700 and 32.04 kHz DSP output), asynchronous to the master
+clock, so `Snes` reconciles the two through a coprime cycle ratio instead
+of a shared counter.
+
 ### Frame pacing
 
-All three engines pace themselves against **wall-clock time**, not the
+All engines pace themselves against **wall-clock time**, not the
 monitor's `requestAnimationFrame` rate — so a 120 Hz or 144 Hz
 display doesn't make the emulator run too fast. Elapsed milliseconds
 (scaled by `speedMultiplier`) accumulate into a budget; `runFrame`
@@ -1225,8 +1361,8 @@ is called as many times as fit. A cap prevents a backgrounded tab
 from producing a huge catch-up burst on return.
 
 The engines run on separate rAF loops because their per-frame needs
-differ. `GameBoy.runFrame()` and `Nes.runFrame()` each run exactly one
-frame (one VBlank) atomically. `Gba.runFrame()` is the same shape, but the
+differ. `GameBoy.runFrame()`, `Nes.runFrame()`, and `Snes.runFrame()` each
+run exactly one frame (one VBlank) atomically. `Gba.runFrame()` is the same shape, but the
 GBA loop in `src/ui/session/runtime-gba.ts` uses a chunked variant
 (`runFrameChunked`) that yields to the task queue mid-frame **only
 when SIO activity is detected** — needed so cross-tab
@@ -1237,8 +1373,9 @@ queue. Idle frames stay atomic and pay zero yield overhead.
 ### Audio output
 
 A single `AudioOutput` instance (created in `src/ui/state.ts`)
-serves all three engines. The Game Boy, Game Boy Advance, and NES
-APUs each fill their own `outLeft` / `outRight` arrays each frame and
+serves every engine. The Game Boy, Game Boy Advance, and NES APUs
+each fill their own `outLeft` / `outRight` arrays each frame (the
+SNES resamples its DSP's fixed 32.04 kHz stream the same way) and
 call back into `audio.schedule(left, right, count)` — the rest of
 the pipeline doesn't care which engine produced the samples.
 
@@ -1283,7 +1420,7 @@ edges:
   OBP / LCDC changed at specific dots inside an M-cycle) don't fully
   reproduce. No known gameplay impact; affects the test suite only.
 
-GBA accuracy is measured by `npm run test:gba-roms` against jsmolka,
+GBA accuracy is measured by `npm run test:roms gba` against jsmolka,
 fuzzarm, mgba-suite, and nba-emu/hw-test. The current baseline is
 40/40 verdicts passing with 6283/7072 counter sub-tests cleared;
 mgba-suite's memory (1552/1552) and dma (1256/1256) categories pass
@@ -1299,7 +1436,7 @@ Known gaps:
   register-save sequence, which is why a few mgba-suite-timing sub-tests
   still fall short. The net IRQ / timer drift is small enough that no
   shipping cart we've tested wedges on it. A real Nintendo BIOS can be
-  dropped in at `tests/gba-roms/gba_bios.bin` and the test runner will
+  dropped in at `tests/roms/gba/gba_bios.bin` and the test runner will
   use it.
 - **Cycle accuracy is per-instruction, not per-bus-cycle.** Each
   instruction's opcode fetch is charged on the bus clock the moment it
@@ -1339,7 +1476,7 @@ Known gaps:
   decrypted CodeBreaker form, so an AR decoder adds no real value
   beyond what's already on the open internet.
 
-NES accuracy is self-scored by `npm run test:nes-roms` — nestest,
+NES accuracy is self-scored by `npm run test:roms nes` — nestest,
 Blargg's CPU / APU / PPU / DMC suites, sprite-hit (incl. its per-dot
 timing tests), sprite-overflow, MMC3-IRQ, branch/instruction timing,
 MMC5 ExRAM, and the `cpu_interrupts` / `cpu_exec_space` / `apu_reset`
@@ -1373,6 +1510,40 @@ Known gaps:
 - **Cheats are Game Genie + Game Shark; no scanner.** The NES cheat
   panel decodes Game Genie letter codes and raw RAM freezes, but the
   live memory-scanner (search-for-a-value) is Game Boy / GBA only.
+
+SNES accuracy is self-scored by `npm run test:roms snes` — the krom
+per-opcode CPU / SPC700 / PPU screens, gilyon's hardware-verified
+suites (2,025 65C816 tests + 557 SPC700 tests, all passing), Sour's
+hardware-timed `dma_irq_test` (every behavioural row matches) and
+`timing_test`, blargg's rediscovered SPC set, and save-state
+round-trips on real ROMs. Against a seeded 100-cart sample of an
+11,000+ cart library, every clean commercial dump either renders or is
+a deliberate coprocessor rejection. Known gaps:
+
+- **Coprocessors: most run, some don't.** DSP-1 (Super Mario Kart,
+  Pilotwings), SA-1 (Super Mario RPG, both SNES Kirbys), SuperFX
+  (Star Fox, Stunt Race FX, Doom, …), S-DD1 (Star Ocean, Street
+  Fighter Alpha 2), Cx4 (Mega Man X2/X3), OBC1 (Metal Combat) and
+  S-RTC (Dai Kaijuu Monogatari II) are emulated. One SuperFX
+  title — Yoshi's Island — builds its graphics but stalls in its
+  opening sequence; the SA-1's bus-conflict stalls are likewise not
+  modelled, so SA-1 games run slightly fast on the coprocessor side.
+  The remaining enhancement chips (DSP-2/3/4, SPC7110, ST01x, …) are
+  extra processors the loader rejects with a clear message.
+- **Whole-scanline renderer.** Register changes mid-line apply to the
+  whole line, and interlace / EXTBG aren't rendered; hires modes 5/6
+  blend their 512-pixel output into the 256-wide frame instead of
+  doubling it. The 239-line overscan mode's timing is honoured — its
+  VBlank/NMI onset moves to line 240, which PAL Super Mario Kart's
+  in-race split-screen depends on — but the frame is still cropped to
+  256×224, so the extra 15 lines below the visible window aren't drawn.
+- **SPC cycle-level timing is approximate.** Instruction results are
+  hardware-exact (2,582 passing tests) but blargg's deepest
+  cycle-counting probes (`spc_timer` #2 and friends) don't pass yet;
+  no audible consequence is known.
+- **PAL runs at NTSC master clock.** PAL carts get their 312-line field
+  and 50 Hz pacing; the ~0.9% master-clock difference between the two
+  console revisions is folded flat.
 
 ## Privacy
 
@@ -1452,8 +1623,9 @@ of every save state stay in your browser.
 
 Glowboot is an independent project, not affiliated with, endorsed by,
 or sponsored by Nintendo Co., Ltd. **Game Boy**, **Game Boy Color**,
-**Game Boy Advance**, **Nintendo Entertainment System**, **NES**, and
-**Famicom** are trademarks of Nintendo, used here for descriptive
+**Game Boy Advance**, **Nintendo Entertainment System**, **NES**,
+**Famicom**, **Super Nintendo Entertainment System**, **SNES**, and
+**Super Famicom** are trademarks of Nintendo, used here for descriptive
 purposes only.
 
 The emulator ships no ROMs and no BIOS files. Game Boy Advance carts
@@ -1511,7 +1683,7 @@ which quirks even exist were informed by studying those projects.
 Thank you to their authors.
 
 The GBA engine owes a parallel set of debts. Test-ROM coverage in
-`npm run test:gba-roms` runs against four upstream suites:
+`npm run test:roms gba` runs against four upstream suites:
 [jsmolka/gba-tests](https://github.com/jsmolka/gba-tests) (ARM,
 Thumb, BIOS, memory, save-cart, PPU) by Julian Smolka;
 [DenSinH/FuzzARM](https://github.com/DenSinH/FuzzARM) (randomised
@@ -1538,7 +1710,7 @@ list of "things you didn't know existed until they hit your test
 suite" came from those projects. Thank you to their authors.
 
 The NES engine leans on the same open ecosystem. Test-ROM coverage in
-`npm run test:nes-roms` runs nestest (the canonical 6502 golden-log
+`npm run test:roms nes` runs nestest (the canonical 6502 golden-log
 test by kevtris), Blargg's (Shay Green's) CPU / APU / PPU suites, and
 community ROMs for sprite-zero hit, MMC3 scanline-IRQ, and
 CPU-interrupt / exec-space / reset timing. The authoritative hardware
@@ -1547,6 +1719,23 @@ PPU-scrolling, MMC5, expansion-audio, and mapper pages the engine is
 ported from. As with the other cores, every line under `src/nes/` is
 original TypeScript — the docs and test ROMs supplied the behaviour to
 match. Thank you to the NESdev community and the test-ROM authors.
+
+The SNES engine completes the set. Test-ROM coverage in
+`npm run test:roms snes` runs Peter "krom" Lemon's
+[PeterLemon/SNES](https://github.com/PeterLemon/SNES) CPU / SPC700 / GSU /
+PPU / Mode 7 suites, timing and audio tests from the
+[higan/snes-test-roms](https://gitlab.com/higan/snes-test-roms) collection
+(Sour's timing tests and Shay "Blargg" Green's SPC-700 set), and gilyon's
+hardware-verified [snes-tests](https://github.com/gilyon/snes-tests)
+65816 / SPC700 suites. The authoritative hardware reference is
+**fullsnes** by Martin Korth (nocash), the SNES companion to his GBATEK.
+The coprocessor cores lean additionally on the community
+high-level-emulation reconstructions credited to Overload, anomie,
+zsKnight and Nach (Cx4), alongside the fullsnes register maps for DSP-1,
+SA-1, SuperFX, S-DD1, OBC1 and S-RTC. As with every other core, all of
+`src/snes/` is original TypeScript — the docs and test ROMs supplied the
+behaviour to match. Thank you to the SNES homebrew and preservation
+community.
 
 The **AI screenshot upscaler** runs the
 [PixelPerfectV4](https://openmodeldb.info/models/4x-PixelPerfectV4)

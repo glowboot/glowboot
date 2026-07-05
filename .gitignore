@@ -1,3 +1,7 @@
+# Test-ROM caches for `npm run test:roms <engine>` — one gitignored
+# folder per engine under tests/roms/, auto-fetched on first run from
+# pinned upstream releases/commits (never bundled or committed).
+tests/roms/
 node_modules
 dist
 dist-dev
@@ -8,22 +12,8 @@ harness-shots/
 # Claude Code local settings (per-developer preferences, not shared)
 .claude/
 
-# Test ROMs cloned locally for the `npm run test:roms` harness; not
-# bundled — `npm run test:roms` auto-fetches the c-sp release zip on
-# first run (set GLOWBOOT_NO_FETCH=1 to skip). The local accuracy
-# report at `tests/roms/REPORT.md` is also developer-internal and
-# stays out of the repo.
-tests/roms/
 
-# GBA test ROMs — `npm run test:gba-roms` auto-fetches the cadfan
-# accuracy-test corpus (jsmolka + armwrestler + fuzzarm + mgba-suite +
-# ags-aging) into this directory on first run.
-tests/gba-roms/
 
-# NES test ROMs — `npm run test:nes-roms` auto-fetches christopherpow's
-# nes-test-roms collection (nestest + blargg suites + Holy Mapperel)
-# into this directory on first run.
-tests/nes-roms/
 
 # Vite env files — never commit any of them so secrets can't sneak in
 # through the back door. The repo ships `.env.example` as the only
@@ -35,3 +25,4 @@ tests/nes-roms/
 !.env.example
 
 archive/
+

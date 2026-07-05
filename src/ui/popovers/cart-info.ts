@@ -1,5 +1,6 @@
 import { type Gba, parseGbaHeader } from "../../gba";
 import type { Nes } from "../../nes";
+import type { Snes } from "../../snes";
 import { AUDIO_MODES, type AudioMode } from "../audio/output.js";
 import { cartInfoPop, cartInfoTrigger } from "../dom.js";
 import { formatPlayTime } from "../format.js";
@@ -9,6 +10,7 @@ import { KEYS, lsGet } from "../persistence/local-storage.js";
 import * as Recents from "../persistence/recents.js";
 import * as SaveRamGba from "../persistence/save-ram-gba.js";
 import * as SaveRamNes from "../persistence/save-ram-nes.js";
+import * as SaveRamSnes from "../persistence/save-ram-snes.js";
 import { saveBlobNative } from "../save-blob.js";
 import { applyCartOverrides } from "../session/cart-overrides.js";
 import * as Palettes from "../session/palettes.js";
@@ -79,6 +81,10 @@ async function renderCartInfo(): Promise<void> {
   }
   if (state.gba) {
     await renderGbaCartInfo(state.gba);
+    return;
+  }
+  if (state.snes) {
+    await renderSnesCartInfo(state.snes);
     return;
   }
   if (state.nes) {
@@ -327,6 +333,149 @@ async function renderGbaCartInfo(gba: Gba): Promise<void> {
       // action gated behind opening the cart-info popover already.
       if (!window.confirm("Wipe the cart's save data? This cannot be undone.")) return;
       await SaveRamGba.clear(gba);
+      toast("Save data cleared");
+    });
+  }
+
+  // Per-game overrides — render mode, integer scaling, pixel response,
+  // and audio mode all apply to GBA carts via the shared renderer /
+  // audio abstractions (the GBA raw-2D path was retired). Palette and
+  // colour correction stay GB-only because they target the GB PPU.
+  const overrides = await loadCartOverrides(id);
+  const hasAnyOverride =
+    overrides.renderMode !== undefined ||
+    overrides.integerScale !== undefined ||
+    overrides.pixelResponse !== undefined ||
+    overrides.audioMode !== undefined;
+  // GBA has no engine-specific extras — palette + colour correction
+  // are GB-only since they target the GB PPU.
+  renderSharedCartOverrides(cartInfoPop, overrides, hasAnyOverride, persistOverride, null);
+}
+
+async function renderSnesCartInfo(snes: Snes): Promise<void> {
+  if (!cartInfoPop) return;
+  await flushPlayTime();
+  startPlayTimer();
+  const id = Recents.idForSnes(snes);
+  const recent = (await Recents.list()).find((r) => r.id === id);
+  const playMs = recent?.totalPlayMs ?? 0;
+  const rom = snes.rom;
+
+  const title = document.createElement("div");
+  title.className = "cart-info-title";
+  title.textContent = rom.title || state.currentFilename?.replace(/\.[^.]+$/, "") || "(untitled)";
+  cartInfoPop.appendChild(title);
+
+  const mappingLabel = rom.mapping === "lorom" ? "LoROM" : rom.mapping === "hirom" ? "HiROM" : "ExHiROM";
+  const rows: Array<[string, string]> = [
+    ["Mapping", mappingLabel],
+    ["ROM size", `${rom.rom.length.toLocaleString()} bytes`],
+    ["SRAM", rom.sramSize > 0 ? `${rom.sramSize.toLocaleString()} bytes` : "—"],
+    ["Battery", rom.battery ? "Yes" : "No"],
+    ["Region", rom.region === "pal" ? "PAL · 50 Hz" : "NTSC · 60 Hz"],
+    ["Play time", playMs >= 60_000 ? formatPlayTime(playMs) : "—"]
+  ];
+  for (const [k, v] of rows) {
+    const row = document.createElement("div");
+    row.className = "cart-info-row";
+    const ks = document.createElement("span");
+    ks.textContent = k;
+    const vs = document.createElement("b");
+    vs.textContent = v;
+    row.appendChild(ks);
+    row.appendChild(vs);
+    cartInfoPop.appendChild(row);
+  }
+
+  // Save-data management — Export / Import / Clear the cart's battery
+  // backup. Only meaningful for carts that have a backup (the
+  // "Backup: —" carts get the row hidden). Cleaning happens against the
+  // *live* device so the change is immediately visible to the running
+  // cart; the IDB store is wiped too so a refresh doesn't bring the
+  // old save back.
+  if (SaveRamSnes.isPersistable(snes)) {
+    const saveHeading = document.createElement("div");
+    saveHeading.className = "cart-info-heading";
+    const saveHeadingLabel = document.createElement("span");
+    saveHeadingLabel.textContent = "Save data";
+    saveHeading.appendChild(saveHeadingLabel);
+    cartInfoPop.appendChild(saveHeading);
+
+    const saveRow = document.createElement("div");
+    saveRow.className = "cart-info-row cart-info-save-actions";
+
+    const makeBtn = (label: string, title: string): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cart-info-save-btn";
+      b.textContent = label;
+      b.title = title;
+      return b;
+    };
+
+    const exportBtn = makeBtn("Export", "Download the current save as a .sav file");
+    const importBtn = makeBtn("Import", "Replace the current save with bytes from a .sav file");
+    const clearBtn = makeBtn("Clear", "Wipe the cart's save data (no undo)");
+    const importInput = document.createElement("input");
+    importInput.type = "file";
+    importInput.accept = ".sav,.srm,application/octet-stream";
+    importInput.hidden = true;
+    saveRow.appendChild(exportBtn);
+    saveRow.appendChild(importBtn);
+    saveRow.appendChild(clearBtn);
+    saveRow.appendChild(importInput);
+    cartInfoPop.appendChild(saveRow);
+
+    exportBtn.addEventListener("click", async () => {
+      const bytes = SaveRamSnes.exportBytes(snes);
+      if (!bytes) {
+        errorToast("No save data to export yet");
+        return;
+      }
+      const stem = (rom.title || "save").replace(/[^A-Za-z0-9 ._-]+/g, "_").trim() || "save";
+      const filename = `${stem}.sav`;
+      // Copy into a fresh ArrayBuffer the Blob can own without sharing
+      // the underlying buffer with the emulator's live SRAM.
+      const buf = new ArrayBuffer(bytes.length);
+      new Uint8Array(buf).set(bytes);
+      const blob = new Blob([buf], { type: "application/octet-stream" });
+      const share = await saveBlobNative(blob, filename);
+      if (share === "shared" || share === "cancelled") return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+
+    importBtn.addEventListener("click", () => importInput.click());
+    importInput.addEventListener("change", async () => {
+      const file = importInput.files?.[0];
+      importInput.value = "";
+      if (!file) return;
+      let bytes: Uint8Array;
+      try {
+        bytes = new Uint8Array(await file.arrayBuffer());
+      } catch {
+        errorToast("Could not read file");
+        return;
+      }
+      const result = await SaveRamSnes.importBytes(snes, bytes);
+      if (!result.ok) {
+        errorToast(result.reason);
+        return;
+      }
+      toast(`Imported ${bytes.length.toLocaleString()} bytes`);
+    });
+
+    clearBtn.addEventListener("click", async () => {
+      // Inline confirm — a full modal would be overkill for an admin
+      // action gated behind opening the cart-info popover already.
+      if (!window.confirm("Wipe the cart's save data? This cannot be undone.")) return;
+      await SaveRamSnes.clear(snes);
       toast("Save data cleared");
     });
   }

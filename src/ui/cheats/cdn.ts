@@ -22,19 +22,22 @@ const GB_DIR = "Nintendo - Game Boy";
 const GBC_DIR = "Nintendo - Game Boy Color";
 const GBA_DIR = "Nintendo - Game Boy Advance";
 const NES_DIR = "Nintendo - Nintendo Entertainment System";
+const SNES_DIR = "Nintendo - Super Nintendo Entertainment System";
 const GB_DIRS = [GB_DIR, GBC_DIR];
 const GBA_DIRS = [GBA_DIR];
 const NES_DIRS = [NES_DIR];
+const SNES_DIRS = [SNES_DIR];
 
 /** Which platform's directories to fetch. Each platform's index is cached
  *  separately — the file formats differ enough (GBA codes are CodeBreaker,
  *  GB/NES codes are Game Genie + Game Shark) that mixing them in one search
  *  would confuse users. */
-export type Platform = "gb" | "gba" | "nes";
+export type Platform = "gb" | "gba" | "nes" | "snes";
 
 function dirsForPlatform(platform: Platform): readonly string[] {
   if (platform === "gba") return GBA_DIRS;
   if (platform === "nes") return NES_DIRS;
+  if (platform === "snes") return SNES_DIRS;
   return GB_DIRS;
 }
 

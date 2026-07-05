@@ -33,7 +33,7 @@
  *   40 tests total.
  *
  * Scoring — each run is reduced to a Signature, compared to its entry in
- * the committed BASELINE (tests/run-gba-roms-baseline.json):
+ * the committed BASELINE (the "gba" key in tests/roms-baseline.json):
  *   • count   — IWRAM pass/total tally (counter tests)
  *   • r12fail #N — jsmolka math-test failure number
  *   • hash    — golden BGR555 framebuffer hash (visual-only tests +
@@ -49,19 +49,19 @@
  * counts are final.
  *
  * Set `GLOWBOOT_NO_FETCH=1` to skip auto-fetch (offline — drop the ROMs
- * at `tests/gba-roms/<suite>/<file>.gba` manually). The gate runs the
+ * at `tests/roms/gba/<suite>/<file>.gba` manually). The gate runs the
  * HLE BIOS path — the configuration the BROWSER ships — against the
  * committed baseline. `--bios` runs a real Nintendo BIOS at
- * `tests/gba-roms/gba_bios.bin` as an INFORMATIONAL comparison against
+ * `tests/roms/gba/gba_bios.bin` as an INFORMATIONAL comparison against
  * the same baseline (counter values are BIOS-sensitive); it prints the
  * diff but never gates and never re-records.
  *
  * Usage:
- *   npm run test:gba-roms                       # everything (gate, HLE)
- *   npm run test:gba-roms mgba                  # one suite / substring
- *   npm run test:gba-roms jsmolka-arm           # one test by id
- *   npm run test:gba-roms -- --bless            # re-record the baseline
- *   npm run test:gba-roms -- --bios             # opt-in real-BIOS diagnostic (local)
+ *   npm run test:roms gba                       # everything (gate, HLE)
+ *   npm run test:roms gba mgba                  # one suite / substring
+ *   npm run test:roms gba jsmolka-arm           # one test by id
+ *   npm run test:roms gba -- --bless            # re-record the baseline
+ *   npm run test:roms gba -- --bios             # opt-in real-BIOS diagnostic (local)
  */
 
 import { createHash } from "node:crypto";
@@ -71,11 +71,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, Worker } from "node:worker_threads";
 
-import { Gba } from "../src/gba/gba.js";
-import type { GbaButton } from "../src/gba/joypad/joypad.js";
+import { Gba } from "../../src/gba/gba.js";
+import type { GbaButton } from "../../src/gba/joypad/joypad.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const ROMS_DIR = resolve(__dirname, "gba-roms");
+const ROMS_DIR = resolve(__dirname, "..", "roms", "gba");
 
 // ─── ROM manifest (URLs + SHA256s) ───────────────────────────────────
 //
@@ -717,18 +717,27 @@ type Signature =
  *  where the two diverge (~4 timing/IRQ tests — real-BIOS IRQ-entry
  *  cycles vs the HLE stub) but never gates and never re-records. */
 const USE_BIOS = process.argv.includes("--bios");
-const BASELINE_PATH = resolve(__dirname, "run-gba-roms-baseline.json");
+// One baseline file for every engine, namespaced by a top-level key —
+// blessing here rewrites only the "gba" entry.
+const BASELINE_PATH = resolve(__dirname, "..", "roms-baseline.json");
+
+function loadBaselineFile(): Record<string, unknown> {
+  if (!existsSync(BASELINE_PATH)) return {};
+  return JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Record<string, unknown>;
+}
 
 function loadBaseline(): Record<string, Signature> {
-  if (!existsSync(BASELINE_PATH)) return {};
-  return JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Record<string, Signature>;
+  return (loadBaselineFile()["gba"] ?? {}) as Record<string, Signature>;
 }
 
 function writeBaseline(b: Record<string, Signature>): void {
-  // Stable key order so diffs stay readable.
+  // Stable key order so diffs stay readable; other engines' entries pass
+  // through untouched.
   const ordered: Record<string, Signature> = {};
   for (const k of Object.keys(b).sort()) ordered[k] = b[k]!;
-  writeFileSync(BASELINE_PATH, JSON.stringify(ordered, null, 2) + "\n");
+  const file = loadBaselineFile();
+  file["gba"] = ordered;
+  writeFileSync(BASELINE_PATH, JSON.stringify(file, null, 2) + "\n");
 }
 
 /** Reduce a run to its self-reported signature (see BASELINE comment).
@@ -1345,7 +1354,7 @@ async function main(): Promise<void> {
   // Optional BIOS image. Prefer the real Nintendo BIOS (jsmolka-bios
   // #1 checks the first instruction byte-for-byte), fall back to the
   // Cult-of-GBA open-source replacement BIOS, fall back to no BIOS.
-  // tests/gba-roms/ is gitignored so neither byte stream lands in the
+  // tests/roms/gba/ is gitignored so neither byte stream lands in the
   // repo. The browser build no longer bundles a BIOS — production
   // runs through HLE only — but the test runner still honours either
   // file when present, useful for diffing against real-BIOS output.
@@ -1364,7 +1373,7 @@ async function main(): Promise<void> {
       biosBytes = new Uint8Array(readFileSync(biosOpenPath));
       biosSource = "Cult-of-GBA (diagnostic)";
     } else {
-      console.error("--bios requires a real BIOS at tests/gba-roms/gba_bios.bin (or gba_bios_cult_of_gba.bin).");
+      console.error("--bios requires a real BIOS at tests/roms/gba/gba_bios.bin (or gba_bios_cult_of_gba.bin).");
       process.exit(1);
     }
   } else {
@@ -1439,7 +1448,7 @@ async function main(): Promise<void> {
       };
 
       for (let i = 0; i < workerCount; i++) {
-        const w = new Worker(new URL("./run-gba-roms-worker.mjs", import.meta.url));
+        const w = new Worker(new URL("./gba.mjs", import.meta.url));
         workers.push(w);
         w.on("message", (reply: WorkerReply) => {
           const test = inFlight.get(w)!;

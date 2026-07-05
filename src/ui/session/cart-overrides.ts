@@ -30,7 +30,7 @@ export function applyCartOverrides(overrides: CartOverrides): void {
   const gb = state.gb;
   const gba = state.gba;
   const nes = state.nes;
-  if (!gb && !gba && !nes) return;
+  if (!gb && !gba && !nes && !state.snes) return;
 
   if (gb && !gb.cart.cgb) {
     // ── Palette (DMG only) ───────────────────────────────────────────

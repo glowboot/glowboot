@@ -1,0 +1,31 @@
+// No-DOM typecheck for the SNES engine. Mirrors `src/gb/tsconfig.json`,
+// `src/gba/tsconfig.json`, and `src/nes/tsconfig.json` — restricts `src/snes/`
+// to non-browser JS so any attempted use of `document`, `window`, `fetch`,
+// `localStorage`, etc. fails type-checking. The pure-engine contract (no DOM /
+// network / storage deps) is enforced at the type level instead of relying on
+// convention.
+//
+// Standalone — does not extend the root tsconfig.json (the engine is
+// host-agnostic and shouldn't inherit browser-shell settings).
+//
+// Used by `npm run typecheck` as an additional pass alongside the UI and the
+// other engine typechecks.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": [],
+    "strict": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["**/*.test.ts"]
+}

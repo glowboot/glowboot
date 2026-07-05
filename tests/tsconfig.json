@@ -14,6 +14,12 @@
     // can import from src/ without "input outside rootDir" errors.
     "rootDir": ".."
   },
-  "include": ["**/*.ts", "../src/gba/**/*.ts", "../src/gb/**/*.ts"],
-  "exclude": ["../src/gb/globals.d.ts", "../src/gba/globals.d.ts", "../src/**/*.test.ts"]
+  "include": ["**/*.ts", "../src/gb/**/*.ts", "../src/gba/**/*.ts", "../src/nes/**/*.ts", "../src/snes/**/*.ts"],
+  "exclude": [
+    "../src/gb/globals.d.ts",
+    "../src/gba/globals.d.ts",
+    "../src/nes/globals.d.ts",
+    "../src/snes/globals.d.ts",
+    "../src/**/*.test.ts"
+  ]
 }

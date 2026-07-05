@@ -1,9 +1,10 @@
 import type { GameBoy, SerialLink } from "../gb";
 import type { Gba } from "../gba";
 import type { Nes } from "../nes";
+import type { Snes } from "../snes";
 import { AudioOutput } from "./audio/output.js";
 import { canvas, setCanvas } from "./dom.js";
-import { type EngineAdapter, makeGbaAdapter, makeGbAdapter, makeNesAdapter } from "./engine";
+import { type EngineAdapter, makeGbaAdapter, makeGbAdapter, makeNesAdapter, makeSnesAdapter } from "./engine";
 import { GamepadInput } from "./input/gamepad.js";
 import { KEYS, lsGet } from "./persistence/local-storage.js";
 import { CanvasRenderer, type ShaderName, WebGLRenderer } from "./renderer";
@@ -229,6 +230,8 @@ export const state = {
   gba: null as Gba | null,
   /** Current NES engine, or null when not running a `.nes` cart. */
   nes: null as Nes | null,
+  /** Current SNES engine, or null when not running a `.sfc`/`.smc` cart. */
+  snes: null as Snes | null,
   paused: false,
 
   // Rewind
@@ -313,7 +316,7 @@ let cachedAdapter: EngineAdapter | null = null;
  *  site reads the framebuffer, platform, and capabilities through the adapter
  *  it returns instead of re-branching on engine type. */
 export function activeEngine(): EngineAdapter | null {
-  const engine = state.gb ?? state.gba ?? state.nes;
+  const engine = state.gb ?? state.gba ?? state.nes ?? state.snes;
   if (!engine) {
     cachedAdapter = null;
     return null;
@@ -323,7 +326,9 @@ export function activeEngine(): EngineAdapter | null {
     ? makeGbAdapter(state.gb)
     : state.gba
       ? makeGbaAdapter(state.gba)
-      : makeNesAdapter(state.nes!);
+      : state.nes
+        ? makeNesAdapter(state.nes)
+        : makeSnesAdapter(state.snes!);
   return cachedAdapter;
 }
 

@@ -88,7 +88,8 @@
   padding: 0 calc(8px * var(--touch-scale));
   margin-bottom: calc(6px * var(--touch-scale));
 }
-body.is-gba .gba-shoulders {
+body.is-gba .gba-shoulders,
+body.is-snes .gba-shoulders {
   display: flex;
 }
 
@@ -236,7 +237,9 @@ body.is-gba .gba-shoulders {
    because it's the primary action in 90% of carts (jump in Mario,
    attack in Zelda) — visual emphasis tracks use frequency. */
 .gb-btn-a,
-.gb-btn-b {
+.gb-btn-b,
+.gb-btn-x,
+.gb-btn-y {
   border-radius: 50%;
   font-size: calc(18px * var(--touch-scale));
   letter-spacing: 1px;
@@ -334,6 +337,81 @@ body.is-gba .gba-shoulders {
   opacity: 1;
   background: rgba(255, 255, 255, 0.18);
   transform: translateY(1px) scale(0.97);
+}
+
+/* SNES face buttons: X and Y exist in the markup for every cart but
+   only display on `body.is-snes`, where the A/B pair re-arranges into
+   the four-button diamond (X top, Y left, B bottom, A right) via a
+   3×3 grid. Buttons shrink slightly so the diamond's footprint matches
+   the two-button row it replaces. X/Y carry their own accent tints
+   (green / amber) so all four faces read as distinct at a glance. */
+.gb-btn-x,
+.gb-btn-y {
+  display: none;
+}
+body.is-snes .gb-ab {
+  display: grid;
+  grid-template-columns: repeat(3, calc(50px * var(--touch-scale)));
+  grid-template-rows: repeat(3, calc(50px * var(--touch-scale)));
+  place-items: center;
+  /* Center the diamond within the row height (the base `.gb-ab` height
+     is sized to match the d-pad / the two-button row it replaces), so
+     the diamond aligns to the d-pad centre instead of the row top. */
+  align-content: center;
+  gap: 0;
+}
+body.is-snes .gb-ab .gb-btn {
+  width: calc(56px * var(--touch-scale));
+  height: calc(56px * var(--touch-scale));
+  font-size: calc(20px * var(--touch-scale));
+}
+body.is-snes .gb-btn-x {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1;
+  /* Higher fill alpha than A/B (0.18): green fights the violet backdrop
+     where pink/blue harmonise with it, so it needs more opacity to read
+     as green rather than grey. */
+  background: rgba(72, 202, 130, 0.32);
+  color: #a6f0c8;
+}
+body.is-snes .gb-btn-y {
+  display: grid;
+  grid-column: 1;
+  grid-row: 2;
+  background: rgba(232, 176, 66, 0.32);
+  color: #ffdd9b;
+}
+/* Grid placement drives the diamond, so drop the portrait A/B diagonal
+   (translateY ±24px) — its leftover offset pushed B down onto the
+   Start/Select row. */
+body.is-snes .gb-btn-a {
+  grid-column: 3;
+  grid-row: 2;
+  transform: none;
+}
+body.is-snes .gb-btn-b {
+  grid-column: 2;
+  grid-row: 3;
+  transform: none;
+}
+body.is-snes .gb-btn-x.is-pressed,
+body.is-snes .gb-btn-x:active {
+  opacity: 1;
+  background: rgba(72, 202, 130, 0.5);
+  transform: scale(0.96);
+}
+body.is-snes .gb-btn-y.is-pressed,
+body.is-snes .gb-btn-y:active {
+  opacity: 1;
+  background: rgba(232, 176, 66, 0.5);
+  transform: scale(0.96);
+}
+body.is-snes .gb-btn-a.is-pressed,
+body.is-snes .gb-btn-a:active,
+body.is-snes .gb-btn-b.is-pressed,
+body.is-snes .gb-btn-b:active {
+  transform: scale(0.96);
 }
 
 /* L/R shoulder buttons. Placed AFTER `.gb-btn` (whose `all: unset`

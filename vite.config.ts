@@ -44,7 +44,7 @@ export default defineConfig({
         name: "Glowboot",
         short_name: "Glowboot",
         description:
-          "Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, and NES emulator that runs in your browser.",
+          "Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, NES, and Super Nintendo emulator that runs in your browser.",
         theme_color: "#1a0b3d",
         background_color: "#1a0b3d",
         display: "standalone",
@@ -60,11 +60,11 @@ export default defineConfig({
           { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
           { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" }
         ],
-        // OS-level file association: double-clicking a .gb / .gbc / .gba / .nes
-        // launches the installed PWA which then receives the file via
-        // launchQueue. Reuses an existing window when one is already open
-        // (emulator is single-instance — a second ROM replaces the running
-        // one).
+        // OS-level file association: double-clicking a .gb / .gbc / .gba /
+        // .nes / .sfc / .smc launches the installed PWA which then receives
+        // the file via launchQueue. Reuses an existing window when one is
+        // already open (emulator is single-instance — a second ROM replaces
+        // the running one).
         file_handlers: [
           {
             action: "/",
@@ -72,7 +72,8 @@ export default defineConfig({
               "application/x-gameboy-rom": [".gb"],
               "application/x-gameboy-color-rom": [".gbc"],
               "application/x-gba-rom": [".gba"],
-              "application/x-nes-rom": [".nes"]
+              "application/x-nes-rom": [".nes"],
+              "application/x-snes-rom": [".sfc", ".smc"]
             }
           }
         ],

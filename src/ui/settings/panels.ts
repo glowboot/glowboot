@@ -1368,15 +1368,8 @@ const savedMutesRaw = INIT_LS[KEYS.CHANNEL_MUTES] ?? "";
 const savedMutes =
   savedMutesRaw.length === 5
     ? savedMutesRaw + savedMutesRaw.charAt(4) // old DS → DSA + DSB
-    : savedMutesRaw.padEnd(6, "0");
-const muteState: [boolean, boolean, boolean, boolean, boolean, boolean] = [
-  savedMutes.charAt(0) === "1",
-  savedMutes.charAt(1) === "1",
-  savedMutes.charAt(2) === "1",
-  savedMutes.charAt(3) === "1",
-  savedMutes.charAt(4) === "1",
-  savedMutes.charAt(5) === "1"
-];
+    : savedMutesRaw.padEnd(8, "0");
+const muteState: boolean[] = Array.from({ length: 8 }, (_, i) => savedMutes.charAt(i) === "1");
 
 export function applyMuteState(): void {
   // The first four buttons map to the four PSG-style channels on every engine
@@ -1390,10 +1383,13 @@ export function applyMuteState(): void {
   }
   // NES has a 5th channel (DMC) on the slot GBA uses for Direct Sound A.
   if (state.nes) for (let i = 0; i < 5; i++) state.nes.apu.muteChannel[i] = !!muteState[i];
+  // SNES: eight DSP voices, one per button.
+  if (state.snes) for (let i = 0; i < 8; i++) state.snes.apu.dsp.muteChannel[i] = !!muteState[i];
   // Relabel that 5th button: Direct Sound A on GBA, DMC on NES.
+  const isNes = state.nes !== null;
+  const isSnes = state.snes !== null;
   const ch4 = muteButtons.find((b) => b.dataset.ch === "4");
-  if (ch4) {
-    const isNes = state.nes !== null;
+  if (ch4 && !isSnes) {
     ch4.textContent = isNes ? "DMC" : "DSA";
     ch4.setAttribute("aria-label", isNes ? "Mute DMC channel" : "Mute Direct Sound A channel");
     ch4.title = isNes
@@ -1402,6 +1398,23 @@ export function applyMuteState(): void {
   }
   muteButtons.forEach((btn) => {
     const ch = parseInt(btn.dataset.ch ?? "0", 10);
+    // SNES uses all eight buttons as its generic DSP voices; the extra two
+    // stay hidden everywhere else, and the first six revert to their
+    // GB/GBA/NES labels when the SNES isn't active.
+    if (ch >= 6) btn.hidden = !isSnes;
+    if (isSnes) {
+      btn.textContent = `V${ch + 1}`;
+      btn.setAttribute("aria-label", `Mute voice ${ch + 1}`);
+      btn.title = `Voice ${ch + 1}`;
+    } else if (ch <= 3) {
+      const labels = ["P1", "P2", "W", "N"] as const;
+      const titles = ["Pulse 1", "Pulse 2", "Wave", "Noise"] as const;
+      btn.textContent = labels[ch]!;
+      btn.title = titles[ch]!;
+    } else if (ch === 5) {
+      btn.textContent = "DSB";
+      btn.title = "Direct Sound B (GBA streamed audio — sound effects often play here)";
+    }
     btn.classList.toggle("muted", !!muteState[ch]);
   });
 }
@@ -1409,7 +1422,7 @@ applyMuteState();
 muteButtons.forEach((btn) =>
   btn.addEventListener("click", () => {
     const ch = parseInt(btn.dataset.ch ?? "0", 10);
-    if (ch < 0 || ch > 5) return;
+    if (ch < 0 || ch > 7) return;
     muteState[ch] = !muteState[ch];
     applyMuteState();
     lsSet(KEYS.CHANNEL_MUTES, muteState.map((m) => (m ? "1" : "0")).join(""));
@@ -1423,8 +1436,9 @@ onSectionReset("audio", () => {
 // ─── Touch controls ──────────────────────────────────────────────────────
 const touch = touchRoot
   ? Touch.initTouchControls(
-      () => state.gb?.joypad ?? state.gba?.joypad ?? state.nes?.joypad ?? null,
-      () => state.gba?.joypad ?? null,
+      () => state.gb?.joypad ?? state.gba?.joypad ?? state.nes?.joypad ?? state.snes?.joypad ?? null,
+      () => state.gba?.joypad ?? state.snes?.joypad ?? null,
+      () => state.snes?.joypad ?? null,
       touchRoot
     )
   : null;

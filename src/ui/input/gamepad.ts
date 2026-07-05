@@ -5,9 +5,13 @@ import {
   GB_BUTTONS,
   loadGamepadBindings,
   loadShoulderGamepadBindings,
+  loadXyGamepadBindings,
   SHOULDER_BUTTONS,
   type ShoulderButton,
-  type ShoulderGamepadBindings
+  type ShoulderGamepadBindings,
+  XY_BUTTONS,
+  type XyButton,
+  type XyGamepadBindings
 } from "./bindings.js";
 import { safeVibrate } from "./haptic.js";
 
@@ -26,6 +30,14 @@ export interface JoypadHost {
 export interface ShoulderHost {
   press(button: ShoulderButton): void;
   release(button: ShoulderButton): void;
+}
+
+/** SNES X/Y face-button host — implemented by the SNES joypad. Bound
+ *  separately (like the shoulders) so GB/GBA/NES sessions never
+ *  iterate X/Y bindings. */
+export interface XyHost {
+  press(button: XyButton): void;
+  release(button: XyButton): void;
 }
 
 /**
@@ -64,11 +76,13 @@ const POV_REST_MIN_ABS = 1.1;
 export class GamepadInput {
   private joypad: JoypadHost | null = null;
   private shoulderHost: ShoulderHost | null = null;
+  private xyHost: XyHost | null = null;
   private rafId = 0;
   private running = false;
   private loggedFirstSight = false;
   private bindings: GamepadBindings = loadGamepadBindings();
   private shoulderBindings: ShoulderGamepadBindings = loadShoulderGamepadBindings();
+  private xyBindings: XyGamepadBindings = loadXyGamepadBindings();
 
   /** Tracks active sources so one Game Boy button can be held by multiple
    *  physical inputs without releasing prematurely. */
@@ -99,6 +113,7 @@ export class GamepadInput {
   refreshBindings(): void {
     this.bindings = loadGamepadBindings();
     this.shoulderBindings = loadShoulderGamepadBindings();
+    this.xyBindings = loadXyGamepadBindings();
     this.releaseAll();
   }
 
@@ -127,10 +142,16 @@ export class GamepadInput {
     this.shoulderHost = host;
   }
 
+  /** Bind a SNES X/Y host so the poll loop also dispatches X / Y. */
+  bindXy(host: XyHost): void {
+    this.xyHost = host;
+  }
+
   unbind(): void {
     this.releaseAll();
     this.joypad = null;
     this.shoulderHost = null;
+    this.xyHost = null;
     // Cut any ongoing rumble — switching ROMs or pausing shouldn't
     // leave the motor spinning because the outgoing cart was in the
     // middle of a rumble pulse. `setRumble` only flips the flag, so
@@ -364,6 +385,8 @@ export class GamepadInput {
       if (joypad) this.applyBindings(joypad, pad);
       const shoulders = this.shoulderHost;
       if (shoulders) this.applyShoulderBindings(shoulders, pad);
+      const xy = this.xyHost;
+      if (xy) this.applyXyBindings(xy, pad);
     }
     // Apply the pending rumble state at most once per rAF tick,
     // regardless of how many times the cart toggled the motor bit
@@ -440,6 +463,25 @@ export class GamepadInput {
     }
   }
 
+  private applyXyBindings(host: XyHost, pad: Gamepad): void {
+    for (const b of XY_BUTTONS) {
+      const binding = this.xyBindings[b];
+      const active = binding !== null && isBindingActive(pad, binding);
+      this.applyXy(host, `${pad.index}:xy${b}`, b, active);
+    }
+  }
+
+  private applyXy(host: XyHost, src: string, button: XyButton, active: boolean): void {
+    const wasPressed = this.pressed.has(src);
+    if (active && !wasPressed) {
+      host.press(button);
+      this.pressed.add(src);
+    } else if (!active && wasPressed) {
+      host.release(button);
+      this.pressed.delete(src);
+    }
+  }
+
   private applyShoulder(host: ShoulderHost, src: string, button: ShoulderButton, active: boolean): void {
     const wasPressed = this.pressed.has(src);
     if (active && !wasPressed) {
@@ -467,6 +509,11 @@ export class GamepadInput {
     if (shoulders && this.pressed.size > 0) {
       shoulders.release("l");
       shoulders.release("r");
+    }
+    const xy = this.xyHost;
+    if (xy && this.pressed.size > 0) {
+      xy.release("x");
+      xy.release("y");
     }
     this.pressed.clear();
   }

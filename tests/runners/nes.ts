@@ -4,7 +4,7 @@
  * Auto-fetches christopherpow's `nes-test-roms` collection (the canonical
  * aggregate: nestest, blargg's ppu/apu/cpu/dmc suites, the mapper and sprite
  * tests) into a gitignored cache, then runs the headless `src/nes/` engine
- * against it. Mirrors `tests/run-roms.ts` (GB) and `tests/run-gba-roms.ts`
+ * against it. Mirrors the GB and GBA runners next to this file
  * (GBA): fetch-on-first-run, SHA256-pin where known, self-scoring.
  *
  * Stage 1 — the 6502: `nestest.nes` runs deterministically from $C000 with no
@@ -14,8 +14,8 @@
  * gold-standard 6502 validation.
  *
  * Usage:
- *   npm run test:nes-roms            run every wired test
- *   npm run test:nes-roms nestest    filter by substring
+ *   npm run test:roms nes             run every wired test
+ *   npm run test:roms nes nestest     filter by substring
  */
 
 import { createHash } from "node:crypto";
@@ -23,13 +23,13 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parseNesRom } from "../src/nes/cartridge/rom.js";
-import { type Bus, CPU } from "../src/nes/cpu/cpu.js";
-import { Nes } from "../src/nes/nes.js";
-import { type Region } from "../src/nes/region/region.js";
+import { parseNesRom } from "../../src/nes/cartridge/rom.js";
+import { type Bus, CPU } from "../../src/nes/cpu/cpu.js";
+import { Nes } from "../../src/nes/nes.js";
+import { type Region } from "../../src/nes/region/region.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const CACHE = resolve(__dirname, "nes-roms");
+const CACHE = resolve(__dirname, "..", "roms", "nes");
 
 const REPO = "christopherpow/nes-test-roms";
 // nes-test-roms is effectively frozen; pin to a commit for reproducibility.
@@ -192,11 +192,13 @@ const SHA256: Record<string, string> = {
 // Self-scored framebuffer baseline (GBA-runner style): id → rendered-frame
 // SHA256. The 2005-era sprite-hit ROMs report only on screen, so we hash the
 // settled framebuffer; re-record with `--bless` after a verified change.
-const BASELINE_PATH = resolve(__dirname, "run-nes-roms-baseline.json");
+// Shared multi-engine baseline file; this runner owns the "nes" key.
+const BASELINE_PATH = resolve(__dirname, "..", "roms-baseline.json");
 const bless = process.argv.includes("--bless");
-const baseline: Record<string, string> = existsSync(BASELINE_PATH)
-  ? (JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Record<string, string>)
+const baselineFile: Record<string, unknown> = existsSync(BASELINE_PATH)
+  ? (JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Record<string, unknown>)
   : {};
+const baseline: Record<string, string> = (baselineFile["nes"] ?? {}) as Record<string, string>;
 const blessed: Record<string, string> = { ...baseline };
 
 const filter = process.argv
@@ -1012,7 +1014,8 @@ async function main(): Promise<void> {
     }
   }
   if (bless) {
-    writeFileSync(BASELINE_PATH, JSON.stringify(blessed, null, 2) + "\n");
+    baselineFile["nes"] = blessed;
+    writeFileSync(BASELINE_PATH, JSON.stringify(baselineFile, null, 2) + "\n");
     console.log(`\nblessed ${Object.keys(blessed).length} framebuffer baseline(s)`);
   }
   // known-bad entries match a baseline that captured a failing screen — a tracked
