@@ -98,6 +98,8 @@ export const KEYS = {
   TILT_BINDINGS: "gb-tilt",
   SHOULDER_KEY_BINDINGS: "gb-shoulder-keys",
   SHOULDER_GAMEPAD_BINDINGS: "gb-shoulder-gamepad",
+  XY_KEY_BINDINGS: "gb-xy-keys",
+  XY_GAMEPAD_BINDINGS: "gb-xy-gamepad",
   TOUCH_MODE: "gb-touch-mode",
   TOUCH_LAYOUT: "gb-touch-layout",
   TOUCH_PRESS_HAPTIC: "gb-touch-press-haptic",

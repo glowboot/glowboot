@@ -16,11 +16,12 @@
 import type { GameBoy } from "../../gb";
 import type { Gba } from "../../gba";
 import type { Nes } from "../../nes";
+import type { Snes } from "../../snes";
 import { type EngineId, type Platform, PLATFORMS } from "./platform.js";
 
 /** Any of the three console cores. Narrow via `adapter.id` when a deep reach
  *  genuinely needs the concrete type. */
-export type AnyEngine = GameBoy | Gba | Nes;
+export type AnyEngine = GameBoy | Gba | Nes | Snes;
 
 export interface EngineAdapter {
   readonly id: EngineId;
@@ -49,6 +50,17 @@ export function makeGbaAdapter(gba: Gba): EngineAdapter {
     engine: gba,
     get framebuffer() {
       return gba.framebuffer;
+    }
+  };
+}
+
+export function makeSnesAdapter(snes: Snes): EngineAdapter {
+  return {
+    id: "snes",
+    platform: PLATFORMS.snes,
+    engine: snes,
+    get framebuffer() {
+      return snes.framebuffer as Uint8ClampedArray<ArrayBuffer>;
     }
   };
 }

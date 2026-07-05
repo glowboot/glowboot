@@ -1,13 +1,12 @@
 import {
-  describeButton,
   describeHotkey,
   describeKey,
-  GB_BUTTONS,
   HOTKEY_ACTIONS,
   loadHotkeyBindings,
   loadKeyBindings,
   loadShoulderKeyBindings,
-  loadTiltBindings
+  loadTiltBindings,
+  loadXyKeyBindings
 } from "../input/bindings.js";
 
 /**
@@ -85,30 +84,28 @@ function render(): void {
   const hot = loadHotkeyBindings();
   const tilt = loadTiltBindings();
 
-  // Joypad — D-Pad shown as a combined cell since its four directions
-  // are visually a unit. Face buttons / Start / Select listed
-  // individually.
+  // One combined section for everything the consoles' controllers share:
+  // the eight common buttons plus X/Y (SNES) and L/R (GBA + SNES).
+  // Console-specific groupings stopped being accurate once the shoulders
+  // served two consoles, and the cheat sheet is a keyboard-bindings
+  // reference, not a per-cart sheet — buttons a cart doesn't have are
+  // simply ignored by its engine. D-Pad shown as a combined cell since
+  // its four directions are visually a unit.
+  const shoulders = loadShoulderKeyBindings();
+  const xy = loadXyKeyBindings();
   const dpad =
     describeKey(keys.up) + " " + describeKey(keys.down) + " " + describeKey(keys.left) + " " + describeKey(keys.right);
   panel.appendChild(
-    section("Game Boy buttons", [
+    section("Input buttons", [
       ["D-Pad", dpad],
-      ...GB_BUTTONS.filter((b) => b !== "up" && b !== "down" && b !== "left" && b !== "right").map(
-        (b) => [describeButton(b), describeKey(keys[b])] as [string, string]
-      )
-    ])
-  );
-
-  // GBA shoulders — only meaningful on the GBA engine, but listed
-  // unconditionally because the cheat sheet is a keyboard-bindings
-  // reference, not a per-cart sheet. Sits above Tilt to mirror the
-  // Settings → Controls → Keyboard ordering: L/R applies to most
-  // GBA carts; tilt is a small niche.
-  const shoulders = loadShoulderKeyBindings();
-  panel.appendChild(
-    section("GBA shoulders", [
+      ["A", describeKey(keys.a)],
+      ["B", describeKey(keys.b)],
+      ["X", describeKey(xy.x)],
+      ["Y", describeKey(xy.y)],
       ["L", describeKey(shoulders.l)],
-      ["R", describeKey(shoulders.r)]
+      ["R", describeKey(shoulders.r)],
+      ["Start", describeKey(keys.start)],
+      ["Select", describeKey(keys.select)]
     ])
   );
 

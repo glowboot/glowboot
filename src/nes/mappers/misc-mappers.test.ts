@@ -21,8 +21,8 @@ import { Jaleco72Mapper, Jaleco86Mapper, Jaleco92Mapper, Jaleco140Mapper } from 
 import { JalecoSs88006Mapper } from "./jaleco-ss88006.js";
 import { Jaleco87Mapper } from "./jaleco87.js";
 import { Mapper189, Mapper206, TqromMapper, TxSromMapper, Waixing245Mapper } from "./mmc3-clones.js";
-import { Mapper76, Mapper88, Mapper95, Mapper154 } from "./namco108.js";
 import { Mmc5Mapper } from "./mmc5.js";
+import { Mapper76, Mapper88, Mapper95, Mapper154 } from "./namco108.js";
 import { Namco163Mapper } from "./namco163.js";
 import { Namco210Mapper } from "./namco210.js";
 import { Rambo1Mapper } from "./rambo1.js";

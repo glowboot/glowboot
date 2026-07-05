@@ -1,7 +1,8 @@
 import type { Cartridge, CheatEntry } from "../../gb";
 import type { Gba, GbaCheatEntry } from "../../gba";
 import type { CheatEntry as NesCheatEntry, Nes } from "../../nes";
-import { cartIdOf, cartIdOfGba, cartIdOfNes } from "./cart-id.js";
+import type { CheatEntry as SnesCheatEntry, Snes } from "../../snes";
+import { cartIdOf, cartIdOfGba, cartIdOfNes, cartIdOfSnes } from "./cart-id.js";
 import { idbDelete, idbGet, idbPut, STORE_CHEATS } from "./storage.js";
 
 /**
@@ -94,5 +95,31 @@ export async function saveNes(nes: Nes, entries: readonly NesCheatEntry[]): Prom
     await idbPut(STORE_CHEATS, rec);
   } catch (err) {
     console.warn("[Cheats] save (NES) failed:", err);
+  }
+}
+
+export async function loadSnes(snes: Snes): Promise<SnesCheatEntry[]> {
+  try {
+    const rec = await idbGet<CheatRecord<SnesCheatEntry>>(STORE_CHEATS, cartIdOfSnes(snes));
+    return rec?.entries ?? [];
+  } catch (err) {
+    console.warn("[Cheats] load (SNES) failed:", err);
+    return [];
+  }
+}
+
+export async function saveSnes(snes: Snes, entries: readonly SnesCheatEntry[]): Promise<void> {
+  try {
+    if (entries.length === 0) {
+      await idbDelete(STORE_CHEATS, cartIdOfSnes(snes));
+      return;
+    }
+    const rec: CheatRecord<SnesCheatEntry> = {
+      cartId: cartIdOfSnes(snes),
+      entries: entries.map((e) => ({ ...e }))
+    };
+    await idbPut(STORE_CHEATS, rec);
+  } catch (err) {
+    console.warn("[Cheats] save (SNES) failed:", err);
   }
 }

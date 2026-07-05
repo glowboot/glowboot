@@ -1,8 +1,10 @@
 import { GameBoy } from "../gb";
 import { Gba, parseGbaHeader } from "../gba";
 import { Nes, parseNesRom } from "../nes";
+import { Snes, UnsupportedSnesRomError } from "../snes";
 import { restoreSymbolsForCurrentCart } from "./debugger/symbols-pane.js";
 import { restoreGbaSymbolsForCurrentCart } from "./debugger/symbols-pane-gba.js";
+import { restoreSnesSymbolsForCurrentCart } from "./debugger/symbols-pane-snes.js";
 import {
   canvas,
   canvasPlaceholder,
@@ -28,6 +30,7 @@ import * as Recents from "./persistence/recents.js";
 import * as SaveRam from "./persistence/save-ram.js";
 import * as SaveRamGba from "./persistence/save-ram-gba.js";
 import * as SaveRamNes from "./persistence/save-ram-nes.js";
+import * as SaveRamSnes from "./persistence/save-ram-snes.js";
 import * as SaveState from "./persistence/save-state.js";
 import { refreshPrinterTrigger } from "./popovers";
 import { applyCartOverrides } from "./session/cart-overrides.js";
@@ -38,6 +41,7 @@ import { flushPlayTime, startPlayTimer } from "./session/play-time.js";
 import { REWIND_CAPACITY_SECONDS, RewindBuffer } from "./session/rewind-buffer.js";
 import { startGbaSession, stopGbaSession } from "./session/runtime-gba.js";
 import { startNesSession, stopNesSession } from "./session/runtime-nes.js";
+import { startSnesSession, stopSnesSession } from "./session/runtime-snes.js";
 import {
   applyColorCorrection,
   applyCurrentPalette,
@@ -71,12 +75,13 @@ import { audio, gamepad, renderer, type RewindMeta, setPaused, state, swapRender
 const ROM_RE = /\.(gb|gbc)$/i;
 const GBA_ROM_RE = /\.gba$/i;
 const NES_ROM_RE = /\.nes$/i;
+const SNES_ROM_RE = /\.(sfc|smc)$/i;
 const PATCH_RE = /\.(ips|bps)$/i;
 // Matches `.gbstate` (Game Boy) and `.gbastate` (Game Boy Advance).
 // `importStateFile` is engine-polymorphic so the same drop path
 // dispatches both — the JSON envelope's cartId selects which engine
 // actually receives the state.
-const STATE_RE = /\.(gba?|nes)state$/i;
+const STATE_RE = /\.(gba?|nes|snes)state$/i;
 
 /** Boot a GBA ROM. The function tears down any running GB session
  *  first and persists save-RAM / auto-state for both engines so the
@@ -141,6 +146,12 @@ export async function handleGbaRomFile(file: File, rememberInRecents = true): Pr
     stopNesSession();
     state.nes = null;
   }
+  if (state.snes) {
+    await SaveRamSnes.save(state.snes, true);
+    await SaveState.saveAutoState(state.snes);
+    stopSnesSession();
+    state.snes = null;
+  }
 
   // Rebuild the shared renderer at GBA dimensions (240×160). The GB
   // path's renderer is sized to 160×144; carrying that into a GBA load
@@ -157,7 +168,7 @@ export async function handleGbaRomFile(file: File, rememberInRecents = true): Pr
 
   // No BIOS image: GBA carts run through Glowboot's HLE BIOS. The real
   // Cult-of-GBA BIOS is kept only as a test-runner diagnostic aid (see
-  // tests/run-gba-roms.ts), never shipped to the browser.
+  // tests/runners/gba.ts), never shipped to the browser.
   const gba = new Gba(new Uint8Array(buffer));
   state.gba = gba;
   // Re-sync the Settings controls now that the engine has switched.
@@ -380,6 +391,170 @@ export async function handleGbaRomFile(file: File, rememberInRecents = true): Pr
  *  RAM persistence, cheats, the debugger, and library/recents aren't wired
  *  for NES yet (the engine has no serialization), so those stay disabled.
  *  Exported so the entry points (and a future library card) dispatch here. */
+/** Load a `.sfc` / `.smc` cart: load, input, rendering, audio, save
+ *  states, battery SRAM, library, and rewind. Cheats and the debugger come
+ *  with later engine stages (capabilities-gated buttons say why). */
+export async function handleSnesRomFile(file: File, rememberInRecents = true): Promise<void> {
+  let buffer: ArrayBuffer;
+  try {
+    buffer = await file.arrayBuffer();
+  } catch (err) {
+    console.warn("[Loader] file read failed:", err);
+    errorToast("Could not read file");
+    return;
+  }
+
+  let snes: Snes;
+  try {
+    snes = new Snes(new Uint8Array(buffer));
+  } catch (err) {
+    const msg =
+      err instanceof UnsupportedSnesRomError ? err.message : `Not a valid SNES ROM: ${(err as Error).message}`;
+    errorToast(msg);
+    return;
+  }
+
+  window.dispatchEvent(new Event("gb-rom-loaded"));
+
+  // Tear down any running session, flushing carts with persistence.
+  if (state.gb) {
+    await SaveRam.save(state.gb.cart, true);
+    await SaveState.saveAutoState(state.gb);
+    stopPacing();
+    state.gb = null;
+  }
+  if (state.gba) {
+    await SaveRamGba.save(state.gba, true);
+    await SaveState.saveAutoState(state.gba);
+    stopGbaSession();
+    state.gba = null;
+  }
+  if (state.nes) {
+    await SaveRamNes.save(state.nes, true);
+    await SaveState.saveAutoState(state.nes);
+    stopNesSession();
+    state.nes = null;
+  }
+  if (state.snes) {
+    await SaveRamSnes.save(state.snes, true);
+    await SaveState.saveAutoState(state.snes);
+    stopSnesSession();
+    state.snes = null;
+  }
+  state.rewinder?.stop();
+  state.rewinder = null;
+  if (state.thumbnailTimer !== null) {
+    clearTimeout(state.thumbnailTimer);
+    state.thumbnailTimer = null;
+  }
+  gamepad.unbind();
+  state.playTrackingId = null;
+  state.rtcWallPauseMs = 0;
+  state.autoPausedOnBlur = false;
+
+  swapRenderer(lsGet(KEYS.RENDER_MODE) ?? "canvas", { width: 256, height: 224 });
+  speedEl?.classList.remove("is-on");
+
+  await audio.resume(); // inside the user-gesture frame
+
+  state.snes = snes;
+
+  syncIntegerScaleToggle();
+  refreshGbOnlyAvailability();
+  refreshPaletteAvailability();
+
+  // Keyboard/touch feed through state.snes; the gamepad poller gets the
+  // joypad three times over — shared buttons, L/R shoulders, and X/Y.
+  gamepad.bind(snes.joypad);
+  gamepad.bindShoulders(snes.joypad);
+  gamepad.bindXy(snes.joypad);
+
+  const label = snes.rom.title || file.name.replace(/\.[^.]+$/, "");
+  resetStatus(label.toUpperCase());
+  state.currentFilename = file.name;
+
+  if (canvasPlaceholder) canvasPlaceholder.hidden = true;
+  document.body.classList.add("has-cart");
+
+  // Restore battery SRAM before the engine starts running, then resume
+  // from the last auto-snapshot. Best-effort.
+  await SaveRamSnes.load(snes);
+  try {
+    if ((await SaveState.hasAutoState(snes)) && (await SaveState.loadAutoState(snes))) {
+      toast("Resumed last session");
+    }
+  } catch (err) {
+    console.warn("[State] auto-resume failed:", err);
+  }
+
+  snes.cheats.setEntries(await Cheats.loadSnes(snes));
+  restoreSnesSymbolsForCurrentCart();
+
+  startSnesSession(snes, audio);
+  setPaused(false);
+  state.playTrackingId = Recents.idForSnes(snes);
+  void loadCartOverrides(Recents.idForSnes(snes)).then((overrides) => {
+    if (state.snes === snes) applyCartOverrides(overrides);
+  });
+  startPlayTimer();
+
+  state.rewinder = new RewindBuffer(
+    snes,
+    () => ({
+      frameCount: state.frameCount,
+      elapsedMs: performance.now() - state.runStartMs,
+      framebuffer: new Uint8ClampedArray(snes.framebuffer) as Uint8ClampedArray<ArrayBuffer>
+    }),
+    1000,
+    REWIND_CAPACITY_SECONDS
+  );
+  state.rewinder.start();
+
+  if (rememberInRecents) {
+    void Recents.rememberSnes(snes, new Uint8Array(buffer), file.name);
+  }
+
+  // Library thumbnail a few seconds in — past most splash/title screens.
+  const snesRef = snes;
+  state.thumbnailTimer = window.setTimeout(() => {
+    state.thumbnailTimer = null;
+    if (state.snes !== snesRef) return;
+    let thumb: string | undefined;
+    try {
+      thumb = canvas.toDataURL("image/png");
+    } catch {
+      /* tainted canvas */
+    }
+    if (thumb) void Recents.setThumbnail(Recents.idForSnes(snesRef), thumb);
+  }, 4000);
+
+  // Header icons: fullscreen, save slots, and library are live for SNES;
+  // cheats and the debugger stay disabled with a why-tooltip.
+  if (fsBtn) {
+    fsBtn.disabled = false;
+    fsBtn.title = "Fullscreen";
+  }
+  if (cartInfoTrigger) cartInfoTrigger.hidden = false;
+  if (slotsTrigger) {
+    slotsTrigger.disabled = false;
+    slotsTrigger.title = "Save slots";
+  }
+  if (recentsTrigger) {
+    recentsTrigger.disabled = false;
+    recentsTrigger.title = "Library";
+  }
+  if (cheatsTrigger) {
+    cheatsTrigger.disabled = false;
+    cheatsTrigger.title = "Cheats";
+  }
+  if (debuggerTrigger) {
+    debuggerTrigger.disabled = false;
+    debuggerTrigger.title = "Debugger";
+  }
+
+  toast(`Loaded ${file.name}`);
+}
+
 export async function handleNesRomFile(file: File, rememberInRecents = true): Promise<void> {
   let buffer: ArrayBuffer;
   try {
@@ -419,6 +594,12 @@ export async function handleNesRomFile(file: File, rememberInRecents = true): Pr
     await SaveState.saveAutoState(state.nes);
     stopNesSession();
     state.nes = null;
+  }
+  if (state.snes) {
+    await SaveRamSnes.save(state.snes, true);
+    await SaveState.saveAutoState(state.snes);
+    stopSnesSession();
+    state.snes = null;
   }
   state.rewinder?.stop();
   state.rewinder = null;
@@ -573,6 +754,12 @@ export async function startEmulator(romData: Uint8Array, filename: string, remem
     await SaveState.saveAutoState(state.nes);
     stopNesSession();
     state.nes = null;
+  }
+  if (state.snes) {
+    await SaveRamSnes.save(state.snes, true);
+    await SaveState.saveAutoState(state.snes);
+    stopSnesSession();
+    state.snes = null;
   }
   if (wasGba || wasNes) {
     swapRenderer(lsGet(KEYS.RENDER_MODE) ?? "canvas", { width: 160, height: 144 });
@@ -882,7 +1069,7 @@ async function tryLoadAsPatch(file: File): Promise<boolean> {
  *  this wrapper just handles the file-read + toast for each failure
  *  path so the drop handler stays tidy. */
 async function tryLoadAsState(file: File): Promise<void> {
-  const engine = state.gb ?? state.gba ?? state.nes;
+  const engine = state.gb ?? state.gba ?? state.nes ?? state.snes;
   if (!engine) {
     toast("Load a ROM first, then drop the save state");
     return;
@@ -967,6 +1154,31 @@ export async function resetCart(): Promise<void> {
     return;
   }
 
+  // SNES path — same UX as GBA: confirm, clear auto-state, tear down,
+  // reload through the full load path. Battery SRAM is kept.
+  if (state.snes) {
+    const ok = await confirmAction({
+      title: "Restart this ROM?",
+      body: "Your last-session resume point will be cleared. In-game saves are kept.",
+      confirmLabel: "Restart",
+      danger: true
+    });
+    if (!ok) return;
+    const snes = state.snes;
+    const id = Recents.idForSnes(snes);
+    await SaveRamSnes.save(snes, true);
+    await SaveState.clearAutoState(snes);
+    stopSnesSession();
+    state.snes = null;
+    // Prefer the Library's original file bytes (they may carry a copier
+    // header the parser needs to re-strip); the parsed image is a valid
+    // fallback when the record is gone.
+    const bytes = (await Recents.get(id)) ?? snes.rom.rom;
+    const file = new File([new Uint8Array(bytes)], filename, { type: "application/octet-stream" });
+    await handleSnesRomFile(file);
+    return;
+  }
+
   if (!state.gb) return;
   const ok = await confirmAction({
     title: "Restart this ROM?",
@@ -991,6 +1203,12 @@ romInput.addEventListener("change", async () => {
   const gbaRom = files.find((f) => GBA_ROM_RE.test(f.name));
   if (gbaRom) {
     await handleGbaRomFile(gbaRom);
+    romInput.value = "";
+    return;
+  }
+  const snesRom = files.find((f) => SNES_ROM_RE.test(f.name));
+  if (snesRom) {
+    await handleSnesRomFile(snesRom);
     romInput.value = "";
     return;
   }
@@ -1061,10 +1279,11 @@ document.body.addEventListener("drop", async (e) => {
   if (files.length === 0) return;
   const gbaRom = files.find((f) => GBA_ROM_RE.test(f.name));
   const nesRom = files.find((f) => NES_ROM_RE.test(f.name));
+  const snesRom = files.find((f) => SNES_ROM_RE.test(f.name));
   const rom = files.find((f) => ROM_RE.test(f.name));
   const patch = files.find((f) => PATCH_RE.test(f.name));
   const savedState = files.find((f) => STATE_RE.test(f.name));
-  if (!gbaRom && !nesRom && !rom && !patch && !savedState) return;
+  if (!gbaRom && !nesRom && !snesRom && !rom && !patch && !savedState) return;
   e.preventDefault();
 
   if (gbaRom) {
@@ -1074,6 +1293,11 @@ document.body.addEventListener("drop", async (e) => {
 
   if (nesRom) {
     await handleNesRomFile(nesRom);
+    return;
+  }
+
+  if (snesRom) {
+    await handleSnesRomFile(snesRom);
     return;
   }
 
@@ -1117,10 +1341,11 @@ document.body.addEventListener("drop", async (e) => {
   if (savedState) await tryLoadAsState(savedState);
 });
 
-/** PWA file association — when a `.gb` / `.gbc` / `.gba` / `.nes` is opened
- *  from the OS via the installed PWA the browser hands the file to
- *  the page through `window.launchQueue`. The `file_handlers` entry
- *  in the manifest registers all four associations; this consumer
+/** PWA file association — when a `.gb` / `.gbc` / `.gba` / `.nes` /
+ *  `.sfc` / `.smc` is opened from the OS via the installed PWA the
+ *  browser hands the file to the page through `window.launchQueue`.
+ *  The `file_handlers` entry in the manifest registers every
+ *  association; this consumer
  *  routes the delivered file to whichever engine handles its
  *  extension, mirroring the drop-handler dispatch above. No-op in
  *  browsers without the API (Safari / Firefox). */
@@ -1137,6 +1362,8 @@ lq?.setConsumer(async (params) => {
   const file = await handle.getFile();
   if (GBA_ROM_RE.test(file.name)) {
     await handleGbaRomFile(file);
+  } else if (SNES_ROM_RE.test(file.name)) {
+    await handleSnesRomFile(file);
   } else if (NES_ROM_RE.test(file.name)) {
     await handleNesRomFile(file);
   } else {

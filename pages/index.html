@@ -14,14 +14,14 @@
     <meta name="theme-color" content="#1a0b3d" />
     <meta
       name="description"
-      content="Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, and NES emulator written in TypeScript."
+      content="Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, NES, and Super Nintendo emulator written in TypeScript."
     />
     <link rel="canonical" href="https://glowboot.com/" />
 
     <meta property="og:title" content="Glowboot" />
     <meta
       property="og:description"
-      content="Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, and NES emulator that runs in your browser."
+      content="Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, NES, and Super Nintendo emulator that runs in your browser."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://glowboot.com/" />
@@ -40,7 +40,7 @@
     <meta name="twitter:title" content="Glowboot" />
     <meta
       name="twitter:description"
-      content="Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, and NES emulator that runs in your browser."
+      content="Glowboot — a Game Boy, Game Boy Color, Game Boy Advance, NES, and Super Nintendo emulator that runs in your browser."
     />
     <meta name="twitter:image" content="https://glowboot.com/og-preview.png" />
 
@@ -376,7 +376,7 @@
                     </label>
                     <label
                       class="settings-row"
-                      title="Size the canvas to a whole-number multiple of the native resolution so every pixel is perfectly square. Recommended ON for Game Boy (160×144 grids cleanly into most displays); on GBA (240×160) and NES (256×240) the integer multiple often leaves wide empty borders, so turning it off lets the image fill the viewport at the cost of slightly fuzzier scaling."
+                      title="Size the canvas to a whole-number multiple of the native resolution so every pixel is perfectly square. Recommended ON for Game Boy (160×144 grids cleanly into most displays); on GBA (240×160), NES (256×240) and Super Nintendo (256×224) the integer multiple often leaves wide empty borders, so turning it off lets the image fill the viewport at the cost of slightly fuzzier scaling."
                     >
                       <span>Integer scaling</span>
                       <input type="checkbox" id="integer-scale-toggle" />
@@ -744,6 +744,12 @@
                           title="Direct Sound B (GBA streamed audio — sound effects often play here)"
                         >
                           DSB
+                        </button>
+                        <button class="mute-btn" data-ch="6" aria-label="Mute voice 7" title="Voice 7" hidden>
+                          V7
+                        </button>
+                        <button class="mute-btn" data-ch="7" aria-label="Mute voice 8" title="Voice 8" hidden>
+                          V8
                         </button>
                       </div>
                     </div>
@@ -1319,7 +1325,7 @@
                 </svg>
               </span>
               <span class="canvas-placeholder-label">Load ROM</span>
-              <span class="canvas-placeholder-hint">or drop a .gb / .gbc / .gba / .nes file here</span>
+              <span class="canvas-placeholder-hint">or drop a .gb / .gbc / .gba / .nes / .sfc file here</span>
             </button>
             <div class="overlay overlay-rewind" id="overlay-rewind" aria-hidden="true"></div>
             <div class="overlay overlay-flash" id="overlay-flash" aria-hidden="true"></div>
@@ -1341,6 +1347,8 @@
               <span class="gb-dpad-hint gb-dpad-left"></span>
             </div>
             <div class="gb-ab">
+              <button class="gb-btn gb-btn-x" aria-label="X button" tabindex="-1" type="button">X</button>
+              <button class="gb-btn gb-btn-y" aria-label="Y button" tabindex="-1" type="button">Y</button>
               <button class="gb-btn gb-btn-b" aria-label="B button" tabindex="-1" type="button">B</button>
               <button class="gb-btn gb-btn-a" aria-label="A button" tabindex="-1" type="button">A</button>
             </div>
@@ -1581,7 +1589,7 @@
       </footer>
     </div>
 
-    <input type="file" id="rom-input" accept=".gb,.gbc,.gba,.nes,.ips,.bps" multiple />
+    <input type="file" id="rom-input" accept=".gb,.gbc,.gba,.nes,.sfc,.smc,.ips,.bps" multiple />
     <div id="toast" role="status" aria-live="polite"></div>
     <!-- Error toast — separate element so screen readers get `role="alert"`
          / `aria-live="assertive"` for failures (vs. the polite confirmation

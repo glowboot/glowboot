@@ -25,7 +25,7 @@ function enabled(): boolean {
 }
 
 function activeEngine(): boolean {
-  return state.gb !== null || state.gba !== null || state.nes !== null;
+  return state.gb !== null || state.gba !== null || state.nes !== null || state.snes !== null;
 }
 
 window.addEventListener("blur", () => {

@@ -5,6 +5,7 @@ import { audio, renderer, state } from "../state.js";
 import { startPacing, stopPacing } from "./pacing.js";
 import { pauseGbaSession, resumeGbaSession } from "./runtime-gba.js";
 import { pauseNesSession, resumeNesSession } from "./runtime-nes.js";
+import { pauseSnesSession, resumeSnesSession } from "./runtime-snes.js";
 
 /**
  * `Backspace`-held rewind scrubber. Stops normal emulation and walks the
@@ -30,7 +31,7 @@ let lastStepAt = 0;
 let rewindStartElapsedMs = 0;
 
 export function startRewind(): void {
-  const engine = state.gb ?? state.gba ?? state.nes;
+  const engine = state.gb ?? state.gba ?? state.nes ?? state.snes;
   const rewinder = state.rewinder;
   if (state.rewinding || !engine || !rewinder) return;
   state.rewinding = true;
@@ -40,6 +41,7 @@ export function startRewind(): void {
   stopPacing();
   pauseGbaSession();
   pauseNesSession();
+  pauseSnesSession();
   void audio.suspend();
   rewinder.stop();
   overlayRewind?.classList.add("active");
@@ -53,7 +55,7 @@ export function startRewind(): void {
 }
 
 function stepRewindLoop(): void {
-  if (!state.rewinding || (!state.gb && !state.gba && !state.nes)) return;
+  if (!state.rewinding || (!state.gb && !state.gba && !state.nes && !state.snes)) return;
   const now = performance.now();
   if (now - lastStepAt >= STEP_MS) {
     const restored = state.rewinder?.step();
@@ -89,7 +91,7 @@ function stepRewindLoop(): void {
 export async function endRewind(): Promise<void> {
   const gb = state.gb;
   const gba = state.gba;
-  if (!state.rewinding || (!gb && !gba && !state.nes)) return;
+  if (!state.rewinding || (!gb && !gba && !state.nes && !state.snes)) return;
   cancelAnimationFrame(state.rewindRaf);
   state.rewinding = false;
   overlayRewind?.classList.remove("active");
@@ -101,6 +103,9 @@ export async function endRewind(): Promise<void> {
     await audio.resume();
     if (gb) startPacing(gb);
     else if (gba) resumeGbaSession();
-    else resumeNesSession();
+    else {
+      resumeNesSession();
+      resumeSnesSession();
+    }
   }
 }

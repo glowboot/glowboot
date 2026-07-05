@@ -1,9 +1,10 @@
 import { type GameBoy, UnsupportedSaveStateError } from "../../gb";
 import { Gba, parseGbaHeader, UnsupportedGbaSaveStateError } from "../../gba";
 import { Nes, UnsupportedNesSaveStateError } from "../../nes";
+import { Snes, UnsupportedSnesSaveStateError } from "../../snes";
 import { type EngineId, PLATFORMS } from "../engine";
 import { errorToast } from "../hud/toast.js";
-import { cartIdOf, cartIdOfGba, cartIdOfNes } from "./cart-id.js";
+import { cartIdOf, cartIdOfGba, cartIdOfNes, cartIdOfSnes } from "./cart-id.js";
 import { idbDelete, idbGet, idbGetAllByIndex, idbPut, STORE_SAVE_STATES } from "./storage.js";
 
 /**
@@ -26,7 +27,7 @@ import { idbDelete, idbGet, idbGetAllByIndex, idbPut, STORE_SAVE_STATES } from "
 /** Engines this module knows how to snapshot. All three expose a compatible
  *  `saveState()` / `loadState()` shape on their respective classes; cart-id
  *  derivation routes through `engineCartId`. */
-export type SaveStateEngine = GameBoy | Gba | Nes;
+export type SaveStateEngine = GameBoy | Gba | Nes | Snes;
 
 /** True when the given engine is a GBA instance. Exported so the
  *  save-state import/export layer can choose engine-specific file
@@ -39,6 +40,7 @@ export function isGbaEngine(engine: SaveStateEngine): engine is Gba {
 export function engineId(engine: SaveStateEngine): EngineId {
   if (engine instanceof Gba) return "gba";
   if (engine instanceof Nes) return "nes";
+  if (engine instanceof Snes) return "snes";
   return "gb";
 }
 
@@ -52,6 +54,7 @@ export function stateFileExt(engine: SaveStateEngine): string {
 export function engineCartId(engine: SaveStateEngine): string {
   if (engine instanceof Gba) return cartIdOfGba(engine);
   if (engine instanceof Nes) return cartIdOfNes(engine);
+  if (engine instanceof Snes) return cartIdOfSnes(engine);
   return cartIdOf(engine.cart);
 }
 
@@ -62,6 +65,7 @@ export function engineCartId(engine: SaveStateEngine): string {
 export function engineCartTitle(engine: SaveStateEngine): string {
   if (engine instanceof Gba) return parseGbaHeader(engine.mem.rom).title;
   if (engine instanceof Nes) return "NES game";
+  if (engine instanceof Snes) return engine.rom.title || "SNES game";
   return engine.cart.title;
 }
 
@@ -142,7 +146,8 @@ export async function loadStateFrom(engine: SaveStateEngine, slot = 0): Promise<
     if (
       err instanceof UnsupportedSaveStateError ||
       err instanceof UnsupportedGbaSaveStateError ||
-      err instanceof UnsupportedNesSaveStateError
+      err instanceof UnsupportedNesSaveStateError ||
+      err instanceof UnsupportedSnesSaveStateError
     ) {
       errorToast(err.message);
     }

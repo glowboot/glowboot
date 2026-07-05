@@ -14,6 +14,7 @@ import { flushPlayTime, startPlayTimer } from "./play-time.js";
 import { Recorder } from "./recording.js";
 import { pauseGbaSession, resumeGbaSession } from "./runtime-gba.js";
 import { pauseNesSession, resumeNesSession } from "./runtime-nes.js";
+import { pauseSnesSession, resumeSnesSession } from "./runtime-snes.js";
 import * as Screenshot from "./screenshot.js";
 import { isScreenshotPreviewOpen, openScreenshotPreview } from "./screenshot-preview.js";
 
@@ -38,7 +39,7 @@ export async function togglePause(): Promise<void> {
   const gb = state.gb;
   const gba = state.gba;
   const nes = state.nes;
-  if (!gb && !gba && !nes) return;
+  if (!gb && !gba && !nes && !state.snes) return;
   if (state.paused) {
     if (gb) {
       // Credit MBC3 RTC for the pause gap — a real cart keeps ticking
@@ -60,6 +61,7 @@ export async function togglePause(): Promise<void> {
       state.rtcWallPauseMs = 0;
       await audio.resume();
       resumeNesSession();
+      resumeSnesSession();
     }
     if (statusEl) statusEl.textContent = "Running";
     startPlayTimer();
@@ -71,7 +73,10 @@ export async function togglePause(): Promise<void> {
     if (gb && state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
     if (gb) stopPacing();
     else if (gba) pauseGbaSession();
-    else pauseNesSession();
+    else {
+      pauseNesSession();
+      pauseSnesSession();
+    }
     await audio.suspend();
     if (statusEl) statusEl.textContent = "Paused";
     void flushPlayTime();
@@ -90,7 +95,7 @@ const SPEED_STEPS: readonly number[] = [0.5, 1, 2, 4];
  *  turbo press); pass -1 (Shift+turbo) to walk backwards so the user
  *  can back out of a 4× commitment without cycling through 0.5×. */
 export function cycleSpeed(direction: 1 | -1 = 1): void {
-  const engine = state.gb ?? state.gba ?? state.nes;
+  const engine = state.gb ?? state.gba ?? state.nes ?? state.snes;
   if (!engine) return;
   const len = SPEED_STEPS.length;
   const currentIdx = SPEED_STEPS.indexOf(engine.speedMultiplier);
@@ -99,7 +104,7 @@ export function cycleSpeed(direction: 1 | -1 = 1): void {
 }
 
 function applySpeed(speed: number): void {
-  const engine = state.gb ?? state.gba ?? state.nes;
+  const engine = state.gb ?? state.gba ?? state.nes ?? state.snes;
   if (!engine) return;
   engine.speedMultiplier = speed;
   if (speed === 1) void audio.resume();
@@ -132,13 +137,16 @@ export function frameAdvance(): void {
   const gb = state.gb;
   const gba = state.gba;
   const nes = state.nes;
-  if (!gb && !gba && !nes) return;
+  if (!gb && !gba && !nes && !state.snes) return;
   if (!state.paused) {
     // First tap auto-pauses so the user doesn't have to press Space
     // before starting to step.
     if (gb) stopPacing();
     else if (gba) pauseGbaSession();
-    else pauseNesSession();
+    else {
+      pauseNesSession();
+      pauseSnesSession();
+    }
     void audio.suspend();
     // GBA / NES have no RTC catch-up; only the GB branch stamps the marker.
     if (gb && state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
@@ -160,11 +168,14 @@ export function stepInstruction(): void {
   const gb = state.gb;
   const gba = state.gba;
   const nes = state.nes;
-  if (!gb && !gba && !nes) return;
+  if (!gb && !gba && !nes && !state.snes) return;
   if (!state.paused) {
     if (gb) stopPacing();
     else if (gba) pauseGbaSession();
-    else pauseNesSession();
+    else {
+      pauseNesSession();
+      pauseSnesSession();
+    }
     void audio.suspend();
     if (gb && state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
     if (statusEl) statusEl.textContent = "Paused";
@@ -181,9 +192,12 @@ export function stepInstruction(): void {
   } else if (gba) {
     gba.stepInstruction();
     renderer.render(gba.framebuffer);
-  } else {
-    nes!.stepInstruction();
-    renderer.render(nes!.framebuffer);
+  } else if (nes) {
+    nes.stepInstruction();
+    renderer.render(nes.framebuffer);
+  } else if (state.snes) {
+    state.snes.stepInstruction();
+    renderer.render(state.snes.framebuffer as Uint8ClampedArray<ArrayBuffer>);
   }
 }
 
@@ -200,6 +214,7 @@ export function drainBreakpointHit(): BreakpointHit | null {
   if (!hit) return null;
   if (!state.paused) {
     if (nes) pauseNesSession();
+    if (state.snes) pauseSnesSession();
     else stopPacing();
     void audio.suspend();
     if (state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
@@ -219,11 +234,14 @@ export function drainBreakpointHit(): BreakpointHit | null {
  *  coarser than `frameAdvance`'s forward step — but it's the only
  *  "go back" granularity the engine has. */
 export function stepFrameBack(): void {
-  if (!state.rewinder || (!state.gb && !state.gba && !state.nes)) return;
+  if (!state.rewinder || (!state.gb && !state.gba && !state.nes && !state.snes)) return;
   if (!state.paused) {
     if (state.gb) stopPacing();
     else if (state.gba) pauseGbaSession();
-    else pauseNesSession();
+    else {
+      pauseNesSession();
+      pauseSnesSession();
+    }
     void audio.suspend();
     if (state.gb && state.rtcWallPauseMs === 0) state.rtcWallPauseMs = Date.now();
     if (statusEl) statusEl.textContent = "Paused";
@@ -332,7 +350,7 @@ export function assistScreen(): void {
 const recorder = new Recorder();
 
 export function toggleRecording(): void {
-  if (!state.gb && !state.gba && !state.nes) return;
+  if (!state.gb && !state.gba && !state.nes && !state.snes) return;
   if (recorder.active) {
     recorder.stop();
     recBadge?.classList.remove("rec-badge--on");
