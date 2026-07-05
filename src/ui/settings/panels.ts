@@ -564,7 +564,8 @@ const RENDER_MODES: readonly RenderMode[] = [
 ];
 
 /** Default render mode for a fresh browser — "Original" (the Canvas 2D
- *  path: `putImageData` with no shader, no upscaler, no colour grade).
+ *  path: `putImageData` with no shader and no upscaler; the colour-grade
+ *  sliders still apply, CPU-side, since they default to identity).
  *  Pairs with the matching "Original" default in the audio-mode dropdown
  *  so a brand-new user gets unprocessed sound and pixels out of the box,
  *  matching what real silicon would output. Users who want a shader
@@ -602,12 +603,12 @@ function normaliseRenderMode(v: unknown): RenderMode {
   });
 }
 
-// ─── Colour grading (WebGL only) ─────────────────────────────────────────
-// Five uniform-backed sliders (brightness / contrast / gamma / saturation
-// / temperature) that compose on top of whichever WebGL shader is active.
-// No-op on Canvas 2D — the host's `setColorGrade` implementation there
-// is a stub. Persisted as a single JSON blob under `gb-grade` so the
-// whole tuning moves together on export / import.
+// ─── Colour grading ──────────────────────────────────────────────────────
+// Five sliders (brightness / contrast / gamma / saturation / temperature)
+// applied in both renderer backends — as shader uniforms on the WebGL path
+// and CPU-side per-pixel on the Canvas 2D ("Original") path, sharing the
+// same math so they match. Persisted as a single JSON blob under `gb-grade`
+// so the whole tuning moves together on export / import.
 import type { ColorGrade } from "../renderer";
 const DEFAULT_GRADE: ColorGrade = {
   brightness: 0,
