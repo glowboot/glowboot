@@ -5,6 +5,32 @@ documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Glowboot
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] — 2026-07-05
+
+Bug-fix follow-up to the two-console release: screenshot enhancement,
+display grading, per-game overrides, and cheat search now all work
+correctly for NES and Super Nintendo.
+
+### Fixed
+
+- **AI screenshot enhance now works for NES and SNES.** Frames larger
+  than the upscaler model's fixed input (256×240 NES, 256×224 SNES) are
+  split into overlapping tiles, upscaled, and feather-stitched, rather
+  than the Enhance action being disabled.
+- **Display colour-grade sliders apply in "Original" render mode.**
+  Brightness / contrast / gamma / saturation / temperature were
+  WebGL-only, so they did nothing in the default Canvas-2D mode for every
+  engine; they're now applied CPU-side too (raw pixels preserved at the
+  identity default).
+- **Per-game overrides take effect on SNES carts.** Render mode, audio
+  mode, integer scaling, and pixel-response pins were silently dropped
+  for SNES; they now persist and apply like the other engines.
+- **Online cheat search returns the full game list.** The libretro cheat
+  index was truncated at 1000 files — dropping late-alphabet games such
+  as Super Mario World — and the SNES cache collided with the Game Boy
+  cache; the index is now pulled complete via the Git Trees API and keyed
+  per engine.
+
 ## [1.6.0] — 2026-07-05
 
 The two-console release. Glowboot now plays Game Boy, Game Boy Color,
